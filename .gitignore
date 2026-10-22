@@ -1,0 +1,9 @@
+filter_mails_json/
+mail_vault/
+raw_binary_mails/
+target/
+*.exe
+analytics.md
+*.txt
+*.json
+loot.yaml
