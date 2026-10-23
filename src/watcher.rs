@@ -504,7 +504,11 @@ impl RoKMailWatcher {
                         return None;
                     }
                     let btype = classify_mail(&m)?;
-                    extract_motte_details(&m, &fname, catalog, Some(btype)).ok()
+                    if btype == "gathering" {
+                        crate::classifier::extract_gathering_details(&m, &fname).ok()
+                    } else {
+                        extract_motte_details(&m, &fname, catalog, Some(btype)).ok()
+                    }
                 })
                 .collect();
             scanned_records.extend(chunk_records);
@@ -549,7 +553,7 @@ impl RoKMailWatcher {
     fn start_observer(&self) {
         let mail_dir = self.get_mail_dir();
         let (tx_stop, rx_stop) = channel();
-        *self.stop_signal.lock().unwrap() = Some(tx_stop);
+        *self.stop_signal.lock().unwrap_or_else(|e| e.into_inner()) = Some(tx_stop);
 
         let self_clone = self.clone_handle();
         let dir_to_watch = mail_dir.clone();
@@ -696,9 +700,16 @@ impl RoKMailWatcher {
             None => return,
         };
 
-        let rec = match extract_motte_details(&m, &fname, &self.catalog, Some(btype)) {
-            Ok(r) => r,
-            Err(_) => return,
+        let rec = if btype == "gathering" {
+            match crate::classifier::extract_gathering_details(&m, &fname) {
+                Ok(r) => r,
+                Err(_) => return,
+            }
+        } else {
+            match extract_motte_details(&m, &fname, &self.catalog, Some(btype)) {
+                Ok(r) => r,
+                Err(_) => return,
+            }
         };
 
         // Lưu bản ghi vào Persistent Vault
@@ -716,21 +727,34 @@ impl RoKMailWatcher {
             .item_totals
             .iter()
             .take(3)
-            .map(|(k, v)| format!("{}: {}", k, v))
+            .map(|(k, v)| format!("{}: {}", k, crate::model::format_num(*v)))
             .collect();
 
         let preview_str = loot_preview.join(", ");
-        self.log(
-            "SUCCESS",
-            &format!(
-                "Phát hiện {}: {} ({}% ST, Tier {}) [Đã bảo vệ trong Vault] | Quà: {}",
-                if is_new { "mới" } else { "cập nhật" },
-                rec.target,
-                rec.damage_pct,
-                rec.plunder_tier,
-                preview_str
-            ),
-        );
+        if btype == "gathering" {
+            self.log(
+                "SUCCESS",
+                &format!(
+                    "Phát hiện thu thập {}: {} (Cấp {}) [Đã bảo vệ trong Vault] | Thu hoạch: {}",
+                    if is_new { "mới" } else { "cập nhật" },
+                    rec.target,
+                    rec.target_level,
+                    preview_str
+                ),
+            );
+        } else {
+            self.log(
+                "SUCCESS",
+                &format!(
+                    "Phát hiện {}: {} ({}% ST, Tier {}) [Đã bảo vệ trong Vault] | Quà: {}",
+                    if is_new { "mới" } else { "cập nhật" },
+                    rec.target,
+                    rec.damage_pct,
+                    rec.plunder_tier,
+                    preview_str
+                ),
+            );
+        }
 
         self.auto_export();
 
@@ -744,6 +768,9 @@ impl RoKMailWatcher {
     }
 
     pub fn auto_export(&self) {
+        static EXPORT_MUTEX: Mutex<()> = Mutex::new(());
+        let _guard = EXPORT_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+
         let recs = self.get_active_records();
         let stats = self.get_stats();
         let out_dir = self.get_out_dir();
@@ -776,5 +803,24 @@ impl RoKMailWatcher {
             ui_sender: self.ui_sender.clone(),
             stop_signal: Arc::clone(&self.stop_signal),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_watcher_process_gathering_mail() {
+        let path = "mail_vault/Persistent.Mail.1002220217856803764";
+        let mail = decode_mail_file(path).expect("Decode mail");
+        let btype = classify_mail(&mail);
+        assert_eq!(btype, Some("gathering"));
+
+        let rec = crate::classifier::extract_gathering_details(&mail, "Persistent.Mail.1002220217856803764")
+            .expect("Extract gathering");
+        assert_eq!(rec.battle_type, "gathering");
+        assert_eq!(rec.target_level, "6");
+        assert_eq!(rec.target, "Mỏ Đá Cấp 6");
     }
 }
