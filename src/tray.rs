@@ -3,9 +3,45 @@ use std::sync::Arc;
 use eframe::egui;
 use muda::{Menu, MenuItem, PredefinedMenuItem};
 use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
+use crate::model::AppLanguage;
 use crate::watcher::RoKMailWatcher;
 
 const EMBEDDED_ICON_BYTES: &[u8] = include_bytes!("../rok_icon.png");
+
+pub fn tray_show_text(lang: AppLanguage) -> &'static str {
+    match lang {
+        AppLanguage::Vietnamese => "Hiện giao diện chính",
+        AppLanguage::English => "Open Main Window",
+    }
+}
+
+pub fn tray_rescan_text(lang: AppLanguage) -> &'static str {
+    match lang {
+        AppLanguage::Vietnamese => "Quét lại dữ liệu",
+        AppLanguage::English => "Rescan Data",
+    }
+}
+
+pub fn tray_toggle_text(lang: AppLanguage) -> &'static str {
+    match lang {
+        AppLanguage::Vietnamese => "Dừng / Tiếp tục theo dõi",
+        AppLanguage::English => "Pause / Resume Watching",
+    }
+}
+
+pub fn tray_quit_text(lang: AppLanguage) -> &'static str {
+    match lang {
+        AppLanguage::Vietnamese => "Thoát ứng dụng hoàn toàn",
+        AppLanguage::English => "Exit Application",
+    }
+}
+
+pub fn tray_tooltip_text(lang: AppLanguage) -> &'static str {
+    match lang {
+        AppLanguage::Vietnamese => "Rise of Kingdoms - Loot Watcher (Nhấp để mở lại)",
+        AppLanguage::English => "Rise of Kingdoms - Loot Watcher (Click to restore)",
+    }
+}
 
 pub struct SystemTrayManager {
     _tray_icon: TrayIcon,
@@ -17,6 +53,13 @@ pub struct SystemTrayManager {
 
 impl SystemTrayManager {
     pub fn new(icon_path: Option<&Path>) -> Result<Self, Box<dyn std::error::Error>> {
+        Self::new_with_lang(icon_path, AppLanguage::default())
+    }
+
+    pub fn new_with_lang(
+        icon_path: Option<&Path>,
+        lang: AppLanguage,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
         let icon = if let Some(p) = icon_path {
             Self::load_icon(p)
                 .or_else(Self::load_embedded_icon)
@@ -26,12 +69,12 @@ impl SystemTrayManager {
         };
 
         let menu = Menu::new();
-        let show_item = MenuItem::new("Hiện giao diện chính", true, None);
+        let show_item = MenuItem::new(tray_show_text(lang), true, None);
         let sep1 = PredefinedMenuItem::separator();
-        let rescan_item = MenuItem::new("Quét lại dữ liệu", true, None);
-        let toggle_item = MenuItem::new("Dừng / Tiếp tục theo dõi", true, None);
+        let rescan_item = MenuItem::new(tray_rescan_text(lang), true, None);
+        let toggle_item = MenuItem::new(tray_toggle_text(lang), true, None);
         let sep2 = PredefinedMenuItem::separator();
-        let quit_item = MenuItem::new("Thoát ứng dụng hoàn toàn", true, None);
+        let quit_item = MenuItem::new(tray_quit_text(lang), true, None);
 
         menu.append(&show_item)?;
         menu.append(&sep1)?;
@@ -42,7 +85,7 @@ impl SystemTrayManager {
 
         let tray_icon = TrayIconBuilder::new()
             .with_menu(Box::new(menu))
-            .with_tooltip("Rise of Kingdoms - Loot Watcher (Nhấp để mở lại)")
+            .with_tooltip(tray_tooltip_text(lang))
             .with_icon(icon)
             .build()?;
 
@@ -53,6 +96,18 @@ impl SystemTrayManager {
             toggle_item,
             quit_item,
         })
+    }
+
+    pub fn update_language(&self, lang: AppLanguage) {
+        let _ = self.show_item.set_text(tray_show_text(lang));
+        let _ = self.rescan_item.set_text(tray_rescan_text(lang));
+        let _ = self.toggle_item.set_text(tray_toggle_text(lang));
+        let _ = self.quit_item.set_text(tray_quit_text(lang));
+        let tooltip = match lang {
+            AppLanguage::Vietnamese => "Rise of Kingdoms - Loot Watcher (Nhấp để mở lại)",
+            AppLanguage::English => "Rise of Kingdoms - Loot Watcher (Click to restore)",
+        };
+        let _ = self._tray_icon.set_tooltip(Some(tooltip));
     }
 
     pub fn hide_icon(&self) {
@@ -371,3 +426,39 @@ pub fn enable_eco_qos() {
 #[cfg(not(windows))]
 pub fn enable_eco_qos() {}
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::AppLanguage;
+
+    #[test]
+    fn test_tray_menu_text_constants() {
+        assert_eq!(tray_show_text(AppLanguage::Vietnamese), "Hiện giao diện chính");
+        assert_eq!(tray_show_text(AppLanguage::English), "Open Main Window");
+        assert_eq!(tray_rescan_text(AppLanguage::Vietnamese), "Quét lại dữ liệu");
+        assert_eq!(tray_rescan_text(AppLanguage::English), "Rescan Data");
+        assert_eq!(tray_toggle_text(AppLanguage::Vietnamese), "Dừng / Tiếp tục theo dõi");
+        assert_eq!(tray_toggle_text(AppLanguage::English), "Pause / Resume Watching");
+        assert_eq!(tray_quit_text(AppLanguage::Vietnamese), "Thoát ứng dụng hoàn toàn");
+        assert_eq!(tray_quit_text(AppLanguage::English), "Exit Application");
+        assert_eq!(tray_tooltip_text(AppLanguage::Vietnamese), "Rise of Kingdoms - Loot Watcher (Nhấp để mở lại)");
+        assert_eq!(tray_tooltip_text(AppLanguage::English), "Rise of Kingdoms - Loot Watcher (Click to restore)");
+    }
+
+    #[test]
+    fn test_tray_manager_update_language() {
+        if let Ok(tray) = SystemTrayManager::new(None) {
+            tray.update_language(AppLanguage::English);
+            assert_eq!(tray.show_item.text(), "Open Main Window");
+            assert_eq!(tray.rescan_item.text(), "Rescan Data");
+            assert_eq!(tray.toggle_item.text(), "Pause / Resume Watching");
+            assert_eq!(tray.quit_item.text(), "Exit Application");
+
+            tray.update_language(AppLanguage::Vietnamese);
+            assert_eq!(tray.show_item.text(), "Hiện giao diện chính");
+            assert_eq!(tray.rescan_item.text(), "Quét lại dữ liệu");
+            assert_eq!(tray.toggle_item.text(), "Dừng / Tiếp tục theo dõi");
+            assert_eq!(tray.quit_item.text(), "Thoát ứng dụng hoàn toàn");
+        }
+    }
+}
