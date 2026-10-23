@@ -1486,7 +1486,6 @@ impl RoKLootWatcherApp {
         };
 
         let dimensions = report_table_dimensions(avail_w, fixed_w, non_target_column_count);
-        let table_width = dimensions.table_width;
         let col_target = dimensions.target_width;
         let extra_per_column = dimensions.extra_per_column;
 
@@ -1498,7 +1497,7 @@ impl RoKLootWatcherApp {
             .rounding(Rounding::same(4.0))
             .inner_margin(Margin::symmetric(TABLE_PAD_X, 4.0))
             .show(ui, |ui| {
-                ui.set_width(table_width - (TABLE_PAD_X * 2.0));
+                ui.set_width(dimensions.table_width - (TABLE_PAD_X * 2.0));
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = ITEM_SPACING_X;
                     ui.set_min_height(26.0);
@@ -1703,10 +1702,10 @@ impl RoKLootWatcherApp {
         egui::ScrollArea::both()
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                ui.set_width(table_width);
+                ui.set_width(dimensions.table_width);
                 for r in sorted_records {
                     let (row_rect, row_resp) = ui.allocate_exact_size(
-                        egui::vec2(table_width, 28.0),
+                        egui::vec2(dimensions.table_width, 28.0),
                         egui::Sense::click(),
                     );
 
@@ -1752,7 +1751,7 @@ impl RoKLootWatcherApp {
                             )
                             .frame(false)
                             .truncate();
-                            if ui.add_sized([col_target, 24.0], target_btn).clicked() {
+                            if ui.add_sized([dimensions.target_width, 24.0], target_btn).clicked() {
                                 clicked_record = Some(r.clone());
                             }
 
