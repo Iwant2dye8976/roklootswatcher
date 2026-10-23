@@ -6,6 +6,7 @@ mod autostart;
 mod classifier;
 mod exporters;
 mod gui;
+mod i18n;
 mod lilith_stream;
 mod loot_catalog;
 mod model;
