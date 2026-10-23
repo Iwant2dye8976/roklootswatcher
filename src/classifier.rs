@@ -94,6 +94,11 @@ pub fn classify_mail(mail: &LilithValue) -> Option<&'static str> {
         return Some("barbarian");
     }
 
+    // 2. Detect Gathering Reports (type: "Rss")
+    if mail.get("type").and_then(|v| v.as_str()) == Some("Rss") {
+        return Some("gathering");
+    }
+
     let body = mail.get("body")?;
     let sub_t = body.get("subType").and_then(|v| v.as_u32()).unwrap_or(0);
     let sub_p = body.get("subParam").and_then(|v| v.as_u32()).unwrap_or(0);
@@ -121,27 +126,27 @@ pub fn classify_mail(mail: &LilithValue) -> Option<&'static str> {
         .unwrap_or(false);
 
     // Fast Path 1: Motte Destroyed (subType 11, subParam 4)
-    if sub_t == 11 && sub_p == 4 {
-        if has_attachments
+    if sub_t == 11
+        && sub_p == 4
+        && (has_attachments
             || content_raw.contains("destroyed")
             || content_raw.contains("tiêu diệt")
             || title.contains("destroyed")
-            || title.contains("tiêu diệt")
-        {
-            return Some("motte");
-        }
+            || title.contains("tiêu diệt"))
+    {
+        return Some("motte");
     }
 
     // Fast Path 2: Barbarian Fort Destroyed (subType 11, subParam 1)
-    if sub_t == 11 && sub_p == 1 {
-        if has_attachments
+    if sub_t == 11
+        && sub_p == 1
+        && (has_attachments
             || content_raw.contains("destroyed")
             || content_raw.contains("phá hủy")
             || title.contains("destroyed")
-            || title.contains("phá hủy")
-        {
-            return Some("fort");
-        }
+            || title.contains("phá hủy"))
+    {
+        return Some("fort");
     }
 
     // Fallback Path: only allocate and clean text if fast paths didn't match
@@ -158,26 +163,23 @@ pub fn classify_mail(mail: &LilithValue) -> Option<&'static str> {
     }
 
     // Motte Destroyed fallback
-    if all_txt.contains("motte") {
-        if has_attachments
+    if all_txt.contains("motte")
+        && (has_attachments
             || all_txt.contains("destroyed")
-            || all_txt.contains("tiêu diệt")
-        {
-            return Some("motte");
-        }
+            || all_txt.contains("tiêu diệt"))
+    {
+        return Some("motte");
     }
 
     // Barbarian Fort Destroyed fallback
-    if all_txt.contains("barbarian fort")
+    if (all_txt.contains("barbarian fort")
         || (all_txt.contains("pháo đài")
-            && (all_txt.contains("dã man") || all_txt.contains("barbarian") || all_txt.contains("barbaria")))
-    {
-        if has_attachments
+            && (all_txt.contains("dã man") || all_txt.contains("barbarian") || all_txt.contains("barbaria"))))
+        && (has_attachments
             || all_txt.contains("destroyed")
-            || all_txt.contains("phá hủy")
-        {
-            return Some("fort");
-        }
+            || all_txt.contains("phá hủy"))
+    {
+        return Some("fort");
     }
 
     // Any other report with attachments (e.g. Pass First Occupation, Holy Sites, Events)
@@ -338,7 +340,8 @@ pub fn extract_barbarian_battle_details(
         time_utc,
         time_vn,
         target,
-        motte_level,
+        target_level: motte_level,
+        talent_add: 0,
         pos_x: pos_x as i32,
         pos_y: pos_y as i32,
         damage_pct: 100,
@@ -346,6 +349,97 @@ pub fn extract_barbarian_battle_details(
         items,
         item_totals,
         content: content_desc,
+    })
+}
+
+pub fn extract_gathering_details(
+    mail: &LilithValue,
+    filename: &str,
+) -> Result<BattleRecord, String> {
+    let raw_time = mail
+        .get("time")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+    let (time_utc, time_vn) = format_timestamp(raw_time);
+
+    let mail_id = mail
+        .get("id")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| {
+            mail.get("id")
+                .and_then(|v| v.as_i64())
+                .map(|i| i.to_string())
+                .unwrap_or_default()
+        });
+
+    let body = mail.get("body").ok_or_else(|| "Missing mail body".to_string())?;
+    let content = body.get("content").and_then(|c| c.as_table()).ok_or_else(|| "Missing or invalid body content".to_string())?;
+
+    let res_type = content.get("ResType").and_then(|v| v.as_u32()).unwrap_or(0);
+    let level = content.get("Level").and_then(|v| v.as_u32()).unwrap_or(0);
+    let res_value = content.get("ResValue").and_then(|v| v.as_f64()).unwrap_or(0.0);
+    let talent_add = content.get("talentAdd").and_then(|v| v.as_f64()).unwrap_or(0.0);
+
+    let (res_name, category) = match res_type {
+        1 => ("Thực phẩm", "resource"),
+        2 => ("Gỗ", "resource"),
+        3 => ("Đá", "resource"),
+        4 => ("Vàng", "resource"),
+        5 => ("Đá quý", "gems"),
+        _ => ("Tài nguyên khác", "resource"),
+    };
+
+    let target = if res_type >= 1 && res_type <= 5 {
+        if level > 0 {
+            format!("Mỏ {} Cấp {}", res_name, level)
+        } else {
+            format!("Mỏ {}", res_name)
+        }
+    } else if level > 0 {
+        format!("Mỏ Thu Thập Cấp {}", level)
+    } else {
+        "Mỏ Thu Thập".to_string()
+    };
+
+    let base_val = res_value.round() as i64;
+    let talent_val = talent_add.round() as i64;
+    let total_val = base_val + talent_val;
+
+    let mut items = Vec::new();
+    let mut item_totals = HashMap::new();
+
+    if total_val > 0 {
+        items.push(ItemDrop {
+            itype: 1,
+            sub_type: res_type,
+            value: total_val,
+            pic: String::new(),
+            name_vi: res_name.to_string(),
+            name_en: res_name.to_string(),
+            category: category.to_string(),
+            sprites: Vec::new(),
+        });
+        item_totals.insert(res_name.to_string(), total_val);
+    }
+
+    Ok(BattleRecord {
+        filename: filename.to_string(),
+        mail_id,
+        battle_type: "gathering".to_string(),
+        time_raw: raw_time,
+        time_utc,
+        time_vn,
+        target,
+        target_level: if level > 0 { level.to_string() } else { String::new() },
+        talent_add: talent_val,
+        pos_x: 0,
+        pos_y: 0,
+        damage_pct: 0,
+        plunder_tier: 0,
+        items,
+        item_totals,
+        content: String::new(),
     })
 }
 
@@ -511,7 +605,8 @@ pub fn extract_motte_details(
         time_utc,
         time_vn,
         target: display_target,
-        motte_level: motte_level_str,
+        target_level: motte_level_str,
+        talent_add: 0,
         pos_x,
         pos_y,
         damage_pct,
@@ -619,7 +714,7 @@ mod tests {
 
         assert_eq!(rec.battle_type, "barbarian");
         assert_eq!(rec.target, "Dã Man Cấp 50");
-        assert_eq!(rec.motte_level, "50");
+        assert_eq!(rec.target_level, "50");
         assert_eq!(rec.pos_x, 781);
         assert_eq!(rec.pos_y, 525);
         assert_eq!(rec.damage_pct, 100);
@@ -658,7 +753,7 @@ mod tests {
             let catalog = LootCatalog::load_from_candidates(None);
             let rec = extract_motte_details(&mail, "Persistent.Mail.79355196177398328125", &catalog, btype).expect("Should extract chained details");
             assert_eq!(rec.target, "Dã Man Cấp 47-52 (x27)");
-            assert_eq!(rec.motte_level, "47-52");
+            assert_eq!(rec.target_level, "47-52");
             assert!(!rec.items.is_empty());
         }
     }
@@ -676,11 +771,59 @@ mod tests {
                 .expect("Should extract mixed fort barbarian battle");
             // Must NOT contain Fort Level 60! Barbarian is strictly level 52.
             assert_eq!(rec.target, "Dã Man Cấp 52");
-            assert_eq!(rec.motte_level, "52");
+            assert_eq!(rec.target_level, "52");
             assert_eq!(rec.pos_x, 772);
             assert_eq!(rec.pos_y, 531);
             assert_eq!(rec.item_totals.get("Pha Lê"), Some(&688));
             assert_eq!(rec.item_totals.get("Sách Kiến Thức Cấp 3"), Some(&10));
         }
+    }
+
+    #[test]
+    fn test_classify_and_extract_gathering_mail() {
+        let path = "mail_vault/Persistent.Mail.1002220217856803764";
+        let mail = crate::lilith_stream::decode_mail_file(path).expect("Must decode sample RSS mail");
+        assert_eq!(classify_mail(&mail), Some("gathering"));
+
+        let rec = extract_gathering_details(&mail, "Persistent.Mail.1002220217856803764")
+            .expect("Must extract gathering details");
+        assert_eq!(rec.battle_type, "gathering");
+        assert_eq!(rec.target, "Mỏ Đá Cấp 6");
+        assert_eq!(rec.target_level, "6");
+        assert_eq!(rec.pos_x, 0);
+        assert_eq!(rec.pos_y, 0);
+        assert_eq!(rec.talent_add, 4071);
+        assert_eq!(rec.items.len(), 1);
+        assert_eq!(rec.items[0].itype, 1);
+        assert_eq!(rec.items[0].sub_type, 3);
+        assert_eq!(rec.items[0].name_vi, "Đá");
+        assert_eq!(rec.items[0].value, 27533); // 23461.9 + 4071.0 rounded
+        assert_eq!(rec.item_totals.get("Đá"), Some(&27533));
+    }
+
+    #[test]
+    fn test_extract_gathering_unknown_res_type_fallback() {
+        use indexmap::IndexMap;
+        let mut content = IndexMap::new();
+        content.insert("ResType".to_string(), LilithValue::U8(99));
+        content.insert("Level".to_string(), LilithValue::U8(4));
+        content.insert("ResValue".to_string(), LilithValue::Number(50000.0));
+        content.insert("talentAdd".to_string(), LilithValue::Number(500.0));
+
+        let mut body = IndexMap::new();
+        body.insert("content".to_string(), LilithValue::Table(content));
+
+        let mut mail_map = IndexMap::new();
+        mail_map.insert("box".to_string(), LilithValue::String("Report".to_string()));
+        mail_map.insert("type".to_string(), LilithValue::String("Rss".to_string()));
+        mail_map.insert("time".to_string(), LilithValue::Number(1700000000.0));
+        mail_map.insert("id".to_string(), LilithValue::String("999".to_string()));
+        mail_map.insert("body".to_string(), LilithValue::Table(body));
+
+        let mail = LilithValue::Table(mail_map);
+        let rec = extract_gathering_details(&mail, "mock.mail").expect("Should extract with fallback");
+        assert_eq!(rec.target, "Mỏ Thu Thập Cấp 4");
+        assert_eq!(rec.items[0].name_vi, "Tài nguyên khác");
+        assert_eq!(rec.items[0].value, 50500);
     }
 }
