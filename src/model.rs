@@ -300,6 +300,22 @@ pub struct ItemDrop {
     pub sprites: Vec<String>,
 }
 
+impl ItemDrop {
+    pub fn display_name(&self, lang: AppLanguage) -> &str {
+        match lang {
+            AppLanguage::English => {
+                let trimmed = self.name_en.trim();
+                if !trimmed.is_empty() {
+                    trimmed
+                } else {
+                    &self.name_vi
+                }
+            }
+            AppLanguage::Vietnamese => &self.name_vi,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BattleRecord {
     pub filename: String,
@@ -325,6 +341,51 @@ pub struct BattleRecord {
 }
 
 impl BattleRecord {
+    pub fn display_target(&self, lang: AppLanguage) -> String {
+        match lang {
+            AppLanguage::Vietnamese => self.target.clone(),
+            AppLanguage::English => {
+                if self.target.starts_with("Pháo Đài Cấp ") {
+                    return self.target.replacen("Pháo Đài Cấp ", "Barbarian Fort Level ", 1);
+                } else if self.target == "Pháo Đài Dã Man" {
+                    return "Barbarian Fort".to_string();
+                } else if self.target.starts_with("Dã Man Cấp ") {
+                    return self.target.replacen("Dã Man Cấp ", "Barbarian Level ", 1);
+                } else if self.target == "Dã Man" {
+                    return "Barbarian".to_string();
+                } else if self.target.starts_with("Mỏ Thu Thập Cấp ") {
+                    return self.target.replacen("Mỏ Thu Thập Cấp ", "Resource Tile Level ", 1);
+                } else if self.target == "Phần thưởng" {
+                    return "Reward".to_string();
+                }
+
+                match self.battle_type.as_str() {
+                    "fort" => {
+                        if !self.target_level.is_empty() {
+                            format!("Barbarian Fort Level {}", self.target_level)
+                        } else {
+                            "Barbarian Fort".to_string()
+                        }
+                    }
+                    "barbarian" => {
+                        if !self.target_level.is_empty() {
+                            format!("Barbarian Level {}", self.target_level)
+                        } else {
+                            "Barbarian".to_string()
+                        }
+                    }
+                    "motte" => {
+                        if !self.target_level.is_empty() {
+                            format!("Motte {}", self.target_level)
+                        } else {
+                            "Motte".to_string()
+                        }
+                    }
+                    _ => self.target.clone(),
+                }
+            }
+        }
+    }
     pub fn crystal_quantity(&self) -> i64 {
         let total: i64 = self
             .items
@@ -1810,5 +1871,79 @@ mod tests {
         }"#;
         let cfg_en: AppConfig = serde_json::from_str(en_config).expect("Must deserialize config with en");
         assert_eq!(cfg_en.language, AppLanguage::English);
+    }
+
+    #[test]
+    fn test_item_drop_display_name_bilingual() {
+        let item_with_both = ItemDrop {
+            itype: 1,
+            sub_type: 9,
+            value: 100,
+            pic: "".into(),
+            name_vi: "Pha Lê".into(),
+            name_en: "Crystal".into(),
+            category: "Pha Lê".into(),
+            sprites: vec![],
+        };
+        assert_eq!(item_with_both.display_name(AppLanguage::Vietnamese), "Pha Lê");
+        assert_eq!(item_with_both.display_name(AppLanguage::English), "Crystal");
+
+        let item_vi_only = ItemDrop {
+            itype: 2,
+            sub_type: 9999,
+            value: 1,
+            pic: "".into(),
+            name_vi: "Vật phẩm lạ".into(),
+            name_en: "".into(),
+            category: "Khác".into(),
+            sprites: vec![],
+        };
+        assert_eq!(item_vi_only.display_name(AppLanguage::Vietnamese), "Vật phẩm lạ");
+        assert_eq!(item_vi_only.display_name(AppLanguage::English), "Vật phẩm lạ");
+    }
+
+    #[test]
+    fn test_battle_record_display_target_bilingual() {
+        let mut rec = BattleRecord {
+            filename: "test.mail".into(),
+            mail_id: "1".into(),
+            battle_type: "fort".into(),
+            time_raw: 0,
+            time_utc: "".into(),
+            time_vn: "".into(),
+            target: "Pháo Đài Cấp 10".into(),
+            target_level: "10".into(),
+            talent_add: 0,
+            pos_x: 0,
+            pos_y: 0,
+            damage_pct: 100,
+            plunder_tier: 0,
+            items: vec![],
+            item_totals: HashMap::new(),
+            content: "".into(),
+        };
+        assert_eq!(rec.display_target(AppLanguage::Vietnamese), "Pháo Đài Cấp 10");
+        assert_eq!(rec.display_target(AppLanguage::English), "Barbarian Fort Level 10");
+
+        // Chained Barbarians with count suffix
+        rec.battle_type = "barbarian".into();
+        rec.target = "Dã Man Cấp 47-52 (x27)".into();
+        rec.target_level = "47-52".into();
+        assert_eq!(rec.display_target(AppLanguage::Vietnamese), "Dã Man Cấp 47-52 (x27)");
+        assert_eq!(rec.display_target(AppLanguage::English), "Barbarian Level 47-52 (x27)");
+
+        // Motte target
+        rec.battle_type = "motte".into();
+        rec.target = "Motte 13".into();
+        rec.target_level = "13".into();
+        assert_eq!(rec.display_target(AppLanguage::Vietnamese), "Motte 13");
+        assert_eq!(rec.display_target(AppLanguage::English), "Motte 13");
+
+        // Fallback reward
+        rec.battle_type = "reward".into();
+        rec.target = "Phần thưởng".into();
+        rec.target_level = "".into();
+        assert_eq!(rec.display_target(AppLanguage::Vietnamese), "Phần thưởng");
+        assert_eq!(rec.display_target(AppLanguage::English), "Reward");
     }
 }
