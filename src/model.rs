@@ -15,7 +15,7 @@ pub fn format_num<T: std::fmt::Display>(n: T) -> String {
     let mut res = String::new();
     let len = int_part.chars().count();
     for (i, c) in int_part.chars().enumerate() {
-        if i > 0 && (len - i) % 3 == 0 {
+        if i > 0 && (len - i).is_multiple_of(3) {
             res.push(',');
         }
         res.push(c);
@@ -45,6 +45,8 @@ pub enum FilterMode {
     AllForts,
     #[serde(rename = "all-rewards")]
     AllRewards,
+    #[serde(rename = "gathering")]
+    Gathering,
 }
 
 impl FilterMode {
@@ -56,6 +58,7 @@ impl FilterMode {
             FilterMode::Barbarian => "barbarian",
             FilterMode::AllForts => "all-forts",
             FilterMode::AllRewards => "all-rewards",
+            FilterMode::Gathering => "gathering",
         }
     }
 
@@ -67,6 +70,7 @@ impl FilterMode {
             FilterMode::Barbarian => "Chỉ Dã Man (Normal Barbarians)",
             FilterMode::AllForts => "Cả Motte & Pháo Đài",
             FilterMode::AllRewards => "Tất cả thư có quà (All Loot)",
+            FilterMode::Gathering => "Chỉ Thu Thập (Gathering)",
         }
     }
 
@@ -77,6 +81,7 @@ impl FilterMode {
             "barbarian" => FilterMode::Barbarian,
             "all-forts" => FilterMode::AllForts,
             "all-rewards" => FilterMode::AllRewards,
+            "gathering" | "gather" | "rss" => FilterMode::Gathering,
             _ => FilterMode::AllTargets,
         }
     }
@@ -89,8 +94,13 @@ impl FilterMode {
             FilterMode::Barbarian => battle_type == "barbarian",
             FilterMode::AllForts => matches!(battle_type, "motte" | "fort"),
             FilterMode::AllRewards => true,
+            FilterMode::Gathering => battle_type == "gathering",
         }
     }
+}
+
+pub fn is_zero(v: &i64) -> bool {
+    *v == 0
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -299,7 +309,10 @@ pub struct BattleRecord {
     pub time_utc: String,
     pub time_vn: String,
     pub target: String,
-    pub motte_level: String,
+    #[serde(alias = "motte_level", alias = "node_level", default)]
+    pub target_level: String,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub talent_add: i64,
     pub pos_x: i32,
     pub pos_y: i32,
     pub damage_pct: i32,
@@ -373,16 +386,15 @@ impl BattleRecord {
             total
         } else {
             self.item_quantity(2, 34)
-                + self.item_quantity(2, 35) * 5
                 + self.item_quantity(2, 58) * 5
-                + self.item_quantity(2, 36) * 10
-                + self.item_quantity(2, 37) * 15
-                + self.item_quantity(2, 38) * 30
+                + self.item_quantity(2, 35) * 15
                 + self.item_quantity(2, 60) * 30
-                + self.item_quantity(2, 39) * 60
-                + self.item_quantity(2, 61) * 60
-                + self.item_quantity(2, 40) * 180
-                + self.item_quantity(2, 41) * 480
+                + self.item_quantity(2, 36) * 60
+                + self.item_quantity(2, 37) * 180
+                + self.item_quantity(2, 38) * 480
+                + self.item_quantity(2, 39) * 900
+                + self.item_quantity(2, 40) * 1440
+                + self.item_quantity(2, 41) * 4320
         }
     }
 
@@ -398,12 +410,11 @@ impl BattleRecord {
         } else {
             self.item_quantity(2, 91)
                 + self.item_quantity(2, 92) * 5
-                + self.item_quantity(2, 93) * 10
                 + self.item_quantity(2, 94) * 15
-                + self.item_quantity(2, 95) * 30
                 + self.item_quantity(2, 96) * 60
                 + self.item_quantity(2, 97) * 180
                 + self.item_quantity(2, 98) * 480
+                + self.item_quantity(2, 99) * 900
         }
     }
 
@@ -419,13 +430,11 @@ impl BattleRecord {
         } else {
             self.item_quantity(2, 71)
                 + self.item_quantity(2, 72) * 5
-                + self.item_quantity(2, 73) * 10
                 + self.item_quantity(2, 74) * 15
-                + self.item_quantity(2, 75) * 30
                 + self.item_quantity(2, 76) * 60
                 + self.item_quantity(2, 77) * 180
                 + self.item_quantity(2, 78) * 480
-                + self.item_quantity(2, 79) * 1440
+                + self.item_quantity(2, 79) * 900
         }
     }
 
@@ -671,38 +680,33 @@ pub fn get_item_conversion(itype: u32, isub: u32) -> ConvertedValue {
         match isub {
             // Thực phẩm (Food)
             141 => ConvertedValue::Resource { kind: ResourceKind::Food, multiplier: 1_000 },
-            1 => ConvertedValue::Resource { kind: ResourceKind::Food, multiplier: 10_000 },
-            5 => ConvertedValue::Resource { kind: ResourceKind::Food, multiplier: 50_000 },
-            9 => ConvertedValue::Resource { kind: ResourceKind::Food, multiplier: 150_000 },
-            13 => ConvertedValue::Resource { kind: ResourceKind::Food, multiplier: 500_000 },
-            17 => ConvertedValue::Resource { kind: ResourceKind::Food, multiplier: 1_500_000 },
-            21 => ConvertedValue::Resource { kind: ResourceKind::Food, multiplier: 5_000_000 },
+            2 => ConvertedValue::Resource { kind: ResourceKind::Food, multiplier: 50_000 },
+            3 => ConvertedValue::Resource { kind: ResourceKind::Food, multiplier: 150_000 },
+            4 => ConvertedValue::Resource { kind: ResourceKind::Food, multiplier: 500_000 },
+            5 => ConvertedValue::Resource { kind: ResourceKind::Food, multiplier: 1_500_000 },
+            6 => ConvertedValue::Resource { kind: ResourceKind::Food, multiplier: 5_000_000 },
 
             // Gỗ (Wood)
             142 => ConvertedValue::Resource { kind: ResourceKind::Wood, multiplier: 1_000 },
-            2 => ConvertedValue::Resource { kind: ResourceKind::Wood, multiplier: 10_000 },
-            6 => ConvertedValue::Resource { kind: ResourceKind::Wood, multiplier: 50_000 },
-            10 => ConvertedValue::Resource { kind: ResourceKind::Wood, multiplier: 150_000 },
-            14 => ConvertedValue::Resource { kind: ResourceKind::Wood, multiplier: 500_000 },
-            18 => ConvertedValue::Resource { kind: ResourceKind::Wood, multiplier: 1_500_000 },
-            22 => ConvertedValue::Resource { kind: ResourceKind::Wood, multiplier: 5_000_000 },
+            8 => ConvertedValue::Resource { kind: ResourceKind::Wood, multiplier: 50_000 },
+            9 => ConvertedValue::Resource { kind: ResourceKind::Wood, multiplier: 150_000 },
+            10 => ConvertedValue::Resource { kind: ResourceKind::Wood, multiplier: 500_000 },
+            11 => ConvertedValue::Resource { kind: ResourceKind::Wood, multiplier: 1_500_000 },
+            12 => ConvertedValue::Resource { kind: ResourceKind::Wood, multiplier: 5_000_000 },
 
             // Đá (Stone)
             143 => ConvertedValue::Resource { kind: ResourceKind::Stone, multiplier: 750 },
-            3 => ConvertedValue::Resource { kind: ResourceKind::Stone, multiplier: 7_500 },
-            7 => ConvertedValue::Resource { kind: ResourceKind::Stone, multiplier: 37_500 },
-            11 => ConvertedValue::Resource { kind: ResourceKind::Stone, multiplier: 112_500 },
-            15 => ConvertedValue::Resource { kind: ResourceKind::Stone, multiplier: 375_000 },
-            19 => ConvertedValue::Resource { kind: ResourceKind::Stone, multiplier: 1_125_000 },
-            23 => ConvertedValue::Resource { kind: ResourceKind::Stone, multiplier: 3_750_000 },
+            14 => ConvertedValue::Resource { kind: ResourceKind::Stone, multiplier: 37_500 },
+            15 => ConvertedValue::Resource { kind: ResourceKind::Stone, multiplier: 112_500 },
+            16 => ConvertedValue::Resource { kind: ResourceKind::Stone, multiplier: 375_000 },
+            17 => ConvertedValue::Resource { kind: ResourceKind::Stone, multiplier: 1_125_000 },
+            18 => ConvertedValue::Resource { kind: ResourceKind::Stone, multiplier: 3_750_000 },
 
             // Vàng (Gold)
             144 => ConvertedValue::Resource { kind: ResourceKind::Gold, multiplier: 500 },
-            4 => ConvertedValue::Resource { kind: ResourceKind::Gold, multiplier: 3_000 },
-            8 => ConvertedValue::Resource { kind: ResourceKind::Gold, multiplier: 15_000 },
-            12 => ConvertedValue::Resource { kind: ResourceKind::Gold, multiplier: 50_000 },
-            16 => ConvertedValue::Resource { kind: ResourceKind::Gold, multiplier: 150_000 },
-            20 => ConvertedValue::Resource { kind: ResourceKind::Gold, multiplier: 600_000 },
+            21 => ConvertedValue::Resource { kind: ResourceKind::Gold, multiplier: 50_000 },
+            22 => ConvertedValue::Resource { kind: ResourceKind::Gold, multiplier: 200_000 },
+            23 => ConvertedValue::Resource { kind: ResourceKind::Gold, multiplier: 600_000 },
             24 => ConvertedValue::Resource { kind: ResourceKind::Gold, multiplier: 2_000_000 },
 
             // Gói Tài Nguyên Tùy Chọn (Choice Packs)
@@ -713,46 +717,49 @@ pub fn get_item_conversion(itype: u32, isub: u32) -> ConvertedValue {
             128 => ConvertedValue::Exp(100),
             129 => ConvertedValue::Exp(500),
             130 => ConvertedValue::Exp(1_000),
-            131 => ConvertedValue::Exp(5_000),
-            132 => ConvertedValue::Exp(20_000),
-            133 => ConvertedValue::Exp(50_000),
+            147 => ConvertedValue::Exp(10_000),
+            148 => ConvertedValue::Exp(50_000),
+            149 => ConvertedValue::Exp(200_000),
+            150 => ConvertedValue::Exp(500_000),
 
             // Tăng tốc Huấn luyện
             71 => ConvertedValue::Speedup { category: "Huấn Luyện", minutes: 1 },
             72 => ConvertedValue::Speedup { category: "Huấn Luyện", minutes: 5 },
-            73 => ConvertedValue::Speedup { category: "Huấn Luyện", minutes: 10 },
             74 => ConvertedValue::Speedup { category: "Huấn Luyện", minutes: 15 },
-            75 => ConvertedValue::Speedup { category: "Huấn Luyện", minutes: 30 },
             76 => ConvertedValue::Speedup { category: "Huấn Luyện", minutes: 60 },
             77 => ConvertedValue::Speedup { category: "Huấn Luyện", minutes: 180 },
             78 => ConvertedValue::Speedup { category: "Huấn Luyện", minutes: 480 },
-            79 => ConvertedValue::Speedup { category: "Huấn Luyện", minutes: 1440 },
+            79 => ConvertedValue::Speedup { category: "Huấn Luyện", minutes: 900 },
 
             // Tăng tốc Chữa lành
             91 => ConvertedValue::Speedup { category: "Chữa Lành", minutes: 1 },
             92 => ConvertedValue::Speedup { category: "Chữa Lành", minutes: 5 },
-            93 => ConvertedValue::Speedup { category: "Chữa Lành", minutes: 10 },
             94 => ConvertedValue::Speedup { category: "Chữa Lành", minutes: 15 },
-            95 => ConvertedValue::Speedup { category: "Chữa Lành", minutes: 30 },
             96 => ConvertedValue::Speedup { category: "Chữa Lành", minutes: 60 },
             97 => ConvertedValue::Speedup { category: "Chữa Lành", minutes: 180 },
             98 => ConvertedValue::Speedup { category: "Chữa Lành", minutes: 480 },
+            99 => ConvertedValue::Speedup { category: "Chữa Lành", minutes: 900 },
 
             // Tăng tốc Đa năng
             34 => ConvertedValue::Speedup { category: "Đa Năng", minutes: 1 },
-            35 | 58 => ConvertedValue::Speedup { category: "Đa Năng", minutes: 5 },
-            36 => ConvertedValue::Speedup { category: "Đa Năng", minutes: 10 },
-            37 => ConvertedValue::Speedup { category: "Đa Năng", minutes: 15 },
-            38 => ConvertedValue::Speedup { category: "Đa Năng", minutes: 30 },
-            39 => ConvertedValue::Speedup { category: "Đa Năng", minutes: 60 },
-            40 => ConvertedValue::Speedup { category: "Đa Năng", minutes: 180 },
-            41 => ConvertedValue::Speedup { category: "Đa Năng", minutes: 480 },
-            42 => ConvertedValue::Speedup { category: "Đa Năng", minutes: 900 },
-            43 => ConvertedValue::Speedup { category: "Đa Năng", minutes: 1440 },
+            58 => ConvertedValue::Speedup { category: "Đa Năng", minutes: 5 },
+            35 => ConvertedValue::Speedup { category: "Đa Năng", minutes: 15 },
+            60 => ConvertedValue::Speedup { category: "Đa Năng", minutes: 30 },
+            36 => ConvertedValue::Speedup { category: "Đa Năng", minutes: 60 },
+            37 => ConvertedValue::Speedup { category: "Đa Năng", minutes: 180 },
+            38 => ConvertedValue::Speedup { category: "Đa Năng", minutes: 480 },
+            39 => ConvertedValue::Speedup { category: "Đa Năng", minutes: 900 },
+            40 => ConvertedValue::Speedup { category: "Đa Năng", minutes: 1440 },
+            41 => ConvertedValue::Speedup { category: "Đa Năng", minutes: 4320 },
 
             // Tăng tốc Xây dựng & Nghiên cứu
-            45..=53 => ConvertedValue::Speedup { category: "Xây Dựng", minutes: 5 },
-            59..=67 => ConvertedValue::Speedup { category: "Nghiên Cứu", minutes: 5 },
+            65 => ConvertedValue::Speedup { category: "Xây Dựng", minutes: 30 },
+            84 => ConvertedValue::Speedup { category: "Nghiên Cứu", minutes: 15 },
+            85 => ConvertedValue::Speedup { category: "Nghiên Cứu", minutes: 30 },
+            86 => ConvertedValue::Speedup { category: "Nghiên Cứu", minutes: 60 },
+            87 => ConvertedValue::Speedup { category: "Nghiên Cứu", minutes: 180 },
+            88 => ConvertedValue::Speedup { category: "Nghiên Cứu", minutes: 480 },
+            89 => ConvertedValue::Speedup { category: "Nghiên Cứu", minutes: 900 },
 
             // Đá quý
             26 => ConvertedValue::Gem(10),
@@ -760,8 +767,8 @@ pub fn get_item_conversion(itype: u32, isub: u32) -> ConvertedValue {
             28 => ConvertedValue::Gem(100),
             29 => ConvertedValue::Gem(200),
             30 => ConvertedValue::Gem(500),
-            31 => ConvertedValue::Gem(650),
-            32 => ConvertedValue::Gem(1000),
+            31 => ConvertedValue::Gem(1000),
+            32 => ConvertedValue::Gem(2000),
 
             // Vật phẩm pháo đài & tháp canh
             145 => ConvertedValue::ArrowOfResistance,
@@ -1123,18 +1130,13 @@ impl AppTheme {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum CloseBehavior {
     #[serde(rename = "tray")]
+    #[default]
     Tray,
     #[serde(rename = "close")]
     Close,
-}
-
-impl Default for CloseBehavior {
-    fn default() -> Self {
-        CloseBehavior::Tray
-    }
 }
 
 #[allow(dead_code)]
@@ -1255,7 +1257,8 @@ mod tests {
             time_utc: "".into(),
             time_vn: "".into(),
             target: "Motte 12".into(),
-            motte_level: "12".into(),
+            target_level: "12".into(),
+            talent_add: 0,
             pos_x: 0,
             pos_y: 0,
             damage_pct: 50,
@@ -1395,7 +1398,8 @@ mod tests {
             time_utc: "".into(),
             time_vn: "".into(),
             target: "Dã man Cấp 25".into(),
-            motte_level: "".into(),
+            target_level: "".into(),
+            talent_add: 0,
             pos_x: 100,
             pos_y: 200,
             damage_pct: 100,
@@ -1556,6 +1560,104 @@ mod tests {
     }
 
     #[test]
+    fn test_standard_resource_pack_conversions() {
+        // Food packs (2, 3, 4, 5, 6, 141)
+        assert_eq!(get_item_conversion(2, 141), ConvertedValue::Resource { kind: ResourceKind::Food, multiplier: 1_000 });
+        assert_eq!(get_item_conversion(2, 2), ConvertedValue::Resource { kind: ResourceKind::Food, multiplier: 50_000 });
+        assert_eq!(get_item_conversion(2, 3), ConvertedValue::Resource { kind: ResourceKind::Food, multiplier: 150_000 });
+        assert_eq!(get_item_conversion(2, 4), ConvertedValue::Resource { kind: ResourceKind::Food, multiplier: 500_000 });
+        assert_eq!(get_item_conversion(2, 5), ConvertedValue::Resource { kind: ResourceKind::Food, multiplier: 1_500_000 });
+        assert_eq!(get_item_conversion(2, 6), ConvertedValue::Resource { kind: ResourceKind::Food, multiplier: 5_000_000 });
+
+        // Wood packs (8, 9, 10, 11, 12, 142)
+        assert_eq!(get_item_conversion(2, 142), ConvertedValue::Resource { kind: ResourceKind::Wood, multiplier: 1_000 });
+        assert_eq!(get_item_conversion(2, 8), ConvertedValue::Resource { kind: ResourceKind::Wood, multiplier: 50_000 });
+        assert_eq!(get_item_conversion(2, 9), ConvertedValue::Resource { kind: ResourceKind::Wood, multiplier: 150_000 });
+        assert_eq!(get_item_conversion(2, 10), ConvertedValue::Resource { kind: ResourceKind::Wood, multiplier: 500_000 });
+        assert_eq!(get_item_conversion(2, 11), ConvertedValue::Resource { kind: ResourceKind::Wood, multiplier: 1_500_000 });
+        assert_eq!(get_item_conversion(2, 12), ConvertedValue::Resource { kind: ResourceKind::Wood, multiplier: 5_000_000 });
+
+        // Stone packs (14, 15, 16, 17, 18, 143)
+        assert_eq!(get_item_conversion(2, 143), ConvertedValue::Resource { kind: ResourceKind::Stone, multiplier: 750 });
+        assert_eq!(get_item_conversion(2, 14), ConvertedValue::Resource { kind: ResourceKind::Stone, multiplier: 37_500 });
+        assert_eq!(get_item_conversion(2, 15), ConvertedValue::Resource { kind: ResourceKind::Stone, multiplier: 112_500 });
+        assert_eq!(get_item_conversion(2, 16), ConvertedValue::Resource { kind: ResourceKind::Stone, multiplier: 375_000 });
+        assert_eq!(get_item_conversion(2, 17), ConvertedValue::Resource { kind: ResourceKind::Stone, multiplier: 1_125_000 });
+        assert_eq!(get_item_conversion(2, 18), ConvertedValue::Resource { kind: ResourceKind::Stone, multiplier: 3_750_000 });
+
+        // Gold packs (21, 22, 23, 24, 144)
+        assert_eq!(get_item_conversion(2, 144), ConvertedValue::Resource { kind: ResourceKind::Gold, multiplier: 500 });
+        assert_eq!(get_item_conversion(2, 21), ConvertedValue::Resource { kind: ResourceKind::Gold, multiplier: 50_000 });
+        assert_eq!(get_item_conversion(2, 22), ConvertedValue::Resource { kind: ResourceKind::Gold, multiplier: 200_000 });
+        assert_eq!(get_item_conversion(2, 23), ConvertedValue::Resource { kind: ResourceKind::Gold, multiplier: 600_000 });
+        assert_eq!(get_item_conversion(2, 24), ConvertedValue::Resource { kind: ResourceKind::Gold, multiplier: 2_000_000 });
+    }
+
+    #[test]
+    fn test_all_speedups_and_gems_conversions() {
+        // Universal Speedups
+        assert_eq!(get_item_conversion(2, 34), ConvertedValue::Speedup { category: "Đa Năng", minutes: 1 });
+        assert_eq!(get_item_conversion(2, 58), ConvertedValue::Speedup { category: "Đa Năng", minutes: 5 });
+        assert_eq!(get_item_conversion(2, 35), ConvertedValue::Speedup { category: "Đa Năng", minutes: 15 });
+        assert_eq!(get_item_conversion(2, 60), ConvertedValue::Speedup { category: "Đa Năng", minutes: 30 });
+        assert_eq!(get_item_conversion(2, 36), ConvertedValue::Speedup { category: "Đa Năng", minutes: 60 });
+        assert_eq!(get_item_conversion(2, 37), ConvertedValue::Speedup { category: "Đa Năng", minutes: 180 });
+        assert_eq!(get_item_conversion(2, 38), ConvertedValue::Speedup { category: "Đa Năng", minutes: 480 });
+        assert_eq!(get_item_conversion(2, 39), ConvertedValue::Speedup { category: "Đa Năng", minutes: 900 });
+        assert_eq!(get_item_conversion(2, 40), ConvertedValue::Speedup { category: "Đa Năng", minutes: 1440 });
+        assert_eq!(get_item_conversion(2, 41), ConvertedValue::Speedup { category: "Đa Năng", minutes: 4320 });
+
+        // Building Speedup (65) & Not teleports/keys (45, 47, 48)
+        assert_eq!(get_item_conversion(2, 65), ConvertedValue::Speedup { category: "Xây Dựng", minutes: 30 });
+        assert_eq!(get_item_conversion(2, 45), ConvertedValue::Other);
+        assert_eq!(get_item_conversion(2, 47), ConvertedValue::Other);
+        assert_eq!(get_item_conversion(2, 48), ConvertedValue::Other);
+
+        // Research Speedups (84..=89)
+        assert_eq!(get_item_conversion(2, 84), ConvertedValue::Speedup { category: "Nghiên Cứu", minutes: 15 });
+        assert_eq!(get_item_conversion(2, 85), ConvertedValue::Speedup { category: "Nghiên Cứu", minutes: 30 });
+        assert_eq!(get_item_conversion(2, 86), ConvertedValue::Speedup { category: "Nghiên Cứu", minutes: 60 });
+        assert_eq!(get_item_conversion(2, 87), ConvertedValue::Speedup { category: "Nghiên Cứu", minutes: 180 });
+        assert_eq!(get_item_conversion(2, 88), ConvertedValue::Speedup { category: "Nghiên Cứu", minutes: 480 });
+        assert_eq!(get_item_conversion(2, 89), ConvertedValue::Speedup { category: "Nghiên Cứu", minutes: 900 });
+
+        // Training Speedups
+        assert_eq!(get_item_conversion(2, 71), ConvertedValue::Speedup { category: "Huấn Luyện", minutes: 1 });
+        assert_eq!(get_item_conversion(2, 72), ConvertedValue::Speedup { category: "Huấn Luyện", minutes: 5 });
+        assert_eq!(get_item_conversion(2, 74), ConvertedValue::Speedup { category: "Huấn Luyện", minutes: 15 });
+        assert_eq!(get_item_conversion(2, 76), ConvertedValue::Speedup { category: "Huấn Luyện", minutes: 60 });
+        assert_eq!(get_item_conversion(2, 77), ConvertedValue::Speedup { category: "Huấn Luyện", minutes: 180 });
+        assert_eq!(get_item_conversion(2, 78), ConvertedValue::Speedup { category: "Huấn Luyện", minutes: 480 });
+        assert_eq!(get_item_conversion(2, 79), ConvertedValue::Speedup { category: "Huấn Luyện", minutes: 900 }); // 15 hours
+
+        // Healing Speedups
+        assert_eq!(get_item_conversion(2, 92), ConvertedValue::Speedup { category: "Chữa Lành", minutes: 5 });
+        assert_eq!(get_item_conversion(2, 94), ConvertedValue::Speedup { category: "Chữa Lành", minutes: 15 });
+        assert_eq!(get_item_conversion(2, 96), ConvertedValue::Speedup { category: "Chữa Lành", minutes: 60 });
+        assert_eq!(get_item_conversion(2, 97), ConvertedValue::Speedup { category: "Chữa Lành", minutes: 180 });
+        assert_eq!(get_item_conversion(2, 98), ConvertedValue::Speedup { category: "Chữa Lành", minutes: 480 });
+        assert_eq!(get_item_conversion(2, 99), ConvertedValue::Speedup { category: "Chữa Lành", minutes: 900 }); // 15 hours
+
+        // Gems
+        assert_eq!(get_item_conversion(2, 32), ConvertedValue::Gem(2_000));
+    }
+
+    #[test]
+    fn test_tomes_of_knowledge_and_talent_reset() {
+        // 131 is Talent Reset, not EXP
+        assert_eq!(get_item_conversion(2, 131), ConvertedValue::Other);
+
+        // Tomes of Knowledge: 128 (100), 129 (500), 130 (1000), 147 (10k), 148 (50k), 149 (200k), 150 (500k)
+        assert_eq!(get_item_conversion(2, 128), ConvertedValue::Exp(100));
+        assert_eq!(get_item_conversion(2, 129), ConvertedValue::Exp(500));
+        assert_eq!(get_item_conversion(2, 130), ConvertedValue::Exp(1_000));
+        assert_eq!(get_item_conversion(2, 147), ConvertedValue::Exp(10_000));
+        assert_eq!(get_item_conversion(2, 148), ConvertedValue::Exp(50_000));
+        assert_eq!(get_item_conversion(2, 149), ConvertedValue::Exp(200_000));
+        assert_eq!(get_item_conversion(2, 150), ConvertedValue::Exp(500_000));
+    }
+
+    #[test]
     fn test_barbarian_speedup_calculation() {
         // Yêu cầu: Báo cáo man rợ thống kê đầy đủ tăng tốc (Đa năng, Huấn luyện, Chữa lành)
         let rec = BattleRecord {
@@ -1566,7 +1668,8 @@ mod tests {
             time_utc: "".into(),
             time_vn: "".into(),
             target: "Dã Man Cấp 45".into(),
-            motte_level: "45".into(),
+            target_level: "45".into(),
+            talent_add: 0,
             pos_x: 0,
             pos_y: 0,
             damage_pct: 100,
@@ -1611,5 +1714,39 @@ mod tests {
         assert_eq!(rec.training_speedup_minutes(), 20);
         assert_eq!(rec.heal_speedup_minutes(), 20); // 4 * 5 = 20 phút
         assert_eq!(rec.total_speedup_minutes(), 55);
+    }
+
+    #[test]
+    fn test_battle_record_target_level_serde_backward_compat() {
+        let legacy_json = r#"{
+            "filename": "test.mail",
+            "mail_id": "12345",
+            "battle_type": "motte",
+            "time_raw": 1000,
+            "time_utc": "2026-10-23 00:00:00 UTC",
+            "time_vn": "2026-10-23 07:00:00",
+            "target": "Motte 25",
+            "motte_level": "25",
+            "pos_x": 100,
+            "pos_y": 200,
+            "damage_pct": 100,
+            "plunder_tier": 1,
+            "items": []
+        }"#;
+        let rec: BattleRecord = serde_json::from_str(legacy_json).expect("Must deserialize legacy motte_level");
+        assert_eq!(rec.target_level, "25");
+        assert_eq!(rec.talent_add, 0);
+    }
+
+    #[test]
+    fn test_filter_mode_gathering() {
+        assert_eq!(FilterMode::from_str_loose("gathering"), FilterMode::Gathering);
+        assert_eq!(FilterMode::from_str_loose("gather"), FilterMode::Gathering);
+        assert_eq!(FilterMode::from_str_loose("rss"), FilterMode::Gathering);
+        assert_eq!(FilterMode::Gathering.as_str(), "gathering");
+        assert!(FilterMode::Gathering.matches("gathering"));
+        assert!(!FilterMode::Gathering.matches("motte"));
+        assert!(!FilterMode::AllTargets.matches("gathering"));
+        assert!(FilterMode::AllRewards.matches("gathering"));
     }
 }
