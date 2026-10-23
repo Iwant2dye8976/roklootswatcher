@@ -404,23 +404,22 @@ pub fn extract_gathering_details(
 
     let base_val = res_value.round() as i64;
     let talent_val = talent_add.round() as i64;
-    let total_val = base_val + talent_val;
 
     let mut items = Vec::new();
     let mut item_totals = HashMap::new();
 
-    if total_val > 0 {
+    if base_val > 0 {
         items.push(ItemDrop {
             itype: 1,
             sub_type: res_type,
-            value: total_val,
+            value: base_val,
             pic: String::new(),
             name_vi: res_name.to_string(),
             name_en: res_name.to_string(),
             category: category.to_string(),
             sprites: Vec::new(),
         });
-        item_totals.insert(res_name.to_string(), total_val);
+        item_totals.insert(res_name.to_string(), base_val);
     }
 
     Ok(BattleRecord {
@@ -812,8 +811,8 @@ mod tests {
         assert_eq!(rec.items[0].itype, 1);
         assert_eq!(rec.items[0].sub_type, 3);
         assert_eq!(rec.items[0].name_vi, "Đá");
-        assert_eq!(rec.items[0].value, 27533); // 23461.9 + 4071.0 rounded
-        assert_eq!(rec.item_totals.get("Đá"), Some(&27533));
+        assert_eq!(rec.items[0].value, 23462);
+        assert_eq!(rec.item_totals.get("Đá"), Some(&23462));
     }
 
     #[test]
@@ -838,7 +837,8 @@ mod tests {
         let mail = LilithValue::Table(mail_map);
         let rec = extract_gathering_details(&mail, "mock.mail").expect("Should extract with fallback");
         assert_eq!(rec.target, "Mỏ Thu Thập Cấp 4");
+        assert_eq!(rec.talent_add, 500);
         assert_eq!(rec.items[0].name_vi, "Tài nguyên khác");
-        assert_eq!(rec.items[0].value, 50500);
+        assert_eq!(rec.items[0].value, 50000);
     }
 }
