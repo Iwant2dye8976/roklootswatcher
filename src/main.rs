@@ -203,7 +203,7 @@ fn run_cli_mode(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                 let fname = p.file_name()?.to_string_lossy();
                 let m = decode_mail_file(p).ok()?;
                 let box_name = m.get("box").and_then(|v| v.as_str()).unwrap_or("");
-                if box_name != "Report" {
+                if box_name != "Report" && box_name != "Archive" {
                     return None;
                 }
                 let btype = classify_mail(&m)?;
@@ -417,7 +417,7 @@ fn run_cli_mode(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     println!("{}", "-".repeat(88));
 
     let mut sorted_items: Vec<_> = stats.item_stats.values().collect();
-    sorted_items.sort_by(|a, b| b.total_quantity.cmp(&a.total_quantity));
+    sorted_items.sort_by_key(|a| std::cmp::Reverse(a.total_quantity));
 
     for it in sorted_items {
         let conv_str = get_item_converted_display(it.itype, it.sub_type, it.total_quantity).unwrap_or_else(|| "-".to_string());

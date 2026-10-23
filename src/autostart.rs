@@ -53,15 +53,14 @@ pub mod windows {
         Ok(clean.to_string())
     }
 
-    /// Kiểm tra trạng thái Autostart trong Windows Registry
-    /// Trả về `(is_autostart_enabled, is_start_minimized)`
-    pub fn get_autostart_status() -> (bool, bool) {
+    /// Lấy giá trị chuỗi lệnh thô của Autostart trong Windows Registry nếu có
+    pub fn get_raw_autostart_command() -> Option<String> {
         unsafe {
             let subkey = to_wide_null(r"Software\Microsoft\Windows\CurrentVersion\Run");
             let mut hkey: isize = 0;
             let status = RegOpenKeyExW(HKEY_CURRENT_USER, subkey.as_ptr(), 0, KEY_QUERY_VALUE, &mut hkey);
             if status != 0 || hkey == 0 {
-                return (false, false);
+                return None;
             }
 
             let val_name = to_wide_null("RoKLootWatcher");
@@ -95,18 +94,17 @@ pub mod windows {
                         buf.len() / 2,
                     );
                     let val_str = String::from_utf16_lossy(u16_slice);
-                    let is_minimized = val_str.contains("--minimized") || val_str.contains("--tray");
-                    return (true, is_minimized);
+                    return Some(val_str.trim_matches('\0').to_string());
                 }
             } else {
                 RegCloseKey(hkey);
             }
         }
-        (false, false)
+        None
     }
 
-    /// Cập nhật trạng thái Autostart trong Windows Registry
-    pub fn set_autostart(enabled: bool, start_minimized: bool) -> Result<(), String> {
+    /// Ghi hoặc xóa chuỗi lệnh thô của Autostart trong Windows Registry
+    pub fn set_raw_autostart_command(cmd: Option<&str>) -> Result<(), String> {
         unsafe {
             let subkey = to_wide_null(r"Software\Microsoft\Windows\CurrentVersion\Run");
             let mut hkey: isize = 0;
@@ -117,15 +115,8 @@ pub mod windows {
 
             let val_name = to_wide_null("RoKLootWatcher");
 
-            if enabled {
-                let clean_exe = get_clean_exe_path()?;
-                let val_str = if start_minimized {
-                    format!("\"{}\" --minimized", clean_exe)
-                } else {
-                    format!("\"{}\"", clean_exe)
-                };
-
-                let val_wide = to_wide_null(&val_str);
+            if let Some(cmd_str) = cmd {
+                let val_wide = to_wide_null(cmd_str);
                 let val_bytes = std::slice::from_raw_parts(
                     val_wide.as_ptr() as *const u8,
                     val_wide.len() * 2,
@@ -150,6 +141,32 @@ pub mod windows {
             }
         }
         Ok(())
+    }
+
+    /// Kiểm tra trạng thái Autostart trong Windows Registry
+    /// Trả về `(is_autostart_enabled, is_start_minimized)`
+    pub fn get_autostart_status() -> (bool, bool) {
+        if let Some(val_str) = get_raw_autostart_command() {
+            let is_minimized = val_str.contains("--minimized") || val_str.contains("--tray");
+            (true, is_minimized)
+        } else {
+            (false, false)
+        }
+    }
+
+    /// Cập nhật trạng thái Autostart trong Windows Registry
+    pub fn set_autostart(enabled: bool, start_minimized: bool) -> Result<(), String> {
+        if enabled {
+            let clean_exe = get_clean_exe_path()?;
+            let val_str = if start_minimized {
+                format!("\"{}\" --minimized", clean_exe)
+            } else {
+                format!("\"{}\"", clean_exe)
+            };
+            set_raw_autostart_command(Some(&val_str))
+        } else {
+            set_raw_autostart_command(None)
+        }
     }
 }
 
@@ -185,8 +202,9 @@ mod tests {
 
     #[test]
     fn test_autostart_toggle() {
-        // Kiểm tra đọc trạng thái hiện tại
-        let (initial_enabled, initial_minimized) = get_autostart_status();
+        // Lưu giá trị thô ban đầu để khôi phục chính xác 100% sau test
+        let raw_original = get_raw_autostart_command();
+        let (initial_enabled, _initial_minimized) = get_autostart_status();
 
         // Thử bật với tùy chọn thu nhỏ
         let set_res = set_autostart(true, true);
@@ -204,7 +222,7 @@ mod tests {
         assert!(!minimized2, "Tùy chọn minimized phải là false");
 
         // Khôi phục lại trạng thái ban đầu của hệ thống
-        let _ = set_autostart(initial_enabled, initial_minimized);
+        let _ = set_raw_autostart_command(raw_original.as_deref());
         let (restored_enabled, _) = get_autostart_status();
         assert_eq!(restored_enabled, initial_enabled, "Phải khôi phục đúng trạng thái ban đầu");
     }

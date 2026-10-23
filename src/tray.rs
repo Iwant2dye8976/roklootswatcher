@@ -182,6 +182,7 @@ use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 
 static MAIN_HWND: AtomicIsize = AtomicIsize::new(0);
 static SHOULD_QUIT: AtomicBool = AtomicBool::new(false);
+static RESTORE_REQUESTED: AtomicBool = AtomicBool::new(false);
 
 pub fn request_quit() {
     SHOULD_QUIT.store(true, Ordering::SeqCst);
@@ -189,6 +190,14 @@ pub fn request_quit() {
 
 pub fn is_quit_requested() -> bool {
     SHOULD_QUIT.load(Ordering::SeqCst)
+}
+
+pub fn request_restore() {
+    RESTORE_REQUESTED.store(true, Ordering::SeqCst);
+}
+
+pub fn check_and_clear_restore_request() -> bool {
+    RESTORE_REQUESTED.swap(false, Ordering::SeqCst)
 }
 
 #[allow(dead_code)]
@@ -272,6 +281,7 @@ pub fn get_or_find_main_hwnd() -> Option<windows_sys::Win32::Foundation::HWND> {
 }
 
 pub fn restore_main_window() {
+    request_restore();
     if let Some(hwnd) = get_or_find_main_hwnd() {
         unsafe {
             use windows_sys::Win32::UI::WindowsAndMessaging::*;

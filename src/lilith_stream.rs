@@ -17,6 +17,7 @@ pub enum LilithValue {
 
 pub const MAX_MAIL_FILE_SIZE: u64 = 50 * 1024 * 1024;
 pub const MAIL_DECODE_BATCH_SIZE: usize = 4;
+pub const MAX_RECURSION_DEPTH: usize = 128;
 
 #[allow(dead_code)]
 impl LilithValue {
@@ -103,6 +104,14 @@ impl LilithValue {
 }
 
 pub fn parse_stream(data: &[u8], pos: &mut usize) -> Result<LilithValue, String> {
+    parse_stream_internal(data, pos, 0)
+}
+
+fn parse_stream_internal(data: &[u8], pos: &mut usize, depth: usize) -> Result<LilithValue, String> {
+    if depth > MAX_RECURSION_DEPTH {
+        return Err(format!("Exceeded maximum recursion depth of {}", MAX_RECURSION_DEPTH));
+    }
+
     if *pos >= data.len() {
         return Ok(LilithValue::Null);
     }
@@ -170,8 +179,8 @@ pub fn parse_stream(data: &[u8], pos: &mut usize) -> Result<LilithValue, String>
                     break;
                 }
                 let old_pos = *pos;
-                let key_val = parse_stream(data, pos)?;
-                let val_val = parse_stream(data, pos)?;
+                let key_val = parse_stream_internal(data, pos, depth + 1)?;
+                let val_val = parse_stream_internal(data, pos, depth + 1)?;
                 if *pos == old_pos {
                     return Err(format!("Parser stuck without progress at offset {}", *pos));
                 }
@@ -267,5 +276,17 @@ mod tests {
         std::fs::remove_file(path).unwrap();
 
         assert!(result.unwrap_err().contains("exceeds max size limit"));
+    }
+
+    #[test]
+    fn test_recursion_depth_limit() {
+        // Deeply nested table tags (0x05) exceeding MAX_RECURSION_DEPTH
+        let mut malformed = vec![0; 10];
+        malformed[0] = 0xFF;
+        malformed[9] = 0x05;
+        malformed.extend(std::iter::repeat_n(0x05, 150));
+        let result = decode_mail_bytes(&malformed);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Exceeded maximum recursion depth"));
     }
 }

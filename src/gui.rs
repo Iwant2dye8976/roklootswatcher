@@ -164,10 +164,12 @@ pub struct RoKLootWatcherApp {
     pub close_behavior: CloseBehavior,
     pub autostart: bool,
     pub autostart_minimized: bool,
+    pending_start_minimized_frames: u32,
     is_armored: bool,
     _single_instance: Option<crate::single_instance::windows::SingleInstanceGuard>,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_sort_header_cell(
     ui: &mut egui::Ui,
     label: &str,
@@ -232,6 +234,7 @@ fn render_sort_header_cell(
     clicked
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_item_sort_header_cell(
     ui: &mut egui::Ui,
     label: &str,
@@ -416,7 +419,11 @@ impl RoKLootWatcherApp {
 
         let (reg_autostart, reg_minimized) = crate::autostart::get_autostart_status();
         let initial_autostart = if reg_autostart { true } else { config.autostart };
-        let initial_autostart_minimized = if reg_autostart { reg_minimized } else { config.autostart_minimized };
+        let initial_autostart_minimized = if reg_autostart {
+            reg_minimized || config.autostart_minimized
+        } else {
+            config.autostart_minimized
+        };
 
         if initial_autostart {
             let _ = crate::autostart::set_autostart(initial_autostart, initial_autostart_minimized);
@@ -468,6 +475,7 @@ impl RoKLootWatcherApp {
             close_behavior: initial_close_behavior,
             autostart: initial_autostart,
             autostart_minimized: initial_autostart_minimized,
+            pending_start_minimized_frames: if start_minimized { 5 } else { 0 },
             is_armored,
             _single_instance: single_instance,
         }
@@ -616,7 +624,7 @@ impl RoKLootWatcherApp {
             .save_file()
         {
             let records = self.watcher.get_active_records();
-            let mut w = String::from("Time,BattleType,Target,DamagePct,PlunderTier,Crystals,TotalRSS,Exp,Arrows,UnivSpeedupMin,TrainSpeedupMin,HealSpeedupMin\n");
+            let mut w = String::from("\u{FEFF}Time,BattleType,Target,DamagePct,PlunderTier,Crystals,TotalRSS,Exp,Arrows,UnivSpeedupMin,TrainSpeedupMin,HealSpeedupMin\n");
             for r in records.iter() {
                 let cry = r.item_quantity(1, 9);
                 let rss = r.total_resource_value();
@@ -728,7 +736,7 @@ impl RoKLootWatcherApp {
                 egui::Align2::LEFT_CENTER,
                 title,
                 egui::FontId::proportional(13.0),
-                if is_active { c.canvas_tint } else if is_hovered { c.canvas_tint } else { c.text_muted },
+                if is_active || is_hovered { c.canvas_tint } else { c.text_muted },
             );
 
             let desc_pos = egui::pos2(rect.min.x + 14.0, rect.min.y + 29.0);
@@ -1091,7 +1099,7 @@ impl RoKLootWatcherApp {
                         ui.add_space(6.0);
 
                         let mut sorted_items: Vec<_> = stats.item_stats.values().collect();
-                        sorted_items.sort_by(|a, b| b.total_quantity.cmp(&a.total_quantity));
+                        sorted_items.sort_by_key(|a| std::cmp::Reverse(a.total_quantity));
                         let top_items: Vec<_> = sorted_items.into_iter().take(10).collect();
                         let max_qty = top_items.first().map(|it| it.total_quantity).unwrap_or(1).max(1);
 
@@ -1150,7 +1158,7 @@ impl RoKLootWatcherApp {
                         ui.separator();
                         ui.add_space(6.0);
 
-                        let latest_battles: Vec<_> = active_records.iter().take(5).collect();
+                        let latest_battles = crate::analyzer::get_latest_records(&active_records, 5);
 
                         if latest_battles.is_empty() {
                             ui.label(egui::RichText::new("Chưa có chiến báo nào được ghi nhận.").color(c.text_muted));
@@ -1850,7 +1858,7 @@ impl RoKLootWatcherApp {
         }
 
         let mut sorted_items: Vec<_> = stats.item_stats.values().collect();
-        sorted_items.sort_by(|a, b| b.total_quantity.cmp(&a.total_quantity));
+        sorted_items.sort_by_key(|a| std::cmp::Reverse(a.total_quantity));
 
         let search_lower = self.item_search.trim().to_lowercase();
         let cat_filter = self.item_category_filter.clone();
@@ -2108,7 +2116,7 @@ impl RoKLootWatcherApp {
                                 self.save_config();
                             }
                             if ui.button("Mở trong Explorer").clicked() {
-                                let _ = open::that(&self.watcher.get_mail_dir());
+                                let _ = open::that(self.watcher.get_mail_dir());
                             }
                         });
                     });
@@ -2533,6 +2541,18 @@ impl eframe::App for RoKLootWatcherApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Cache native HWND if not yet done
         let _ = crate::tray::get_or_find_main_hwnd();
+
+        // Check if an external restore was requested (tray icon clicked, second instance opened, etc.)
+        if crate::tray::check_and_clear_restore_request() {
+            self.pending_start_minimized_frames = 0;
+        }
+
+        // Handle initial autostart minimization
+        if self.pending_start_minimized_frames > 0 {
+            self.pending_start_minimized_frames -= 1;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+            crate::tray::hide_main_window();
+        }
 
         // 1. If exit was requested from tray menu or background signal, terminate cleanly
         if crate::tray::is_quit_requested() {
