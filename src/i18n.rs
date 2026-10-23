@@ -336,8 +336,8 @@ pub fn tr(key: TrKey, lang: AppLanguage) -> &'static str {
         (TrKey::NavDashboardTitle, AppLanguage::English) => "Dashboard",
         (TrKey::NavDashboardDesc, AppLanguage::Vietnamese) => "Dashboard KPI & phân bổ",
         (TrKey::NavDashboardDesc, AppLanguage::English) => "KPIs & loot distribution",
-        (TrKey::NavBattlesTitle, AppLanguage::Vietnamese) => "Trận đánh",
-        (TrKey::NavBattlesTitle, AppLanguage::English) => "Battles",
+        (TrKey::NavBattlesTitle, AppLanguage::Vietnamese) => "Báo cáo",
+        (TrKey::NavBattlesTitle, AppLanguage::English) => "Reports",
         (TrKey::NavBattlesDesc, AppLanguage::Vietnamese) => "Chiến báo & bảng chi tiết",
         (TrKey::NavBattlesDesc, AppLanguage::English) => "Battle reports & tables",
         (TrKey::NavInventoryTitle, AppLanguage::Vietnamese) => "Kho vật phẩm",
@@ -789,6 +789,12 @@ mod tests {
         assert_eq!(category_name("Kinh Nghiệm", AppLanguage::English), "Experience");
         assert_eq!(category_name("Trang Bị", AppLanguage::English), "Equipment");
         assert_eq!(category_name("Khác", AppLanguage::English), "Others");
+    }
+
+    #[test]
+    fn test_reports_navigation_label_bilingual() {
+        assert_eq!(AppLanguage::Vietnamese.t(TrKey::NavBattlesTitle), "Báo cáo");
+        assert_eq!(AppLanguage::English.t(TrKey::NavBattlesTitle), "Reports");
     }
 
     #[test]
