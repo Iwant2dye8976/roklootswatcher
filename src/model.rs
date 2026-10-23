@@ -116,6 +116,7 @@ pub enum DateFilterPreset {
 }
 
 impl DateFilterPreset {
+    #[allow(dead_code)]
     pub fn label(&self) -> &'static str {
         match self {
             DateFilterPreset::AllTime => "Từ trước đến nay",
@@ -963,6 +964,22 @@ pub struct ItemStat {
     pub max_in_battle: i64,
     pub min_in_battle: i64,
     pub avg_per_battle: f64,
+}
+
+impl ItemStat {
+    pub fn display_name(&self, lang: AppLanguage) -> &str {
+        match lang {
+            AppLanguage::English => {
+                let trimmed = self.name_en.trim();
+                if !trimmed.is_empty() {
+                    trimmed
+                } else {
+                    &self.name_vi
+                }
+            }
+            AppLanguage::Vietnamese => &self.name_vi,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

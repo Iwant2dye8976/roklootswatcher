@@ -5,6 +5,7 @@ use std::sync::Arc;
 use eframe::egui::{self, Color32, Margin, Rounding, Stroke};
 
 use crate::analyzer::parse_date_str;
+use crate::i18n::{category_name, date_preset_label, filter_mode_label, TrKey};
 use crate::model::{
     format_in_millions_vietnamese, format_num, format_speedup_dhm, get_item_converted_display,
     AppConfig, AppLanguage, AppTheme, BattleRecord, CloseBehavior, DateFilterPreset, FilterMode,
@@ -182,6 +183,7 @@ fn render_sort_header_cell(
     align: egui::Align,
     color: Color32,
     active_color: Color32,
+    lang: AppLanguage,
 ) -> bool {
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(width, 22.0), egui::Sense::click());
     let is_active = active_col == Some(col);
@@ -223,12 +225,17 @@ fn render_sort_header_cell(
     );
 
     let tooltip = if is_active {
-        match dir {
-            SortDirection::Descending => format!("{}: Đang giảm dần (nhấp để chuyển tăng dần)", label),
-            SortDirection::Ascending => format!("{}: Đang tăng dần (nhấp để chuyển giảm dần)", label),
+        match (dir, lang) {
+            (SortDirection::Descending, AppLanguage::Vietnamese) => format!("{}: Đang giảm dần (nhấp để chuyển tăng dần)", label),
+            (SortDirection::Descending, AppLanguage::English) => format!("{}: Descending (click to sort ascending)", label),
+            (SortDirection::Ascending, AppLanguage::Vietnamese) => format!("{}: Đang tăng dần (nhấp để chuyển giảm dần)", label),
+            (SortDirection::Ascending, AppLanguage::English) => format!("{}: Ascending (click to sort descending)", label),
         }
     } else {
-        format!("Nhấp để sắp xếp theo {}", label)
+        match lang {
+            AppLanguage::Vietnamese => format!("Nhấp để sắp xếp theo {}", label),
+            AppLanguage::English => format!("Click to sort by {}", label),
+        }
     };
     let clicked = resp.clicked();
     resp.on_hover_text(tooltip);
@@ -247,6 +254,7 @@ fn render_item_sort_header_cell(
     align: egui::Align,
     color: Color32,
     active_color: Color32,
+    lang: AppLanguage,
 ) -> bool {
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(width, 22.0), egui::Sense::click());
     let is_active = active_col == Some(col);
@@ -288,12 +296,17 @@ fn render_item_sort_header_cell(
     );
 
     let tooltip = if is_active {
-        match dir {
-            SortDirection::Descending => format!("{}: Đang giảm dần (nhấp để chuyển tăng dần)", label),
-            SortDirection::Ascending => format!("{}: Đang tăng dần (nhấp để chuyển giảm dần)", label),
+        match (dir, lang) {
+            (SortDirection::Descending, AppLanguage::Vietnamese) => format!("{}: Đang giảm dần (nhấp để chuyển tăng dần)", label),
+            (SortDirection::Descending, AppLanguage::English) => format!("{}: Descending (click to sort ascending)", label),
+            (SortDirection::Ascending, AppLanguage::Vietnamese) => format!("{}: Đang tăng dần (nhấp để chuyển giảm dần)", label),
+            (SortDirection::Ascending, AppLanguage::English) => format!("{}: Ascending (click to sort descending)", label),
         }
     } else {
-        format!("Nhấp để sắp xếp theo {}", label)
+        match lang {
+            AppLanguage::Vietnamese => format!("Nhấp để sắp xếp theo {}", label),
+            AppLanguage::English => format!("Click to sort by {}", label),
+        }
     };
     let clicked = resp.clicked();
     resp.on_hover_text(tooltip);
@@ -401,8 +414,16 @@ impl RoKLootWatcherApp {
         // Start watcher initial scan
         watcher.start(true);
 
+        let config = AppConfig::load();
+        let initial_speedup_unit = config.speedup_unit;
+        let initial_close_behavior = config.close_behavior;
+        let initial_theme = config.theme;
+        let initial_language = config.language;
+        let is_armored = crate::armor::is_mailcache_armored(&watcher.get_mail_dir());
+
         if let Some(ref tray_mgr) = tray {
             tray_mgr.setup_event_handlers(cc.egui_ctx.clone(), Arc::clone(&watcher));
+            tray_mgr.update_language(initial_language);
         }
 
         if let Some(ref guard) = single_instance {
@@ -412,13 +433,6 @@ impl RoKLootWatcherApp {
                 Arc::clone(&watcher),
             );
         }
-
-        let config = AppConfig::load();
-        let initial_speedup_unit = config.speedup_unit;
-        let initial_close_behavior = config.close_behavior;
-        let initial_theme = config.theme;
-        let initial_language = config.language;
-        let is_armored = crate::armor::is_mailcache_armored(&watcher.get_mail_dir());
 
         let (reg_autostart, reg_minimized) = crate::autostart::get_autostart_status();
         let initial_autostart = if reg_autostart { true } else { config.autostart };
@@ -697,10 +711,10 @@ impl RoKLootWatcherApp {
 
         // 2. Navigation Items
         let nav_items = [
-            (0, "Tổng quan", "Dashboard KPI & phân bổ"),
-            (1, "Trận đánh", "Chiến báo & bảng chi tiết"),
-            (2, "Kho vật phẩm", "Thống kê & quy đổi kho"),
-            (3, "Cài đặt & Log", "Cấu hình, quét & nhật ký"),
+            (0, self.language.t(TrKey::NavDashboardTitle), self.language.t(TrKey::NavDashboardDesc)),
+            (1, self.language.t(TrKey::NavBattlesTitle), self.language.t(TrKey::NavBattlesDesc)),
+            (2, self.language.t(TrKey::NavInventoryTitle), self.language.t(TrKey::NavInventoryDesc)),
+            (3, self.language.t(TrKey::NavSettingsTitle), self.language.t(TrKey::NavSettingsDesc)),
         ];
 
         for (idx, title, desc) in nav_items {
@@ -754,13 +768,17 @@ impl RoKLootWatcherApp {
 
             // Utility buttons row
             ui.horizontal(|ui| {
-                let theme_label = if self.theme == AppTheme::Dark { "Sáng" } else { "Tối" };
-                if ui.button(theme_label).on_hover_text("Chuyển đổi giao diện Sáng / Tối").clicked() {
+                let theme_label = if self.theme == AppTheme::Dark {
+                    self.language.t(TrKey::ThemeToggleLight)
+                } else {
+                    self.language.t(TrKey::ThemeToggleDark)
+                };
+                if ui.button(theme_label).on_hover_text(self.language.t(TrKey::ThemeToggleTooltip)).clicked() {
                     self.theme = self.theme.toggle();
                     self.save_config();
                 }
 
-                if ui.button("Khay").on_hover_text("Thu nhỏ cửa sổ xuống khay hệ thống (System Tray)").clicked() {
+                if ui.button(self.language.t(TrKey::TrayMinimize)).on_hover_text(self.language.t(TrKey::TrayMinimizeTooltip)).clicked() {
                     self.hide_to_tray(ctx);
                 }
             });
@@ -774,9 +792,21 @@ impl RoKLootWatcherApp {
                 .stroke(Stroke::new(1.0_f32, c.hairline))
                 .inner_margin(Margin::same(10.0))
                 .show(ui, |ui| {
+                    let badge_text = if self.status_badge_color == c.status_green {
+                        format!("● {}", self.language.t(TrKey::StatusWatching))
+                    } else if self.status_badge_color == c.error {
+                        format!("● {}", self.language.t(TrKey::StatusError))
+                    } else if self.status_badge_color == c.accent_gold {
+                        match self.language {
+                            AppLanguage::Vietnamese => "● Đang quét...".to_string(),
+                            AppLanguage::English => "● Scanning...".to_string(),
+                        }
+                    } else {
+                        format!("● {}", self.language.t(TrKey::StatusPaused))
+                    };
                     ui.horizontal(|ui| {
                         ui.label(
-                            egui::RichText::new(&self.status_badge_text)
+                            egui::RichText::new(badge_text)
                                 .font(egui::FontId::proportional(11.5))
                                 .strong()
                                 .color(self.status_badge_color),
@@ -785,18 +815,23 @@ impl RoKLootWatcherApp {
 
                     ui.add_space(2.0);
                     let vault_count = self.watcher.get_vault_total_count();
+                    let vault_txt = self.language.t(TrKey::StatusVaultCount).replace("{}", &format_num(vault_count));
                     ui.label(
-                        egui::RichText::new(format!("Kho Vault: {} trận", format_num(vault_count)))
+                        egui::RichText::new(vault_txt)
                             .font(egui::FontId::proportional(10.0))
                             .color(c.text_muted),
                     );
 
                     ui.add_space(6.0);
                     ui.horizontal(|ui| {
-                        if ui.button("Quét").on_hover_text("Quét gia tăng các file mail mới (~0ms)").clicked() {
+                        if ui.button(self.language.t(TrKey::BtnScan)).on_hover_text(self.language.t(TrKey::BtnScanTooltip)).clicked() {
                             self.watcher.rescan();
                         }
-                        let toggle_txt = if self.watcher.is_watching() { "Dừng" } else { "Bật" };
+                        let toggle_txt = if self.watcher.is_watching() {
+                            self.language.t(TrKey::BtnPause)
+                        } else {
+                            self.language.t(TrKey::BtnResume)
+                        };
                         if ui.button(toggle_txt).clicked() {
                             self.toggle_watcher();
                         }
@@ -815,14 +850,14 @@ impl RoKLootWatcherApp {
             // Dashboard Header
             ui.vertical(|ui| {
                 ui.label(
-                    egui::RichText::new("Tổng Quan Hoạt Động & Chiến Lợi Phẩm")
+                    egui::RichText::new(self.language.t(TrKey::DashboardTitle))
                         .font(egui::FontId::proportional(18.0))
                         .strong()
                         .color(c.canvas_tint),
                 );
                 ui.add_space(2.0);
                 ui.label(
-                    egui::RichText::new("Theo dõi và phân tích dữ liệu phần thưởng thời gian thực từ game Rise of Kingdoms")
+                    egui::RichText::new(self.language.t(TrKey::DashboardSubtitle))
                         .font(egui::FontId::proportional(12.0))
                         .color(c.text_muted),
                 );
@@ -839,15 +874,21 @@ impl RoKLootWatcherApp {
                 .show(ui, |ui| {
                     // Row 1: Loại báo cáo & Thời gian
                     ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new("Loại báo cáo:").strong().color(c.canvas_tint));
+                        ui.label(egui::RichText::new(self.language.t(TrKey::FilterReportType)).strong().color(c.canvas_tint));
                         let prev_mode = self.selected_mode;
-                        ui.selectable_value(&mut self.selected_mode, FilterMode::AllTargets, "Tất cả");
-                        ui.selectable_value(&mut self.selected_mode, FilterMode::Motte, "Motte");
-                        ui.selectable_value(&mut self.selected_mode, FilterMode::Fort, "Pháo Đài");
-                        ui.selectable_value(&mut self.selected_mode, FilterMode::Barbarian, "Dã Man");
-                        ui.selectable_value(&mut self.selected_mode, FilterMode::AllForts, "Cả 2 Pháo Đài");
-                        ui.selectable_value(&mut self.selected_mode, FilterMode::AllRewards, "Tất cả quà");
-                        ui.selectable_value(&mut self.selected_mode, FilterMode::Gathering, "Thu Thập");
+                        let modes = [
+                            (FilterMode::AllTargets, match self.language { AppLanguage::Vietnamese => "Tất cả", AppLanguage::English => "All" }),
+                            (FilterMode::Motte, "Motte"),
+                            (FilterMode::Fort, match self.language { AppLanguage::Vietnamese => "Pháo Đài", AppLanguage::English => "Forts" }),
+                            (FilterMode::Barbarian, match self.language { AppLanguage::Vietnamese => "Dã Man", AppLanguage::English => "Barbarians" }),
+                            (FilterMode::AllForts, match self.language { AppLanguage::Vietnamese => "Cả 2 Pháo Đài", AppLanguage::English => "Both Forts" }),
+                            (FilterMode::AllRewards, match self.language { AppLanguage::Vietnamese => "Tất cả quà", AppLanguage::English => "All Loot" }),
+                            (FilterMode::Gathering, match self.language { AppLanguage::Vietnamese => "Thu Thập", AppLanguage::English => "Gathering" }),
+                        ];
+                        for (mode, label) in modes {
+                            ui.selectable_value(&mut self.selected_mode, mode, label)
+                                .on_hover_text(filter_mode_label(&mode, self.language));
+                        }
 
                         if self.selected_mode != prev_mode {
                             self.watcher.set_mode(self.selected_mode);
@@ -855,20 +896,26 @@ impl RoKLootWatcherApp {
                         }
 
                         ui.add_space(14.0);
-                        ui.label(egui::RichText::new("Thời gian:").strong().color(c.canvas_tint));
+                        ui.label(egui::RichText::new(self.language.t(TrKey::FilterDateRange)).strong().color(c.canvas_tint));
                         let prev_preset = self.selected_date_preset.clone();
                         egui::ComboBox::from_id_salt("dash_date_combo")
-                            .selected_text(self.selected_date_preset.label())
+                            .selected_text(date_preset_label(&self.selected_date_preset, self.language))
                             .width(135.0)
                             .show_ui(ui, |ui| {
-                                ui.selectable_value(&mut self.selected_date_preset, DateFilterPreset::AllTime, DateFilterPreset::AllTime.label());
-                                ui.selectable_value(&mut self.selected_date_preset, DateFilterPreset::Today, DateFilterPreset::Today.label());
-                                ui.selectable_value(&mut self.selected_date_preset, DateFilterPreset::Yesterday, DateFilterPreset::Yesterday.label());
-                                ui.selectable_value(&mut self.selected_date_preset, DateFilterPreset::Last3Days, DateFilterPreset::Last3Days.label());
-                                ui.selectable_value(&mut self.selected_date_preset, DateFilterPreset::Last7Days, DateFilterPreset::Last7Days.label());
-                                ui.selectable_value(&mut self.selected_date_preset, DateFilterPreset::Last14Days, DateFilterPreset::Last14Days.label());
-                                ui.selectable_value(&mut self.selected_date_preset, DateFilterPreset::Last30Days, DateFilterPreset::Last30Days.label());
-                                ui.selectable_value(&mut self.selected_date_preset, DateFilterPreset::Custom, DateFilterPreset::Custom.label());
+                                let presets = [
+                                    DateFilterPreset::AllTime,
+                                    DateFilterPreset::Today,
+                                    DateFilterPreset::Yesterday,
+                                    DateFilterPreset::Last3Days,
+                                    DateFilterPreset::Last7Days,
+                                    DateFilterPreset::Last14Days,
+                                    DateFilterPreset::Last30Days,
+                                    DateFilterPreset::Custom,
+                                ];
+                                for p in presets {
+                                    let lbl = date_preset_label(&p, self.language);
+                                    ui.selectable_value(&mut self.selected_date_preset, p, lbl);
+                                }
                             });
                         if self.selected_date_preset != prev_preset {
                             let p = self.selected_date_preset.clone();
@@ -876,19 +923,20 @@ impl RoKLootWatcherApp {
                         }
 
                         if self.selected_date_preset == DateFilterPreset::Custom {
-                            ui.label(egui::RichText::new("Từ:").color(c.text_muted));
+                            ui.label(egui::RichText::new(self.language.t(TrKey::FilterFrom)).color(c.text_muted));
                             ui.add_sized([80.0, 20.0], egui::TextEdit::singleline(&mut self.date_from_input));
-                            ui.label(egui::RichText::new("Đến:").color(c.text_muted));
+                            ui.label(egui::RichText::new(self.language.t(TrKey::FilterTo)).color(c.text_muted));
                             ui.add_sized([80.0, 20.0], egui::TextEdit::singleline(&mut self.date_to_input));
-                            if ui.button("Lọc").clicked() {
+                            if ui.button(self.language.t(TrKey::FilterApply)).clicked() {
                                 self.apply_custom_date_filter();
                             }
                         }
 
                         let cur_battles = self.watcher.get_stats().total_battles;
+                        let battles_txt = self.language.t(TrKey::FilterRecordedBattles).replace("{}", &format_num(cur_battles));
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             ui.label(
-                                egui::RichText::new(format!("{} trận ghi nhận", format_num(cur_battles)))
+                                egui::RichText::new(battles_txt)
                                     .strong()
                                     .color(c.focus_teal),
                             );
@@ -899,12 +947,12 @@ impl RoKLootWatcherApp {
 
                     // Row 2: Chuyển đổi đơn vị Tăng tốc (Phút / Giờ / Ngày / DHM)
                     ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new("Đổi đơn vị tăng tốc:").strong().color(c.canvas_tint));
+                        ui.label(egui::RichText::new(self.language.t(TrKey::SpeedupUnitChange)).strong().color(c.canvas_tint));
                         let prev_unit = self.speedup_unit;
-                        ui.selectable_value(&mut self.speedup_unit, SpeedupUnit::Minutes, "Phút");
-                        ui.selectable_value(&mut self.speedup_unit, SpeedupUnit::Hours, "Giờ");
-                        ui.selectable_value(&mut self.speedup_unit, SpeedupUnit::Days, "Ngày");
-                        ui.selectable_value(&mut self.speedup_unit, SpeedupUnit::Dhm, "Ngày/Giờ/Phút (DHM)");
+                        ui.selectable_value(&mut self.speedup_unit, SpeedupUnit::Minutes, self.language.t(TrKey::SpeedupUnitMinutes));
+                        ui.selectable_value(&mut self.speedup_unit, SpeedupUnit::Hours, self.language.t(TrKey::SpeedupUnitHours));
+                        ui.selectable_value(&mut self.speedup_unit, SpeedupUnit::Days, self.language.t(TrKey::SpeedupUnitDays));
+                        ui.selectable_value(&mut self.speedup_unit, SpeedupUnit::Dhm, self.language.t(TrKey::SpeedupUnitDhm));
                         if self.speedup_unit != prev_unit {
                             self.save_config();
                         }
@@ -915,7 +963,10 @@ impl RoKLootWatcherApp {
                         if spd_total > 0 {
                             ui.add_space(10.0);
                             let equiv_text = if self.speedup_unit == SpeedupUnit::Dhm {
-                                format!("≈ {:.1} giờ ({} phút)", spd_total as f64 / 60.0, format_num(spd_total))
+                                match self.language {
+                                    AppLanguage::Vietnamese => format!("≈ {:.1} giờ ({} phút)", spd_total as f64 / 60.0, format_num(spd_total)),
+                                    AppLanguage::English => format!("≈ {:.1} hours ({} minutes)", spd_total as f64 / 60.0, format_num(spd_total)),
+                                }
                             } else {
                                 format!("≈ {}", format_speedup_dhm(spd_total))
                             };
@@ -942,38 +993,40 @@ impl RoKLootWatcherApp {
             let (univ_spd_val, univ_spd_unit) = self.speedup_unit.format_kpi(total_spd_mins);
 
             // 4 Primary KPI Cards
+            let filter_prefix = match self.language {
+                AppLanguage::Vietnamese => "Bộ lọc",
+                AppLanguage::English => "Filter",
+            };
             let kpi_cards = [
                 (
-                    "TỔNG SỐ TRẬN ĐÁNH",
-                    format!("{} trận", format_num(total_battles)),
-                    format!("Bộ lọc: {}", self.selected_mode.display_label()),
+                    self.language.t(TrKey::CardTotalBattles),
+                    format!("{} {}", format_num(total_battles), self.language.t(TrKey::CardBattlesUnit)),
+                    format!("{}: {}", filter_prefix, filter_mode_label(&self.selected_mode, self.language)),
                     c.canvas_tint,
                 ),
                 (
-                    "PHA LÊ THU HOẠCH",
-                    format!("{} viên", format_num(pha_le)),
-                    format!("Trung bình: {:.1} pha lê / trận", avg_crystal),
+                    self.language.t(TrKey::CardTotalCrystals),
+                    format!("{} {}", format_num(pha_le), self.language.t(TrKey::CardCrystalsUnit)),
+                    self.language.t(TrKey::CardAvgCrystals).replace("{:.1}", &format!("{:.1}", avg_crystal)),
                     c.crystal_cyan,
                 ),
                 (
-                    "TỔNG TĂNG TỐC",
+                    self.language.t(TrKey::CardTotalSpeedups),
                     if self.speedup_unit == SpeedupUnit::Dhm {
                         univ_spd_val.clone()
                     } else {
                         format!("{} {}", univ_spd_val, univ_spd_unit)
                     },
-                    format!(
-                        "Chung: {} | Luyện: {} | Hồi: {}",
-                        self.speedup_unit.format_duration(univ_spd_mins as f64),
-                        self.speedup_unit.format_duration(train_spd_mins as f64),
-                        self.speedup_unit.format_duration(heal_spd_mins as f64)
-                    ),
+                    self.language.t(TrKey::CardSpeedupBreakdown)
+                        .replacen("{}", &self.speedup_unit.format_duration(univ_spd_mins as f64), 1)
+                        .replacen("{}", &self.speedup_unit.format_duration(train_spd_mins as f64), 1)
+                        .replacen("{}", &self.speedup_unit.format_duration(heal_spd_mins as f64), 1),
                     c.speedup_purple,
                 ),
                 (
-                    "TỔNG TÀI NGUYÊN (RSS)",
+                    self.language.t(TrKey::CardTotalResources),
                     format_in_millions_vietnamese(res.total_rss_val()),
-                    format!("{:.2}M tài nguyên các loại", res.total_rss_val() as f64 / 1_000_000.0),
+                    self.language.t(TrKey::CardRssBreakdown).replace("{:.2}", &format!("{:.2}", res.total_rss_val() as f64 / 1_000_000.0)),
                     c.accent_gold,
                 ),
             ];
@@ -1027,9 +1080,10 @@ impl RoKLootWatcherApp {
                 .inner_margin(Margin::same(12.0))
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new("TỶ LỆ PHÂN BỔ LOẠI TRẬN ĐÁNH").font(egui::FontId::proportional(11.5)).strong().color(c.canvas_tint));
+                        ui.label(egui::RichText::new(self.language.t(TrKey::DistributionTitle)).font(egui::FontId::proportional(11.5)).strong().color(c.canvas_tint));
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            ui.label(egui::RichText::new(format!("Tổng: {} trận", format_num(active_records.len()))).color(c.text_muted).font(egui::FontId::proportional(11.0)));
+                            let total_txt = self.language.t(TrKey::DistributionTotal).replace("{}", &format_num(active_records.len()));
+                            ui.label(egui::RichText::new(total_txt).color(c.text_muted).font(egui::FontId::proportional(11.0)));
                         });
                     });
 
@@ -1060,12 +1114,20 @@ impl RoKLootWatcherApp {
                     }
 
                     ui.add_space(8.0);
+                    let fort_lbl = match self.language {
+                        AppLanguage::Vietnamese => "Pháo Đài Dã Man",
+                        AppLanguage::English => "Barbarian Forts",
+                    };
+                    let barb_lbl = match self.language {
+                        AppLanguage::Vietnamese => "Dã Man Thường",
+                        AppLanguage::English => "Normal Barbarians",
+                    };
                     ui.horizontal(|ui| {
                         ui.label(egui::RichText::new(format!("● Motte Destroyed: {} ({:.1}%)", motte_cnt, motte_pct)).color(c.motte_accent).font(egui::FontId::proportional(11.0)));
                         ui.add_space(16.0);
-                        ui.label(egui::RichText::new(format!("● Pháo Đài Dã Man: {} ({:.1}%)", fort_cnt, fort_pct)).color(c.fort_accent).font(egui::FontId::proportional(11.0)));
+                        ui.label(egui::RichText::new(format!("● {}: {} ({:.1}%)", fort_lbl, fort_cnt, fort_pct)).color(c.fort_accent).font(egui::FontId::proportional(11.0)));
                         ui.add_space(16.0);
-                        ui.label(egui::RichText::new(format!("● Dã Man Thường: {} ({:.1}%)", barb_cnt, barb_pct)).color(c.barb_accent).font(egui::FontId::proportional(11.0)));
+                        ui.label(egui::RichText::new(format!("● {}: {} ({:.1}%)", barb_lbl, barb_cnt, barb_pct)).color(c.barb_accent).font(egui::FontId::proportional(11.0)));
                     });
                 });
 
@@ -1081,9 +1143,9 @@ impl RoKLootWatcherApp {
                     .inner_margin(Margin::same(12.0))
                     .show(&mut cols[0], |ui| {
                         ui.horizontal(|ui| {
-                            ui.label(egui::RichText::new("TOP 10 VẬT PHẨM THU HOẠCH NHIỀU NHẤT").font(egui::FontId::proportional(12.0)).strong().color(c.canvas_tint));
+                            ui.label(egui::RichText::new(self.language.t(TrKey::TopItemsTitle)).font(egui::FontId::proportional(12.0)).strong().color(c.canvas_tint));
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                if ui.button("Xem tất cả →").clicked() {
+                                if ui.button(self.language.t(TrKey::BtnViewAll)).clicked() {
                                     self.current_tab = 2;
                                 }
                             });
@@ -1099,7 +1161,7 @@ impl RoKLootWatcherApp {
 
                         egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
                             if top_items.is_empty() {
-                                ui.label(egui::RichText::new("Chưa có dữ liệu vật phẩm.").color(c.text_muted));
+                                ui.label(egui::RichText::new(self.language.t(TrKey::NoItemsData)).color(c.text_muted));
                             } else {
                                 for (idx, it) in top_items.iter().enumerate() {
                                     ui.horizontal(|ui| {
@@ -1110,7 +1172,7 @@ impl RoKLootWatcherApp {
                                             _ => c.text_muted,
                                         };
                                         ui.label(egui::RichText::new(format!("#{}", idx + 1)).strong().color(rank_color).monospace());
-                                        ui.label(egui::RichText::new(&it.name_vi).strong().color(c.canvas_tint));
+                                        ui.label(egui::RichText::new(it.display_name(self.language)).strong().color(c.canvas_tint));
 
                                         if let Some(conv_str) = get_item_converted_display(it.itype, it.sub_type, it.total_quantity) {
                                             ui.label(egui::RichText::new(format!("({})", conv_str)).font(egui::FontId::proportional(10.5)).color(c.status_green));
@@ -1141,9 +1203,9 @@ impl RoKLootWatcherApp {
                     .inner_margin(Margin::same(12.0))
                     .show(&mut cols[1], |ui| {
                         ui.horizontal(|ui| {
-                            ui.label(egui::RichText::new("5 CHIẾN BÁO MỚI NHẤT (REALTIME)").font(egui::FontId::proportional(12.0)).strong().color(c.canvas_tint));
+                            ui.label(egui::RichText::new(self.language.t(TrKey::LatestBattlesTitle)).font(egui::FontId::proportional(12.0)).strong().color(c.canvas_tint));
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                if ui.button("Xem bảng trận →").clicked() {
+                                if ui.button(self.language.t(TrKey::BtnViewBattles)).clicked() {
                                     self.current_tab = 1;
                                 }
                             });
@@ -1155,7 +1217,7 @@ impl RoKLootWatcherApp {
                         let latest_battles = crate::analyzer::get_latest_records(&active_records, 5);
 
                         if latest_battles.is_empty() {
-                            ui.label(egui::RichText::new("Chưa có chiến báo nào được ghi nhận.").color(c.text_muted));
+                            ui.label(egui::RichText::new(self.language.t(TrKey::NoBattlesData)).color(c.text_muted));
                         } else {
                             for r in latest_battles {
                                 let (card_rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 52.0), egui::Sense::click());
@@ -1182,7 +1244,7 @@ impl RoKLootWatcherApp {
                                 ui.painter().text(
                                     t_pos,
                                     egui::Align2::LEFT_CENTER,
-                                    &r.target,
+                                    r.display_target(self.language),
                                     egui::FontId::proportional(12.5),
                                     c.canvas_tint,
                                 );
@@ -1198,8 +1260,16 @@ impl RoKLootWatcherApp {
 
                                 let d_pos = egui::pos2(card_rect.min.x + 8.0, card_rect.min.y + 36.0);
                                 let cry = r.item_quantity(1, 9);
-                                let cry_str = if cry > 0 { format!("+{} Pha Lê  |  ", format_num(cry)) } else { "".to_string() };
-                                let dmg_str = format!("ST: {}%", r.damage_pct);
+                                let cry_label = match self.language {
+                                    AppLanguage::Vietnamese => "Pha Lê",
+                                    AppLanguage::English => "Crystals",
+                                };
+                                let cry_str = if cry > 0 { format!("+{} {}  |  ", format_num(cry), cry_label) } else { "".to_string() };
+                                let dmg_label = match self.language {
+                                    AppLanguage::Vietnamese => "ST",
+                                    AppLanguage::English => "DMG",
+                                };
+                                let dmg_str = format!("{}: {}%", dmg_label, r.damage_pct);
                                 let sub_info = format!("[{}]  {}{}", r.battle_type.to_uppercase(), cry_str, dmg_str);
                                 ui.painter().text(
                                     d_pos,
@@ -1213,7 +1283,7 @@ impl RoKLootWatcherApp {
                                 ui.painter().text(
                                     action_pos,
                                     egui::Align2::RIGHT_CENTER,
-                                    "Chi tiết →",
+                                    self.language.t(TrKey::BtnDetail),
                                     egui::FontId::proportional(11.0),
                                     if is_hovered { c.focus_teal } else { c.text_muted },
                                 );
@@ -1242,15 +1312,21 @@ impl RoKLootWatcherApp {
             .show(ui, |ui| {
                 // Row 1: Target Mode & Date Filter
                 ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new("Loại báo cáo:").strong().color(c.canvas_tint));
+                    ui.label(egui::RichText::new(self.language.t(TrKey::FilterReportType)).strong().color(c.canvas_tint));
                     let prev_mode = self.selected_mode;
-                    ui.selectable_value(&mut self.selected_mode, FilterMode::AllTargets, "Tất cả");
-                    ui.selectable_value(&mut self.selected_mode, FilterMode::Motte, "Motte");
-                    ui.selectable_value(&mut self.selected_mode, FilterMode::Fort, "Pháo Đài");
-                    ui.selectable_value(&mut self.selected_mode, FilterMode::Barbarian, "Dã Man");
-                    ui.selectable_value(&mut self.selected_mode, FilterMode::AllForts, "Cả 2 Pháo Đài");
-                    ui.selectable_value(&mut self.selected_mode, FilterMode::AllRewards, "Tất cả quà");
-                    ui.selectable_value(&mut self.selected_mode, FilterMode::Gathering, "Thu Thập");
+                    let modes = [
+                        (FilterMode::AllTargets, match self.language { AppLanguage::Vietnamese => "Tất cả", AppLanguage::English => "All" }),
+                        (FilterMode::Motte, "Motte"),
+                        (FilterMode::Fort, match self.language { AppLanguage::Vietnamese => "Pháo Đài", AppLanguage::English => "Forts" }),
+                        (FilterMode::Barbarian, match self.language { AppLanguage::Vietnamese => "Dã Man", AppLanguage::English => "Barbarians" }),
+                        (FilterMode::AllForts, match self.language { AppLanguage::Vietnamese => "Cả 2 Pháo Đài", AppLanguage::English => "Both Forts" }),
+                        (FilterMode::AllRewards, match self.language { AppLanguage::Vietnamese => "Tất cả quà", AppLanguage::English => "All Loot" }),
+                        (FilterMode::Gathering, match self.language { AppLanguage::Vietnamese => "Thu Thập", AppLanguage::English => "Gathering" }),
+                    ];
+                    for (mode, label) in modes {
+                        ui.selectable_value(&mut self.selected_mode, mode, label)
+                            .on_hover_text(filter_mode_label(&mode, self.language));
+                    }
 
                     if self.selected_mode != prev_mode {
                         self.watcher.set_mode(self.selected_mode);
@@ -1258,20 +1334,26 @@ impl RoKLootWatcherApp {
                     }
 
                     ui.add_space(12.0);
-                    ui.label(egui::RichText::new("Thời gian:").strong().color(c.canvas_tint));
+                    ui.label(egui::RichText::new(self.language.t(TrKey::FilterDateRange)).strong().color(c.canvas_tint));
                     let prev_preset = self.selected_date_preset.clone();
                     egui::ComboBox::from_id_salt("battles_date_combo")
-                        .selected_text(self.selected_date_preset.label())
+                        .selected_text(date_preset_label(&self.selected_date_preset, self.language))
                         .width(130.0)
                         .show_ui(ui, |ui| {
-                            ui.selectable_value(&mut self.selected_date_preset, DateFilterPreset::AllTime, DateFilterPreset::AllTime.label());
-                            ui.selectable_value(&mut self.selected_date_preset, DateFilterPreset::Today, DateFilterPreset::Today.label());
-                            ui.selectable_value(&mut self.selected_date_preset, DateFilterPreset::Yesterday, DateFilterPreset::Yesterday.label());
-                            ui.selectable_value(&mut self.selected_date_preset, DateFilterPreset::Last3Days, DateFilterPreset::Last3Days.label());
-                            ui.selectable_value(&mut self.selected_date_preset, DateFilterPreset::Last7Days, DateFilterPreset::Last7Days.label());
-                            ui.selectable_value(&mut self.selected_date_preset, DateFilterPreset::Last14Days, DateFilterPreset::Last14Days.label());
-                            ui.selectable_value(&mut self.selected_date_preset, DateFilterPreset::Last30Days, DateFilterPreset::Last30Days.label());
-                            ui.selectable_value(&mut self.selected_date_preset, DateFilterPreset::Custom, DateFilterPreset::Custom.label());
+                            let presets = [
+                                DateFilterPreset::AllTime,
+                                DateFilterPreset::Today,
+                                DateFilterPreset::Yesterday,
+                                DateFilterPreset::Last3Days,
+                                DateFilterPreset::Last7Days,
+                                DateFilterPreset::Last14Days,
+                                DateFilterPreset::Last30Days,
+                                DateFilterPreset::Custom,
+                            ];
+                            for p in presets {
+                                let lbl = date_preset_label(&p, self.language);
+                                ui.selectable_value(&mut self.selected_date_preset, p, lbl);
+                            }
                         });
 
                     if self.selected_date_preset != prev_preset {
@@ -1280,19 +1362,20 @@ impl RoKLootWatcherApp {
                     }
 
                     if self.selected_date_preset == DateFilterPreset::Custom {
-                        ui.label(egui::RichText::new("Từ:").color(c.text_muted));
+                        ui.label(egui::RichText::new(self.language.t(TrKey::FilterFrom)).color(c.text_muted));
                         ui.add_sized([80.0, 20.0], egui::TextEdit::singleline(&mut self.date_from_input));
-                        ui.label(egui::RichText::new("Đến:").color(c.text_muted));
+                        ui.label(egui::RichText::new(self.language.t(TrKey::FilterTo)).color(c.text_muted));
                         ui.add_sized([80.0, 20.0], egui::TextEdit::singleline(&mut self.date_to_input));
-                        if ui.button("Lọc").clicked() {
+                        if ui.button(self.language.t(TrKey::FilterApply)).clicked() {
                             self.apply_custom_date_filter();
                         }
                     }
 
                     let cur_cnt = self.watcher.get_active_count();
+                    let match_txt = self.language.t(TrKey::FilterMatchingBattles).replace("{}", &format_num(cur_cnt));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.label(
-                            egui::RichText::new(format!("{} trận phù hợp", cur_cnt))
+                            egui::RichText::new(match_txt)
                                 .strong()
                                 .color(c.focus_teal),
                         );
@@ -1303,25 +1386,29 @@ impl RoKLootWatcherApp {
 
                 // Row 2: Search, Speedup Unit & Export Actions
                 ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new("Tìm kiếm:").strong().color(c.canvas_tint));
-                    ui.add_sized([220.0, 22.0], egui::TextEdit::singleline(&mut self.battle_search).hint_text("Tên quái, ngày giờ..."));
+                    ui.label(egui::RichText::new(self.language.t(TrKey::SearchLabel)).strong().color(c.canvas_tint));
+                    ui.add_sized([220.0, 22.0], egui::TextEdit::singleline(&mut self.battle_search).hint_text(self.language.t(TrKey::SearchPlaceholder)));
 
                     ui.add_space(12.0);
-                    ui.label(egui::RichText::new("Tăng tốc:").color(c.text_muted));
+                    let spd_lbl = match self.language {
+                        AppLanguage::Vietnamese => "Tăng tốc:",
+                        AppLanguage::English => "Speedups:",
+                    };
+                    ui.label(egui::RichText::new(spd_lbl).color(c.text_muted));
                     let prev_unit = self.speedup_unit;
-                    ui.selectable_value(&mut self.speedup_unit, SpeedupUnit::Minutes, "Phút");
-                    ui.selectable_value(&mut self.speedup_unit, SpeedupUnit::Hours, "Giờ");
-                    ui.selectable_value(&mut self.speedup_unit, SpeedupUnit::Days, "Ngày");
-                    ui.selectable_value(&mut self.speedup_unit, SpeedupUnit::Dhm, "DHM");
+                    ui.selectable_value(&mut self.speedup_unit, SpeedupUnit::Minutes, self.language.t(TrKey::SpeedupUnitMinutes));
+                    ui.selectable_value(&mut self.speedup_unit, SpeedupUnit::Hours, self.language.t(TrKey::SpeedupUnitHours));
+                    ui.selectable_value(&mut self.speedup_unit, SpeedupUnit::Days, self.language.t(TrKey::SpeedupUnitDays));
+                    ui.selectable_value(&mut self.speedup_unit, SpeedupUnit::Dhm, self.language.t(TrKey::SpeedupUnitDhm));
                     if self.speedup_unit != prev_unit {
                         self.save_config();
                     }
 
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button("Xuất JSON").on_hover_text("Xuất dữ liệu trận đánh ra file JSON").clicked() {
+                        if ui.button(self.language.t(TrKey::BtnExportJson)).on_hover_text(self.language.t(TrKey::BtnExportJsonTooltip)).clicked() {
                             self.export_active_json();
                         }
-                        if ui.button("Xuất CSV").on_hover_text("Xuất bảng trận đánh ra file CSV Excel").clicked() {
+                        if ui.button(self.language.t(TrKey::BtnExportCsv)).on_hover_text(self.language.t(TrKey::BtnExportCsvTooltip)).clicked() {
                             self.export_active_csv();
                         }
                     });
@@ -1394,80 +1481,80 @@ impl RoKLootWatcherApp {
                     ui.spacing_mut().item_spacing.x = ITEM_SPACING_X;
                     ui.set_min_height(26.0);
 
-                    if render_sort_header_cell(ui, "Thời Gian (VN)", BattleSortColumn::Time, self.battle_sort_col, self.battle_sort_dir, COL_TIME, egui::Align::LEFT, c.text_muted, c.focus_teal) {
+                    if render_sort_header_cell(ui, self.language.t(TrKey::ColTime), BattleSortColumn::Time, self.battle_sort_col, self.battle_sort_dir, COL_TIME, egui::Align::LEFT, c.text_muted, c.focus_teal, self.language) {
                         toggle_sort_col = Some(BattleSortColumn::Time);
                     }
-                    if render_sort_header_cell(ui, "Loại", BattleSortColumn::Type, self.battle_sort_col, self.battle_sort_dir, col_type, egui::Align::Center, c.text_muted, c.focus_teal) {
+                    if render_sort_header_cell(ui, self.language.t(TrKey::ColType), BattleSortColumn::Type, self.battle_sort_col, self.battle_sort_dir, col_type, egui::Align::Center, c.text_muted, c.focus_teal, self.language) {
                         toggle_sort_col = Some(BattleSortColumn::Type);
                     }
-                    if render_sort_header_cell(ui, "Mục Tiêu", BattleSortColumn::Target, self.battle_sort_col, self.battle_sort_dir, col_target, egui::Align::LEFT, c.text_muted, c.focus_teal) {
+                    if render_sort_header_cell(ui, self.language.t(TrKey::ColTarget), BattleSortColumn::Target, self.battle_sort_col, self.battle_sort_dir, col_target, egui::Align::LEFT, c.text_muted, c.focus_teal, self.language) {
                         toggle_sort_col = Some(BattleSortColumn::Target);
                     }
                     if !is_gathering {
-                        if render_sort_header_cell(ui, "Sát Thương", BattleSortColumn::Damage, self.battle_sort_col, self.battle_sort_dir, COL_DMG, egui::Align::RIGHT, c.text_muted, c.focus_teal) {
+                        if render_sort_header_cell(ui, self.language.t(TrKey::ColDamage), BattleSortColumn::Damage, self.battle_sort_col, self.battle_sort_dir, COL_DMG, egui::Align::RIGHT, c.text_muted, c.focus_teal, self.language) {
                             toggle_sort_col = Some(BattleSortColumn::Damage);
                         }
                     }
 
                     if is_gathering {
-                        if render_sort_header_cell(ui, "Cấp Mỏ", BattleSortColumn::Level, self.battle_sort_col, self.battle_sort_dir, COL_GATHER_LVL, egui::Align::Center, c.text_muted, c.focus_teal) {
+                        if render_sort_header_cell(ui, self.language.t(TrKey::ColGatherLvl), BattleSortColumn::Level, self.battle_sort_col, self.battle_sort_dir, COL_GATHER_LVL, egui::Align::Center, c.text_muted, c.focus_teal, self.language) {
                             toggle_sort_col = Some(BattleSortColumn::Level);
                         }
-                        if render_sort_header_cell(ui, "Tài Nguyên", BattleSortColumn::Target, self.battle_sort_col, self.battle_sort_dir, COL_GATHER_RES, egui::Align::LEFT, c.text_muted, c.focus_teal) {
+                        if render_sort_header_cell(ui, self.language.t(TrKey::ColGatherRes), BattleSortColumn::Target, self.battle_sort_col, self.battle_sort_dir, COL_GATHER_RES, egui::Align::LEFT, c.text_muted, c.focus_teal, self.language) {
                             toggle_sort_col = Some(BattleSortColumn::Target);
                         }
-                        if render_sort_header_cell(ui, "Sản Lượng", BattleSortColumn::Resource, self.battle_sort_col, self.battle_sort_dir, COL_GATHER_TOTAL, egui::Align::RIGHT, c.accent_gold, c.focus_teal) {
+                        if render_sort_header_cell(ui, self.language.t(TrKey::ColGatherTotal), BattleSortColumn::Resource, self.battle_sort_col, self.battle_sort_dir, COL_GATHER_TOTAL, egui::Align::RIGHT, c.accent_gold, c.focus_teal, self.language) {
                             toggle_sort_col = Some(BattleSortColumn::Resource);
                         }
-                        if render_sort_header_cell(ui, "Điểm Cộng", BattleSortColumn::Damage, self.battle_sort_col, self.battle_sort_dir, COL_GATHER_BONUS, egui::Align::RIGHT, c.status_green, c.focus_teal) {
+                        if render_sort_header_cell(ui, self.language.t(TrKey::ColGatherBonus), BattleSortColumn::Damage, self.battle_sort_col, self.battle_sort_dir, COL_GATHER_BONUS, egui::Align::RIGHT, c.status_green, c.focus_teal, self.language) {
                             toggle_sort_col = Some(BattleSortColumn::Damage);
                         }
                     } else if is_barb {
-                        if render_sort_header_cell(ui, "Pha Lê", BattleSortColumn::Crystal, self.battle_sort_col, self.battle_sort_dir, COL_BARB_CRY, egui::Align::RIGHT, c.crystal_cyan, c.focus_teal) {
+                        if render_sort_header_cell(ui, self.language.t(TrKey::ColCrystal), BattleSortColumn::Crystal, self.battle_sort_col, self.battle_sort_dir, COL_BARB_CRY, egui::Align::RIGHT, c.crystal_cyan, c.focus_teal, self.language) {
                             toggle_sort_col = Some(BattleSortColumn::Crystal);
                         }
-                        if render_sort_header_cell(ui, "Tổng TN", BattleSortColumn::Resource, self.battle_sort_col, self.battle_sort_dir, COL_BARB_RES, egui::Align::RIGHT, c.accent_gold, c.focus_teal) {
+                        if render_sort_header_cell(ui, self.language.t(TrKey::ColRss), BattleSortColumn::Resource, self.battle_sort_col, self.battle_sort_dir, COL_BARB_RES, egui::Align::RIGHT, c.accent_gold, c.focus_teal, self.language) {
                             toggle_sort_col = Some(BattleSortColumn::Resource);
                         }
-                        if render_sort_header_cell(ui, "EXP Tướng", BattleSortColumn::TomeExp, self.battle_sort_col, self.battle_sort_dir, COL_BARB_EXP, egui::Align::RIGHT, c.text_muted, c.focus_teal) {
+                        if render_sort_header_cell(ui, self.language.t(TrKey::ColExp), BattleSortColumn::TomeExp, self.battle_sort_col, self.battle_sort_dir, COL_BARB_EXP, egui::Align::RIGHT, c.text_muted, c.focus_teal, self.language) {
                             toggle_sort_col = Some(BattleSortColumn::TomeExp);
                         }
-                        if render_sort_header_cell(ui, "TT Đa Năng", BattleSortColumn::UnivSpeedup, self.battle_sort_col, self.battle_sort_dir, COL_BARB_UNIV, egui::Align::RIGHT, c.status_green, c.focus_teal) {
+                        if render_sort_header_cell(ui, self.language.t(TrKey::ColUnivSpd), BattleSortColumn::UnivSpeedup, self.battle_sort_col, self.battle_sort_dir, COL_BARB_UNIV, egui::Align::RIGHT, c.status_green, c.focus_teal, self.language) {
                             toggle_sort_col = Some(BattleSortColumn::UnivSpeedup);
                         }
-                        if render_sort_header_cell(ui, "TT H.Luyện", BattleSortColumn::TrainSpeedup, self.battle_sort_col, self.battle_sort_dir, COL_BARB_TRAIN, egui::Align::RIGHT, Color32::from_rgb(0xfb, 0x92, 0x3c), c.focus_teal) {
+                        if render_sort_header_cell(ui, self.language.t(TrKey::ColTrainSpd), BattleSortColumn::TrainSpeedup, self.battle_sort_col, self.battle_sort_dir, COL_BARB_TRAIN, egui::Align::RIGHT, Color32::from_rgb(0xfb, 0x92, 0x3c), c.focus_teal, self.language) {
                             toggle_sort_col = Some(BattleSortColumn::TrainSpeedup);
                         }
-                        if render_sort_header_cell(ui, "TT Chữa Lành", BattleSortColumn::HealSpeedup, self.battle_sort_col, self.battle_sort_dir, COL_BARB_HEAL, egui::Align::RIGHT, Color32::from_rgb(0x38, 0xbd, 0xf8), c.focus_teal) {
+                        if render_sort_header_cell(ui, self.language.t(TrKey::ColHealSpd), BattleSortColumn::HealSpeedup, self.battle_sort_col, self.battle_sort_dir, COL_BARB_HEAL, egui::Align::RIGHT, Color32::from_rgb(0x38, 0xbd, 0xf8), c.focus_teal, self.language) {
                             toggle_sort_col = Some(BattleSortColumn::HealSpeedup);
                         }
-                        if render_sort_header_cell(ui, "Mũi Tên", BattleSortColumn::Arrow, self.battle_sort_col, self.battle_sort_dir, COL_BARB_ARROW, egui::Align::RIGHT, c.text_muted, c.focus_teal) {
+                        if render_sort_header_cell(ui, self.language.t(TrKey::ColArrow), BattleSortColumn::Arrow, self.battle_sort_col, self.battle_sort_dir, COL_BARB_ARROW, egui::Align::RIGHT, c.text_muted, c.focus_teal, self.language) {
                             toggle_sort_col = Some(BattleSortColumn::Arrow);
                         }
                     } else {
-                        if render_sort_header_cell(ui, "Plunder", BattleSortColumn::Tier, self.battle_sort_col, self.battle_sort_dir, COL_TIER, egui::Align::Center, c.text_muted, c.focus_teal) {
+                        if render_sort_header_cell(ui, self.language.t(TrKey::ColTier), BattleSortColumn::Tier, self.battle_sort_col, self.battle_sort_dir, COL_TIER, egui::Align::Center, c.text_muted, c.focus_teal, self.language) {
                             toggle_sort_col = Some(BattleSortColumn::Tier);
                         }
-                        if render_sort_header_cell(ui, "Pha Lê", BattleSortColumn::Crystal, self.battle_sort_col, self.battle_sort_dir, COL_CRY, egui::Align::RIGHT, c.crystal_cyan, c.focus_teal) {
+                        if render_sort_header_cell(ui, self.language.t(TrKey::ColCrystal), BattleSortColumn::Crystal, self.battle_sort_col, self.battle_sort_dir, COL_CRY, egui::Align::RIGHT, c.crystal_cyan, c.focus_teal, self.language) {
                             toggle_sort_col = Some(BattleSortColumn::Crystal);
                         }
-                        if render_sort_header_cell(ui, "Gói TN", BattleSortColumn::Resource, self.battle_sort_col, self.battle_sort_dir, COL_PACKS, egui::Align::RIGHT, c.text_muted, c.focus_teal) {
+                        if render_sort_header_cell(ui, self.language.t(TrKey::ColPacks), BattleSortColumn::Resource, self.battle_sort_col, self.battle_sort_dir, COL_PACKS, egui::Align::RIGHT, c.text_muted, c.focus_teal, self.language) {
                             toggle_sort_col = Some(BattleSortColumn::Resource);
                         }
-                        if render_sort_header_cell(ui, "Sách EXP", BattleSortColumn::TomeExp, self.battle_sort_col, self.battle_sort_dir, COL_TOME, egui::Align::RIGHT, c.text_muted, c.focus_teal) {
+                        if render_sort_header_cell(ui, self.language.t(TrKey::ColTome), BattleSortColumn::TomeExp, self.battle_sort_col, self.battle_sort_dir, COL_TOME, egui::Align::RIGHT, c.text_muted, c.focus_teal, self.language) {
                             toggle_sort_col = Some(BattleSortColumn::TomeExp);
                         }
-                        if render_sort_header_cell(ui, "TT Đa Năng", BattleSortColumn::UnivSpeedup, self.battle_sort_col, self.battle_sort_dir, COL_UNIV_SPD, egui::Align::RIGHT, c.status_green, c.focus_teal) {
+                        if render_sort_header_cell(ui, self.language.t(TrKey::ColUnivSpd), BattleSortColumn::UnivSpeedup, self.battle_sort_col, self.battle_sort_dir, COL_UNIV_SPD, egui::Align::RIGHT, c.status_green, c.focus_teal, self.language) {
                             toggle_sort_col = Some(BattleSortColumn::UnivSpeedup);
                         }
-                        if render_sort_header_cell(ui, "TT Hồi Máu", BattleSortColumn::HealSpeedup, self.battle_sort_col, self.battle_sort_dir, COL_HEAL_SPD, egui::Align::RIGHT, Color32::from_rgb(0x38, 0xbd, 0xf8), c.focus_teal) {
+                        if render_sort_header_cell(ui, self.language.t(TrKey::ColHealSpd), BattleSortColumn::HealSpeedup, self.battle_sort_col, self.battle_sort_dir, COL_HEAL_SPD, egui::Align::RIGHT, Color32::from_rgb(0x38, 0xbd, 0xf8), c.focus_teal, self.language) {
                             toggle_sort_col = Some(BattleSortColumn::HealSpeedup);
                         }
                     }
 
                     ui.add_sized(
                         [COL_VIEW, 20.0],
-                        egui::Label::new(egui::RichText::new("Chi Tiết").strong().color(c.focus_teal)).halign(egui::Align::Center),
+                        egui::Label::new(egui::RichText::new(self.language.t(TrKey::ColActions)).strong().color(c.focus_teal)).halign(egui::Align::Center),
                     );
                 });
             });
@@ -1492,23 +1579,35 @@ impl RoKLootWatcherApp {
                 ui.vertical_centered(|ui| {
                     ui.spinner();
                     ui.add_space(8.0);
+                    let scan_msg = match self.language {
+                        AppLanguage::Vietnamese => "[Đang quét] Đang quét và giải mã dữ liệu mailcache... Vui lòng đợi trong giây lát.",
+                        AppLanguage::English => "[Scanning] Scanning and decoding mailcache data... Please wait a moment.",
+                    };
                     ui.label(
-                        egui::RichText::new("[Đang quét] Đang quét và giải mã dữ liệu mailcache... Vui lòng đợi trong giây lát.")
+                        egui::RichText::new(scan_msg)
                             .font(egui::FontId::proportional(13.0))
                             .color(c.accent_gold),
                     );
                 });
             } else {
                 ui.vertical_centered(|ui| {
+                    let no_rec_msg = match self.language {
+                        AppLanguage::Vietnamese => "Không tìm thấy trận đánh nào phù hợp với bộ lọc hiện tại.",
+                        AppLanguage::English => "No battles found matching the current filter.",
+                    };
+                    let hint_msg = match self.language {
+                        AppLanguage::Vietnamese => "[Gợi ý] Thử đổi 'Thời gian' sang 'Từ trước đến nay' hoặc đổi 'Mục tiêu' sang 'Tất cả' để hiển thị toàn bộ lịch sử.",
+                        AppLanguage::English => "[Tip] Try changing 'Date Range' to 'All Time' or 'Report Type' to 'All Targets' to view full history.",
+                    };
                     ui.label(
-                        egui::RichText::new("Không tìm thấy trận đánh nào phù hợp với bộ lọc hiện tại.")
+                        egui::RichText::new(no_rec_msg)
                             .font(egui::FontId::proportional(14.0))
                             .strong()
                             .color(c.canvas_tint),
                     );
                     ui.add_space(6.0);
                     ui.label(
-                        egui::RichText::new("[Gợi ý] Thử đổi 'Thời gian' sang 'Từ trước đến nay' hoặc đổi 'Mục tiêu' sang 'Tất cả' để hiển thị toàn bộ lịch sử.")
+                        egui::RichText::new(hint_msg)
                             .font(egui::FontId::proportional(12.0))
                             .color(c.focus_teal),
                     );
@@ -1518,13 +1617,14 @@ impl RoKLootWatcherApp {
         }
 
         let search_lower = self.battle_search.to_lowercase();
+        let cur_lang = self.language;
         let mut sorted_records: Vec<&BattleRecord> = records
             .iter()
             .filter(|r| {
                 if search_lower.is_empty() {
                     true
                 } else {
-                    let hay = format!("{} {} {}", r.target, r.time_vn, r.battle_type).to_lowercase();
+                    let hay = format!("{} {} {} {}", r.target, r.display_target(cur_lang), r.time_vn, r.battle_type).to_lowercase();
                     hay.contains(&search_lower)
                 }
             })
@@ -1620,13 +1720,13 @@ impl RoKLootWatcherApp {
                             let (type_text, type_badge_color) = match r.battle_type.as_str() {
                                 "motte" => ("MOTTE", c.motte_accent),
                                 "fort" => ("FORT", c.fort_accent),
-                                "gathering" => ("THU THẬP", c.focus_teal),
-                                _ => ("DÃ MAN", c.barb_accent),
+                                "gathering" => (match self.language { AppLanguage::Vietnamese => "THU THẬP", AppLanguage::English => "GATHERING" }, c.focus_teal),
+                                _ => (match self.language { AppLanguage::Vietnamese => "DÃ MAN", AppLanguage::English => "BARBARIAN" }, c.barb_accent),
                             };
                             ui.add_sized([col_type, 24.0], egui::Label::new(egui::RichText::new(type_text).font(egui::FontId::proportional(10.5)).color(type_badge_color).strong()).halign(egui::Align::Center));
 
                             let target_btn = egui::Button::new(
-                                egui::RichText::new(&r.target).strong().color(c.canvas_tint)
+                                egui::RichText::new(r.display_target(self.language)).strong().color(c.canvas_tint)
                             )
                             .frame(false)
                             .truncate();
@@ -1639,10 +1739,17 @@ impl RoKLootWatcherApp {
                             }
 
                             if is_gathering {
-                                let lvl_str = if !r.target_level.is_empty() { format!("Cấp {}", r.target_level) } else { "-".to_string() };
+                                let lvl_str = if !r.target_level.is_empty() {
+                                    match self.language {
+                                        AppLanguage::Vietnamese => format!("Cấp {}", r.target_level),
+                                        AppLanguage::English => format!("Lvl {}", r.target_level),
+                                    }
+                                } else {
+                                    "-".to_string()
+                                };
                                 ui.add_sized([COL_GATHER_LVL, 24.0], egui::Label::new(egui::RichText::new(lvl_str).strong().color(c.focus_teal)).halign(egui::Align::Center));
 
-                                let res_name = r.items.first().map(|i| i.name_vi.as_str()).unwrap_or("-");
+                                let res_name = r.items.first().map(|i| i.display_name(self.language)).unwrap_or("-");
                                 ui.add_sized([COL_GATHER_RES, 24.0], egui::Label::new(egui::RichText::new(res_name).strong().color(c.canvas_tint)).halign(egui::Align::LEFT));
 
                                 let total_val = r.items.first().map(|i| i.value).unwrap_or(0);
@@ -1701,7 +1808,10 @@ impl RoKLootWatcherApp {
                                 let pack_label = if r.battle_type == "gathering" {
                                     format_num(packs)
                                 } else {
-                                    format!("{} gói", format_num(packs))
+                                    match self.language {
+                                        AppLanguage::Vietnamese => format!("{} gói", format_num(packs)),
+                                        AppLanguage::English => format!("{} packs", format_num(packs)),
+                                    }
                                 };
                                 ui.add_sized([COL_PACKS, 24.0], egui::Label::new(egui::RichText::new(pack_label).monospace().color(c.accent_gold)).halign(egui::Align::RIGHT));
 
@@ -1718,7 +1828,7 @@ impl RoKLootWatcherApp {
                             }
 
                             let view_btn = egui::Button::new(
-                                egui::RichText::new("Chi tiết")
+                                egui::RichText::new(self.language.t(TrKey::BtnDetail))
                                     .font(egui::FontId::proportional(11.0))
                                     .strong()
                                     .color(c.focus_teal),
@@ -1755,22 +1865,24 @@ impl RoKLootWatcherApp {
             .inner_margin(Margin::symmetric(12.0, 8.0))
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new("Tìm vật phẩm:").strong().color(c.canvas_tint));
-                    ui.add_sized([220.0, 22.0], egui::TextEdit::singleline(&mut self.item_search).hint_text("Tên tiếng Việt, Anh..."));
+                    ui.label(egui::RichText::new(self.language.t(TrKey::InvSearchLabel)).strong().color(c.canvas_tint));
+                    ui.add_sized([220.0, 22.0], egui::TextEdit::singleline(&mut self.item_search).hint_text(self.language.t(TrKey::InvSearchPlaceholder)));
 
                     ui.add_space(10.0);
-                    ui.label(egui::RichText::new("Danh mục:").color(c.text_muted));
+                    ui.label(egui::RichText::new(self.language.t(TrKey::InvCategoryLabel)).color(c.text_muted));
                     let categories = ["Tất cả", "Tài Nguyên", "Vật Liệu", "Tăng Tốc", "Pha Lê", "Sách & Tên", "Khác"];
                     for cat in categories {
                         let is_active = self.item_category_filter == cat;
-                        if ui.selectable_label(is_active, cat).clicked() {
+                        let cat_display = category_name(cat, self.language);
+                        if ui.selectable_label(is_active, cat_display).clicked() {
                             self.item_category_filter = cat.to_string();
                         }
                     }
 
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        let cnt_txt = self.language.t(TrKey::InvItemCount).replace("{}", &format_num(stats.item_stats.len()));
                         ui.label(
-                            egui::RichText::new(format!("{} loại vật phẩm", stats.item_stats.len()))
+                            egui::RichText::new(cnt_txt)
                                 .strong()
                                 .color(c.focus_teal),
                         );
@@ -1791,15 +1903,20 @@ impl RoKLootWatcherApp {
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.label(
-                            egui::RichText::new("TỔNG HỢP TÀI NGUYÊN (QUY ĐỔI SỐ LƯỢNG GÓI x GIÁ TRỊ GÓI -> TRIỆU / M):")
+                            egui::RichText::new(self.language.t(TrKey::InvRssSummaryTitle))
                                 .font(egui::FontId::proportional(11.5))
                                 .strong()
                                 .color(c.accent_gold),
                         );
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            let total_lbl = match self.language {
+                                AppLanguage::Vietnamese => "Tổng cộng",
+                                AppLanguage::English => "Total",
+                            };
                             ui.label(
                                 egui::RichText::new(format!(
-                                    "Tổng cộng: {:.2}M RSS ({})",
+                                    "{}: {:.2}M RSS ({})",
+                                    total_lbl,
                                     res.total_rss_val() as f64 / 1_000_000.0,
                                     format_num(res.total_rss_val())
                                 ))
@@ -1812,31 +1929,39 @@ impl RoKLootWatcherApp {
 
                     ui.add_space(6.0);
 
+                    let pack_mult = match self.language {
+                        AppLanguage::Vietnamese => "gói",
+                        AppLanguage::English => "packs",
+                    };
+                    let total_packs_desc = match self.language {
+                        AppLanguage::Vietnamese => "Số lượng gói",
+                        AppLanguage::English => "Total packs",
+                    };
                     ui.columns(5, |cols| {
                         cols[0].vertical(|ui| {
-                            ui.label(egui::RichText::new("Thực phẩm (Ngô)").strong().color(c.canvas_tint));
+                            ui.label(egui::RichText::new(self.language.t(TrKey::InvFood)).strong().color(c.canvas_tint));
                             ui.label(egui::RichText::new(format!("{:.2}M", res.food_val as f64 / 1_000_000.0)).font(egui::FontId::proportional(15.0)).strong().color(c.accent_gold));
-                            ui.label(egui::RichText::new(format!("{} gói (x1.000)", format_num(res.food_packs))).font(egui::FontId::proportional(10.0)).color(c.text_muted));
+                            ui.label(egui::RichText::new(format!("{} {} (x1.000)", format_num(res.food_packs), pack_mult)).font(egui::FontId::proportional(10.0)).color(c.text_muted));
                         });
                         cols[1].vertical(|ui| {
-                            ui.label(egui::RichText::new("Gỗ (Wood)").strong().color(c.canvas_tint));
+                            ui.label(egui::RichText::new(self.language.t(TrKey::InvWood)).strong().color(c.canvas_tint));
                             ui.label(egui::RichText::new(format!("{:.2}M", res.wood_val as f64 / 1_000_000.0)).font(egui::FontId::proportional(15.0)).strong().color(c.status_green));
-                            ui.label(egui::RichText::new(format!("{} gói (x1.000)", format_num(res.wood_packs))).font(egui::FontId::proportional(10.0)).color(c.text_muted));
+                            ui.label(egui::RichText::new(format!("{} {} (x1.000)", format_num(res.wood_packs), pack_mult)).font(egui::FontId::proportional(10.0)).color(c.text_muted));
                         });
                         cols[2].vertical(|ui| {
-                            ui.label(egui::RichText::new("Đá (Stone)").strong().color(c.canvas_tint));
+                            ui.label(egui::RichText::new(self.language.t(TrKey::InvStone)).strong().color(c.canvas_tint));
                             ui.label(egui::RichText::new(format!("{:.2}M", res.stone_val as f64 / 1_000_000.0)).font(egui::FontId::proportional(15.0)).strong().color(Color32::from_rgb(0x38, 0xbd, 0xf8)));
-                            ui.label(egui::RichText::new(format!("{} gói (x750)", format_num(res.stone_packs))).font(egui::FontId::proportional(10.0)).color(c.text_muted));
+                            ui.label(egui::RichText::new(format!("{} {} (x750)", format_num(res.stone_packs), pack_mult)).font(egui::FontId::proportional(10.0)).color(c.text_muted));
                         });
                         cols[3].vertical(|ui| {
-                            ui.label(egui::RichText::new("Vàng (Gold)").strong().color(c.canvas_tint));
+                            ui.label(egui::RichText::new(self.language.t(TrKey::InvGold)).strong().color(c.canvas_tint));
                             ui.label(egui::RichText::new(format!("{:.2}M", res.gold_val as f64 / 1_000_000.0)).font(egui::FontId::proportional(15.0)).strong().color(Color32::from_rgb(0xf5, 0x9e, 0x0b)));
-                            ui.label(egui::RichText::new(format!("{} gói (x500)", format_num(res.gold_packs))).font(egui::FontId::proportional(10.0)).color(c.text_muted));
+                            ui.label(egui::RichText::new(format!("{} {} (x500)", format_num(res.gold_packs), pack_mult)).font(egui::FontId::proportional(10.0)).color(c.text_muted));
                         });
                         cols[4].vertical(|ui| {
-                            ui.label(egui::RichText::new("Gói C Tùy Chọn").strong().color(c.canvas_tint));
-                            ui.label(egui::RichText::new(format!("{} gói", format_num(res.choice_packs))).font(egui::FontId::proportional(15.0)).strong().color(c.focus_teal));
-                            ui.label(egui::RichText::new("Số lượng gói").font(egui::FontId::proportional(10.0)).color(c.text_muted));
+                            ui.label(egui::RichText::new(self.language.t(TrKey::InvChoicePacks)).strong().color(c.canvas_tint));
+                            ui.label(egui::RichText::new(format!("{} {}", format_num(res.choice_packs), pack_mult)).font(egui::FontId::proportional(15.0)).strong().color(c.focus_teal));
+                            ui.label(egui::RichText::new(total_packs_desc).font(egui::FontId::proportional(10.0)).color(c.text_muted));
                         });
                     });
                 });
@@ -1855,55 +1980,85 @@ impl RoKLootWatcherApp {
                 .inner_margin(Margin::same(10.0))
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
+                        let mat_summary_title = match self.language {
+                            AppLanguage::Vietnamese => "TỔNG HỢP VẬT LIỆU TRANG BỊ & ĐIỂM HÀNH ĐỘNG (AP):",
+                            AppLanguage::English => "MATERIALS & ACTION POINTS (AP) SUMMARY:",
+                        };
                         ui.label(
-                            egui::RichText::new("TỔNG HỢP VẬT LIỆU TRANG BỊ & ĐIỂM HÀNH ĐỘNG (AP):")
+                            egui::RichText::new(mat_summary_title)
                                 .font(egui::FontId::proportional(11.5))
                                 .strong()
                                 .color(c.focus_teal),
                         );
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            ui.label(
-                                egui::RichText::new(format!(
+                            let mat_total_str = match self.language {
+                                AppLanguage::Vietnamese => format!(
                                     "Tổng: {} BT | {} NC => {} quy đổi | +{} AP",
                                     format_num(mats.total_normal()),
                                     format_num(mats.total_advanced()),
                                     format_num(mats.total_converted_normal()),
                                     format_num(ap.total_ap_points())
-                                ))
-                                .font(egui::FontId::proportional(12.5))
-                                .color(c.status_green)
-                                .strong(),
+                                ),
+                                AppLanguage::English => format!(
+                                    "Total: {} Norm | {} Adv => {} conv | +{} AP",
+                                    format_num(mats.total_normal()),
+                                    format_num(mats.total_advanced()),
+                                    format_num(mats.total_converted_normal()),
+                                    format_num(ap.total_ap_points())
+                                ),
+                            };
+                            ui.label(
+                                egui::RichText::new(mat_total_str)
+                                    .font(egui::FontId::proportional(12.5))
+                                    .color(c.status_green)
+                                    .strong(),
                             );
                         });
                     });
 
                     ui.add_space(6.0);
 
+                    let (conv_lbl, norm_lbl, adv_lbl) = match self.language {
+                        AppLanguage::Vietnamese => ("quy đổi", "BT", "NC"),
+                        AppLanguage::English => ("conv", "Norm", "Adv"),
+                    };
+                    let (leather_lbl, iron_lbl, ebony_lbl, bone_lbl, ap_lbl) = match self.language {
+                        AppLanguage::Vietnamese => ("Da (Leather)", "Quặng Sắt (Iron)", "Gỗ Mun (Ebony)", "Xương (Bone)", "Điểm Hành Động"),
+                        AppLanguage::English => ("Leather", "Iron Ore", "Ebony Wood", "Animal Bone", "Action Points"),
+                    };
+                    let pots_lbl = match self.language {
+                        AppLanguage::Vietnamese => "bình",
+                        AppLanguage::English => "pots",
+                    };
+                    let total_pots_lbl = match self.language {
+                        AppLanguage::Vietnamese => "Tổng",
+                        AppLanguage::English => "Total",
+                    };
                     ui.columns(5, |cols| {
                         cols[0].vertical(|ui| {
-                            ui.label(egui::RichText::new("Da (Leather)").strong().color(c.canvas_tint));
-                            ui.label(egui::RichText::new(format!("{} quy đổi", format_num(mats.leather_total_converted()))).font(egui::FontId::proportional(14.0)).strong().color(Color32::from_rgb(0xfb, 0x92, 0x3c)));
-                            ui.label(egui::RichText::new(format!("BT: {} | NC: {}", format_num(mats.leather_normal), format_num(mats.leather_advanced))).font(egui::FontId::proportional(10.0)).color(c.text_muted));
+                            ui.label(egui::RichText::new(leather_lbl).strong().color(c.canvas_tint));
+                            ui.label(egui::RichText::new(format!("{} {}", format_num(mats.leather_total_converted()), conv_lbl)).font(egui::FontId::proportional(14.0)).strong().color(Color32::from_rgb(0xfb, 0x92, 0x3c)));
+                            ui.label(egui::RichText::new(format!("{}: {} | {}: {}", norm_lbl, format_num(mats.leather_normal), adv_lbl, format_num(mats.leather_advanced))).font(egui::FontId::proportional(10.0)).color(c.text_muted));
                         });
                         cols[1].vertical(|ui| {
-                            ui.label(egui::RichText::new("Quặng Sắt (Iron)").strong().color(c.canvas_tint));
-                            ui.label(egui::RichText::new(format!("{} quy đổi", format_num(mats.iron_total_converted()))).font(egui::FontId::proportional(14.0)).strong().color(Color32::from_rgb(0x94, 0xa3, 0xb8)));
-                            ui.label(egui::RichText::new(format!("BT: {} | NC: {}", format_num(mats.iron_normal), format_num(mats.iron_advanced))).font(egui::FontId::proportional(10.0)).color(c.text_muted));
+                            ui.label(egui::RichText::new(iron_lbl).strong().color(c.canvas_tint));
+                            ui.label(egui::RichText::new(format!("{} {}", format_num(mats.iron_total_converted()), conv_lbl)).font(egui::FontId::proportional(14.0)).strong().color(Color32::from_rgb(0x94, 0xa3, 0xb8)));
+                            ui.label(egui::RichText::new(format!("{}: {} | {}: {}", norm_lbl, format_num(mats.iron_normal), adv_lbl, format_num(mats.iron_advanced))).font(egui::FontId::proportional(10.0)).color(c.text_muted));
                         });
                         cols[2].vertical(|ui| {
-                            ui.label(egui::RichText::new("Gỗ Mun (Ebony)").strong().color(c.canvas_tint));
-                            ui.label(egui::RichText::new(format!("{} quy đổi", format_num(mats.ebony_total_converted()))).font(egui::FontId::proportional(14.0)).strong().color(Color32::from_rgb(0x34, 0xd3, 0x99)));
-                            ui.label(egui::RichText::new(format!("BT: {} | NC: {}", format_num(mats.ebony_normal), format_num(mats.ebony_advanced))).font(egui::FontId::proportional(10.0)).color(c.text_muted));
+                            ui.label(egui::RichText::new(ebony_lbl).strong().color(c.canvas_tint));
+                            ui.label(egui::RichText::new(format!("{} {}", format_num(mats.ebony_total_converted()), conv_lbl)).font(egui::FontId::proportional(14.0)).strong().color(Color32::from_rgb(0x34, 0xd3, 0x99)));
+                            ui.label(egui::RichText::new(format!("{}: {} | {}: {}", norm_lbl, format_num(mats.ebony_normal), adv_lbl, format_num(mats.ebony_advanced))).font(egui::FontId::proportional(10.0)).color(c.text_muted));
                         });
                         cols[3].vertical(|ui| {
-                            ui.label(egui::RichText::new("Xương (Bone)").strong().color(c.canvas_tint));
-                            ui.label(egui::RichText::new(format!("{} quy đổi", format_num(mats.bone_total_converted()))).font(egui::FontId::proportional(14.0)).strong().color(Color32::from_rgb(0xf4, 0x72, 0xb6)));
-                            ui.label(egui::RichText::new(format!("BT: {} | NC: {}", format_num(mats.bone_normal), format_num(mats.bone_advanced))).font(egui::FontId::proportional(10.0)).color(c.text_muted));
+                            ui.label(egui::RichText::new(bone_lbl).strong().color(c.canvas_tint));
+                            ui.label(egui::RichText::new(format!("{} {}", format_num(mats.bone_total_converted()), conv_lbl)).font(egui::FontId::proportional(14.0)).strong().color(Color32::from_rgb(0xf4, 0x72, 0xb6)));
+                            ui.label(egui::RichText::new(format!("{}: {} | {}: {}", norm_lbl, format_num(mats.bone_normal), adv_lbl, format_num(mats.bone_advanced))).font(egui::FontId::proportional(10.0)).color(c.text_muted));
                         });
                         cols[4].vertical(|ui| {
-                            ui.label(egui::RichText::new("Điểm Hành Động").strong().color(c.canvas_tint));
+                            ui.label(egui::RichText::new(ap_lbl).strong().color(c.canvas_tint));
                             ui.label(egui::RichText::new(format!("+{} AP", format_num(ap.total_ap_points()))).font(egui::FontId::proportional(14.0)).strong().color(c.status_green));
-                            ui.label(egui::RichText::new(format!("Tổng {} bình", format_num(ap.total_bottles()))).font(egui::FontId::proportional(10.0)).color(c.text_muted));
+                            ui.label(egui::RichText::new(format!("{} {} {}", total_pots_lbl, format_num(ap.total_bottles()), pots_lbl)).font(egui::FontId::proportional(10.0)).color(c.text_muted));
                         });
                     });
                 });
@@ -1998,7 +2153,6 @@ impl RoKLootWatcherApp {
         }
 
         // Inventory Table Responsive Metrics
-        // Inventory Table Responsive Metrics
         const INV_PAD_X: f32 = 8.0;
         const INV_SPACING_X: f32 = 6.0;
 
@@ -2031,28 +2185,32 @@ impl RoKLootWatcherApp {
                     ui.spacing_mut().item_spacing.x = INV_SPACING_X;
                     ui.set_min_height(26.0);
 
-                    if render_item_sort_header_cell(ui, "Tên Vật Phẩm (VI)", ItemSortColumn::NameVi, self.item_sort_col, self.item_sort_dir, col_name_vi, egui::Align::LEFT, c.text_muted, c.focus_teal) {
+                    if render_item_sort_header_cell(ui, self.language.t(TrKey::InvColNameVi), ItemSortColumn::NameVi, self.item_sort_col, self.item_sort_dir, col_name_vi, egui::Align::LEFT, c.text_muted, c.focus_teal, self.language) {
                         toggle_item_sort_col = Some(ItemSortColumn::NameVi);
                     }
-                    if render_item_sort_header_cell(ui, "Tên Tiếng Anh (EN)", ItemSortColumn::NameEn, self.item_sort_col, self.item_sort_dir, col_name_en, egui::Align::LEFT, c.text_muted, c.focus_teal) {
+                    if render_item_sort_header_cell(ui, self.language.t(TrKey::InvColNameEn), ItemSortColumn::NameEn, self.item_sort_col, self.item_sort_dir, col_name_en, egui::Align::LEFT, c.text_muted, c.focus_teal, self.language) {
                         toggle_item_sort_col = Some(ItemSortColumn::NameEn);
                     }
-                    if render_item_sort_header_cell(ui, "Danh Mục", ItemSortColumn::Category, self.item_sort_col, self.item_sort_dir, COL_CAT, egui::Align::Center, c.text_muted, c.focus_teal) {
+                    if render_item_sort_header_cell(ui, self.language.t(TrKey::InvColCategory), ItemSortColumn::Category, self.item_sort_col, self.item_sort_dir, COL_CAT, egui::Align::Center, c.text_muted, c.focus_teal, self.language) {
                         toggle_item_sort_col = Some(ItemSortColumn::Category);
                     }
-                    if render_item_sort_header_cell(ui, "Tổng Số Lượng", ItemSortColumn::TotalQty, self.item_sort_col, self.item_sort_dir, COL_TOTAL, egui::Align::RIGHT, c.accent_gold, c.focus_teal) {
+                    if render_item_sort_header_cell(ui, self.language.t(TrKey::InvColTotalQty), ItemSortColumn::TotalQty, self.item_sort_col, self.item_sort_dir, COL_TOTAL, egui::Align::RIGHT, c.accent_gold, c.focus_teal, self.language) {
                         toggle_item_sort_col = Some(ItemSortColumn::TotalQty);
                     }
-                    if render_item_sort_header_cell(ui, "Quy Đổi / Thực", ItemSortColumn::Converted, self.item_sort_col, self.item_sort_dir, COL_CONV, egui::Align::RIGHT, c.status_green, c.focus_teal) {
+                    if render_item_sort_header_cell(ui, self.language.t(TrKey::InvColConverted), ItemSortColumn::Converted, self.item_sort_col, self.item_sort_dir, COL_CONV, egui::Align::RIGHT, c.status_green, c.focus_teal, self.language) {
                         toggle_item_sort_col = Some(ItemSortColumn::Converted);
                     }
-                    if render_item_sort_header_cell(ui, "Số Trận", ItemSortColumn::Battles, self.item_sort_col, self.item_sort_dir, COL_BATTLES, egui::Align::RIGHT, c.text_muted, c.focus_teal) {
+                    if render_item_sort_header_cell(ui, self.language.t(TrKey::InvColBattles), ItemSortColumn::Battles, self.item_sort_col, self.item_sort_dir, COL_BATTLES, egui::Align::RIGHT, c.text_muted, c.focus_teal, self.language) {
                         toggle_item_sort_col = Some(ItemSortColumn::Battles);
                     }
 
-                    ui.add_sized([COL_RATE, 20.0], egui::Label::new(egui::RichText::new("Tỷ Lệ Rơi").strong().color(c.text_muted)).halign(egui::Align::RIGHT));
-                    ui.add_sized([COL_AVG, 20.0], egui::Label::new(egui::RichText::new("TB / Trận").strong().color(c.text_muted)).halign(egui::Align::RIGHT));
-                    ui.add_sized([COL_MAX, 20.0], egui::Label::new(egui::RichText::new("Max / Trận").strong().color(c.text_muted)).halign(egui::Align::RIGHT));
+                    let (rate_hdr, avg_hdr, max_hdr) = match self.language {
+                        AppLanguage::Vietnamese => ("Tỷ Lệ Rơi", "TB / Trận", "Max / Trận"),
+                        AppLanguage::English => ("Drop Rate", "Avg / Battle", "Max / Battle"),
+                    };
+                    ui.add_sized([COL_RATE, 20.0], egui::Label::new(egui::RichText::new(rate_hdr).strong().color(c.text_muted)).halign(egui::Align::RIGHT));
+                    ui.add_sized([COL_AVG, 20.0], egui::Label::new(egui::RichText::new(avg_hdr).strong().color(c.text_muted)).halign(egui::Align::RIGHT));
+                    ui.add_sized([COL_MAX, 20.0], egui::Label::new(egui::RichText::new(max_hdr).strong().color(c.text_muted)).halign(egui::Align::RIGHT));
                 });
             });
 
@@ -2105,7 +2263,7 @@ impl RoKLootWatcherApp {
                                 .rounding(Rounding::same(4.0))
                                 .inner_margin(Margin::symmetric(4.0, 1.0))
                                 .show(ui, |ui| {
-                                    ui.add_sized([COL_CAT - 10.0, 18.0], egui::Label::new(egui::RichText::new(&it.category).font(egui::FontId::proportional(10.0)).color(c.focus_teal)).truncate().halign(egui::Align::Center));
+                                    ui.add_sized([COL_CAT - 10.0, 18.0], egui::Label::new(egui::RichText::new(category_name(&it.category, self.language)).font(egui::FontId::proportional(10.0)).color(c.focus_teal)).truncate().halign(egui::Align::Center));
                                 });
 
                             ui.add_sized([COL_TOTAL, 22.0], egui::Label::new(egui::RichText::new(format_num(it.total_quantity)).monospace().strong().color(c.accent_gold)).truncate().halign(egui::Align::RIGHT));
@@ -2140,9 +2298,9 @@ impl RoKLootWatcherApp {
                     .rounding(Rounding::same(6.0))
                     .inner_margin(Margin::same(14.0))
                     .show(ui, |ui| {
-                        ui.label(egui::RichText::new("THƯ MỤC MAILCACHE GAME ROK").font(egui::FontId::proportional(12.0)).strong().color(c.canvas_tint));
+                        ui.label(egui::RichText::new(self.language.t(TrKey::SettingsCardMailTitle)).font(egui::FontId::proportional(12.0)).strong().color(c.canvas_tint));
                         ui.add_space(4.0);
-                        ui.label(egui::RichText::new("Thư mục chứa các file nhị phân báo cáo chiến đấu từ bản cài đặt Rise of Kingdoms PC.").font(egui::FontId::proportional(10.5)).color(c.text_muted));
+                        ui.label(egui::RichText::new(self.language.t(TrKey::SettingsCardMailDesc)).font(egui::FontId::proportional(10.5)).color(c.text_muted));
                         ui.add_space(8.0);
 
                         let text_edit = ui.add_sized(
@@ -2156,20 +2314,20 @@ impl RoKLootWatcherApp {
 
                         ui.add_space(8.0);
                         ui.horizontal(|ui| {
-                            if ui.button("Duyệt thư mục...").clicked() {
+                            if ui.button(self.language.t(TrKey::SettingsBtnBrowse)).clicked() {
                                 if let Some(folder) = rfd::FileDialog::new().pick_folder() {
                                     self.mail_path_input = folder.to_string_lossy().to_string();
                                     self.watcher.set_mail_dir(folder);
                                     self.save_config();
                                 }
                             }
-                            if ui.button("Mặc định").clicked() {
+                            if ui.button(self.language.t(TrKey::SettingsBtnDefault)).clicked() {
                                 let def_mail = detect_default_mail_dir();
                                 self.mail_path_input = def_mail.to_string_lossy().to_string();
                                 self.watcher.set_mail_dir(def_mail);
                                 self.save_config();
                             }
-                            if ui.button("Mở trong Explorer").clicked() {
+                            if ui.button(self.language.t(TrKey::SettingsBtnOpenExplorer)).clicked() {
                                 let _ = open::that(self.watcher.get_mail_dir());
                             }
                         });
@@ -2184,16 +2342,16 @@ impl RoKLootWatcherApp {
                     .rounding(Rounding::same(6.0))
                     .inner_margin(Margin::same(14.0))
                     .show(ui, |ui| {
-                        ui.label(egui::RichText::new("THAO TÁC QUÉT DỮ LIỆU").font(egui::FontId::proportional(12.0)).strong().color(c.canvas_tint));
+                        ui.label(egui::RichText::new(self.language.t(TrKey::SettingsCardScanTitle)).font(egui::FontId::proportional(12.0)).strong().color(c.canvas_tint));
                         ui.add_space(4.0);
-                        ui.label(egui::RichText::new("Quét các file mail mới phát sinh hoặc tái phân tích toàn bộ kho lịch sử.").font(egui::FontId::proportional(10.5)).color(c.text_muted));
+                        ui.label(egui::RichText::new(self.language.t(TrKey::SettingsCardScanDesc)).font(egui::FontId::proportional(10.5)).color(c.text_muted));
                         ui.add_space(8.0);
 
                         ui.horizontal(|ui| {
-                            if ui.button(egui::RichText::new("Quét Thư Mới (Gia Tăng)").strong()).on_hover_text("Chỉ quét và giải mã các file mới thêm vào thư mục mailcache (~0ms)").clicked() {
+                            if ui.button(egui::RichText::new(self.language.t(TrKey::SettingsBtnScanNew)).strong()).on_hover_text(self.language.t(TrKey::SettingsBtnScanNewTooltip)).clicked() {
                                 self.watcher.rescan();
                             }
-                            if ui.button(egui::RichText::new("Quét Lại Từ Đầu").color(c.accent_gold).strong()).on_hover_text("Tái phân tích lại toàn bộ các file thư từ đầu theo batch 50").clicked() {
+                            if ui.button(egui::RichText::new(self.language.t(TrKey::SettingsBtnRescanForce)).color(c.accent_gold).strong()).on_hover_text(self.language.t(TrKey::SettingsBtnRescanForceTooltip)).clicked() {
                                 self.watcher.rescan_force();
                             }
                         });
@@ -2208,14 +2366,32 @@ impl RoKLootWatcherApp {
                     .rounding(Rounding::same(6.0))
                     .inner_margin(Margin::same(14.0))
                     .show(ui, |ui| {
-                        ui.label(egui::RichText::new("TÙY CHỌN HỆ THỐNG").font(egui::FontId::proportional(12.0)).strong().color(c.canvas_tint));
+                        ui.label(egui::RichText::new(self.language.t(TrKey::SettingsCardSystemTitle)).font(egui::FontId::proportional(12.0)).strong().color(c.canvas_tint));
+                        ui.add_space(8.0);
+
+                        // Language Selector
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new(self.language.t(TrKey::SettingsLanguageLabel)).strong().color(c.canvas_tint));
+                            let prev_lang = self.language;
+                            ui.selectable_value(&mut self.language, AppLanguage::Vietnamese, "Tiếng Việt");
+                            ui.selectable_value(&mut self.language, AppLanguage::English, "English");
+                            if self.language != prev_lang {
+                                self.save_config();
+                                if let Some(tray) = &self.tray {
+                                    tray.update_language(self.language);
+                                }
+                            }
+                        });
+
+                        ui.add_space(8.0);
+                        ui.separator();
                         ui.add_space(8.0);
 
                         ui.horizontal(|ui| {
-                            ui.label(egui::RichText::new("Hành vi nút Đóng X:").strong().color(c.canvas_tint));
+                            ui.label(egui::RichText::new(self.language.t(TrKey::SettingsCloseBehavior)).strong().color(c.canvas_tint));
                             let prev_close = self.close_behavior;
-                            ui.selectable_value(&mut self.close_behavior, CloseBehavior::Tray, "Ẩn vào Khay");
-                            ui.selectable_value(&mut self.close_behavior, CloseBehavior::Close, "Thoát Ứng Dụng");
+                            ui.selectable_value(&mut self.close_behavior, CloseBehavior::Tray, self.language.t(TrKey::SettingsCloseTray));
+                            ui.selectable_value(&mut self.close_behavior, CloseBehavior::Close, self.language.t(TrKey::SettingsCloseExit));
                             if self.close_behavior != prev_close {
                                 self.save_config();
                             }
@@ -2228,8 +2404,8 @@ impl RoKLootWatcherApp {
                         // Autostart setting
                         ui.horizontal(|ui| {
                             let mut autostart = self.autostart;
-                            if ui.checkbox(&mut autostart, egui::RichText::new("Khởi động cùng Windows (Autostart)").strong().color(c.canvas_tint))
-                                .on_hover_text("Tự động mở ROK Loot Watcher khi máy tính khởi động")
+                            if ui.checkbox(&mut autostart, egui::RichText::new(self.language.t(TrKey::SettingsAutostart)).strong().color(c.canvas_tint))
+                                .on_hover_text(self.language.t(TrKey::SettingsAutostartTooltip))
                                 .changed()
                             {
                                 self.autostart = autostart;
@@ -2254,8 +2430,8 @@ impl RoKLootWatcherApp {
                                 ui.add_space(20.0);
                                 let mut start_min = self.autostart_minimized;
                                 let min_color = if self.autostart_minimized { c.accent_gold } else { c.canvas_tint };
-                                if ui.checkbox(&mut start_min, egui::RichText::new("↳ Thu nhỏ xuống Khay hệ thống (Tray Icon) khi khởi động").color(min_color))
-                                    .on_hover_text("Khi khởi động cùng Windows, ứng dụng sẽ chạy ngầm dưới khay hệ thống mà không mở cửa sổ to gây vướng víu")
+                                if ui.checkbox(&mut start_min, egui::RichText::new(self.language.t(TrKey::SettingsAutostartMinimized)).color(min_color))
+                                    .on_hover_text(self.language.t(TrKey::SettingsAutostartMinimizedTooltip))
                                     .changed()
                                 {
                                     self.autostart_minimized = start_min;
@@ -2280,14 +2456,14 @@ impl RoKLootWatcherApp {
 
                         // Deny-Delete Mailcache Armor
                         let armor_label = if self.is_armored {
-                            "[Khóa Chống Xóa: ĐANG BẬT]"
+                            self.language.t(TrKey::SettingsArmorOn)
                         } else {
-                            "[Khóa Chống Xóa: ĐANG TẮT]"
+                            self.language.t(TrKey::SettingsArmorOff)
                         };
                         let armor_color = if self.is_armored { c.status_green } else { c.text_muted };
 
                         if ui.button(egui::RichText::new(armor_label).color(armor_color).strong())
-                            .on_hover_text("Ngăn game tự động xóa thư trong mailcache khi mở xem trong game (Yêu cầu Run as Administrator)")
+                            .on_hover_text(self.language.t(TrKey::SettingsArmorTooltip))
                             .clicked()
                         {
                             let mail_dir = self.watcher.get_mail_dir();
@@ -2325,17 +2501,18 @@ impl RoKLootWatcherApp {
                     .inner_margin(Margin::same(14.0))
                     .show(ui, |ui| {
                         let vault_total = self.watcher.get_vault_total_count();
-                        ui.label(egui::RichText::new("KHO LƯU TRỮ VĨNH VIỄN (VAULT)").font(egui::FontId::proportional(12.0)).strong().color(c.accent_gold));
+                        ui.label(egui::RichText::new(self.language.t(TrKey::SettingsCardVaultTitle)).font(egui::FontId::proportional(12.0)).strong().color(c.accent_gold));
                         ui.add_space(4.0);
-                        ui.label(egui::RichText::new(format!("Hiện đã bảo toàn an toàn: {} trận đánh", format_num(vault_total))).font(egui::FontId::proportional(11.0)).color(c.canvas_tint));
+                        let secured_str = self.language.t(TrKey::SettingsVaultSecured).replace("{}", &format_num(vault_total));
+                        ui.label(egui::RichText::new(secured_str).font(egui::FontId::proportional(11.0)).color(c.canvas_tint));
                         ui.add_space(8.0);
 
                         ui.horizontal(|ui| {
-                            if ui.button("Mở Thư Mục mail_vault").clicked() {
+                            if ui.button(self.language.t(TrKey::SettingsBtnOpenVaultDir)).clicked() {
                                 let dir = self.watcher.get_vault_binary_dir();
                                 let _ = open::that(&dir);
                             }
-                            if ui.button("Mở File JSON Vault").clicked() {
+                            if ui.button(self.language.t(TrKey::SettingsBtnOpenVaultJson)).clicked() {
                                 let f = self.watcher.get_vault_file_path();
                                 let _ = open::that(&f);
                             }
@@ -2351,14 +2528,15 @@ impl RoKLootWatcherApp {
                 .inner_margin(Margin::same(12.0))
                 .show(&mut cols[1], |ui| {
                     ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new("NHẬT KÝ HỆ THỐNG").font(egui::FontId::proportional(12.0)).strong().color(c.focus_teal));
-                        ui.label(egui::RichText::new(format!("({} dòng)", self.console_logs.len())).font(egui::FontId::proportional(10.5)).color(c.text_muted));
+                        ui.label(egui::RichText::new(self.language.t(TrKey::LogsTitle)).font(egui::FontId::proportional(12.0)).strong().color(c.focus_teal));
+                        let count_str = self.language.t(TrKey::LogsLinesCount).replace("{}", &self.console_logs.len().to_string());
+                        ui.label(egui::RichText::new(count_str).font(egui::FontId::proportional(10.5)).color(c.text_muted));
 
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.button("Xóa log").clicked() {
+                            if ui.button(self.language.t(TrKey::LogsBtnClear)).clicked() {
                                 self.console_logs.clear();
                             }
-                            ui.checkbox(&mut self.log_auto_scroll, "Tự cuộn");
+                            ui.checkbox(&mut self.log_auto_scroll, self.language.t(TrKey::LogsAutoScroll));
                         });
                     });
 
@@ -2371,7 +2549,7 @@ impl RoKLootWatcherApp {
                         .auto_shrink([false, false])
                         .show(ui, |ui| {
                             if self.console_logs.is_empty() {
-                                ui.label(egui::RichText::new("Chưa có sự kiện nào trong phiên làm việc này.").color(c.text_muted));
+                                ui.label(egui::RichText::new(self.language.t(TrKey::LogsEmpty)).color(c.text_muted));
                             } else {
                                 for line in &self.console_logs {
                                     let text_color = if line.contains("[SUCCESS]") {
@@ -2403,14 +2581,14 @@ impl RoKLootWatcherApp {
 
         ui.horizontal(|ui| {
             ui.label(
-                egui::RichText::new("CHI TIẾT CHIẾN BÁO")
+                egui::RichText::new(self.language.t(TrKey::InspectorTitle))
                     .font(egui::FontId::proportional(12.0))
                     .strong()
                     .color(c.focus_teal),
             );
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button(" Đóng ").on_hover_text("Đóng bảng chi tiết (hoặc bấm Esc)").clicked() {
+                if ui.button(self.language.t(TrKey::InspectorClose)).on_hover_text(self.language.t(TrKey::InspectorCloseTooltip)).clicked() {
                     *close_inspector = true;
                 }
             });
@@ -2429,7 +2607,7 @@ impl RoKLootWatcherApp {
                 .inner_margin(Margin::same(12.0))
                 .show(ui, |ui| {
                     ui.label(
-                        egui::RichText::new(&record.target)
+                        egui::RichText::new(record.display_target(self.language))
                             .font(egui::FontId::proportional(16.0))
                             .strong()
                             .color(c.canvas_tint),
@@ -2443,10 +2621,23 @@ impl RoKLootWatcherApp {
                         _ => c.barb_accent,
                     };
 
-                    let badge_label = if record.battle_type == "gathering" {
-                        "THU THẬP".to_string()
-                    } else {
-                        record.battle_type.to_uppercase()
+                    let badge_label = match record.battle_type.as_str() {
+                        "gathering" => match self.language {
+                            AppLanguage::Vietnamese => "THU THẬP",
+                            AppLanguage::English => "GATHERING",
+                        },
+                        "motte" => match self.language {
+                            AppLanguage::Vietnamese => "MOTTE",
+                            AppLanguage::English => "MOTTE",
+                        },
+                        "fort" => match self.language {
+                            AppLanguage::Vietnamese => "PHÁO ĐÀI",
+                            AppLanguage::English => "FORT",
+                        },
+                        _ => match self.language {
+                            AppLanguage::Vietnamese => "DÃ MAN",
+                            AppLanguage::English => "BARBARIAN",
+                        },
                     };
 
                     ui.horizontal(|ui| {
@@ -2472,19 +2663,26 @@ impl RoKLootWatcherApp {
                     });
 
                     ui.add_space(8.0);
-                    ui.label(egui::RichText::new(format!("Thời gian: {}", record.time_vn)).font(egui::FontId::proportional(11.5)).color(c.text_muted));
+                    let time_label = self.language.t(TrKey::InspectorTime).replace("{}", &record.time_vn);
+                    ui.label(egui::RichText::new(time_label).font(egui::FontId::proportional(11.5)).color(c.text_muted));
                     if record.battle_type == "gathering" {
                         let lvl_display = if !record.target_level.is_empty() {
-                            format!("Cấp {}", record.target_level)
+                            match self.language {
+                                AppLanguage::Vietnamese => format!("Cấp {}", record.target_level),
+                                AppLanguage::English => format!("Level {}", record.target_level),
+                            }
                         } else {
                             "-".to_string()
                         };
-                        ui.label(egui::RichText::new(format!("Cấp mỏ tài nguyên: {}", lvl_display)).font(egui::FontId::proportional(11.5)).strong().color(c.focus_teal));
+                        let lvl_label = self.language.t(TrKey::InspectorTileLevel).replace("{}", &lvl_display);
+                        ui.label(egui::RichText::new(lvl_label).font(egui::FontId::proportional(11.5)).strong().color(c.focus_teal));
                         if record.talent_add > 0 {
-                            ui.label(egui::RichText::new(format!("Thưởng tài năng / công nghệ: +{}", format_num(record.talent_add))).font(egui::FontId::proportional(11.5)).color(c.status_green));
+                            let bonus_label = self.language.t(TrKey::InspectorTalentAdd).replace("{}", &format_num(record.talent_add));
+                            ui.label(egui::RichText::new(bonus_label).font(egui::FontId::proportional(11.5)).color(c.status_green));
                         }
                     } else {
-                        ui.label(egui::RichText::new(format!("Sát thương gây ra: {}%", record.damage_pct)).font(egui::FontId::proportional(11.5)).strong().color(c.focus_teal));
+                        let dmg_label = self.language.t(TrKey::InspectorDamage).replace("{}", &record.damage_pct.to_string());
+                        ui.label(egui::RichText::new(dmg_label).font(egui::FontId::proportional(11.5)).strong().color(c.focus_teal));
                     }
                 });
 
@@ -2499,16 +2697,32 @@ impl RoKLootWatcherApp {
                     .rounding(Rounding::same(6.0))
                     .inner_margin(Margin::same(10.0))
                     .show(ui, |ui| {
-                        ui.label(egui::RichText::new("TÀI NGUYÊN THU ĐƯỢC").font(egui::FontId::proportional(11.0)).strong().color(c.accent_gold));
+                        ui.label(egui::RichText::new(self.language.t(TrKey::InspectorRssGained)).font(egui::FontId::proportional(11.0)).strong().color(c.accent_gold));
                         ui.add_space(4.0);
-                        let choice_str = if res.choice_packs > 0 { format!(" | Gói C: {} gói", format_num(res.choice_packs)) } else { String::new() };
+                        let choice_str = if res.choice_packs > 0 {
+                            match self.language {
+                                AppLanguage::Vietnamese => format!(" | Gói C: {} gói", format_num(res.choice_packs)),
+                                AppLanguage::English => format!(" | Choice Chests: {}", format_num(res.choice_packs)),
+                            }
+                        } else {
+                            String::new()
+                        };
+                        let (lbl_total, lbl_food, lbl_wood, lbl_stone, lbl_gold) = match self.language {
+                            AppLanguage::Vietnamese => ("Tổng", "Ngô", "Gỗ", "Đá", "Vàng"),
+                            AppLanguage::English => ("Total", "Food", "Wood", "Stone", "Gold"),
+                        };
                         ui.label(
                             egui::RichText::new(format!(
-                                "Tổng: {:.2}M (Ngô: {:.2}M, Gỗ: {:.2}M, Đá: {:.2}M, Vàng: {:.2}M){}",
+                                "{}: {:.2}M ({}: {:.2}M, {}: {:.2}M, {}: {:.2}M, {}: {:.2}M){}",
+                                lbl_total,
                                 res.total_rss_val() as f64 / 1_000_000.0,
+                                lbl_food,
                                 res.food_val as f64 / 1_000_000.0,
+                                lbl_wood,
                                 res.wood_val as f64 / 1_000_000.0,
+                                lbl_stone,
                                 res.stone_val as f64 / 1_000_000.0,
+                                lbl_gold,
                                 res.gold_val as f64 / 1_000_000.0,
                                 choice_str
                             ))
@@ -2529,12 +2743,16 @@ impl RoKLootWatcherApp {
                     .rounding(Rounding::same(6.0))
                     .inner_margin(Margin::same(10.0))
                     .show(ui, |ui| {
-                        ui.label(egui::RichText::new("TĂNG TỐC THU ĐƯỢC").font(egui::FontId::proportional(11.0)).strong().color(c.status_green));
+                        ui.label(egui::RichText::new(self.language.t(TrKey::InspectorSpeedupGained)).font(egui::FontId::proportional(11.0)).strong().color(c.status_green));
                         ui.add_space(4.0);
+                        let (lbl_univ, lbl_train, lbl_heal) = match self.language {
+                            AppLanguage::Vietnamese => ("Đa năng", "Đào tạo", "Hồi phục"),
+                            AppLanguage::English => ("Univ", "Training", "Healing"),
+                        };
                         let mut spd_parts = Vec::new();
-                        if u_min > 0 { spd_parts.push(format!("Đa năng: {}", self.speedup_unit.format_duration(u_min as f64))); }
-                        if t_min > 0 { spd_parts.push(format!("Đào tạo: {}", self.speedup_unit.format_duration(t_min as f64))); }
-                        if h_min > 0 { spd_parts.push(format!("Hồi phục: {}", self.speedup_unit.format_duration(h_min as f64))); }
+                        if u_min > 0 { spd_parts.push(format!("{}: {}", lbl_univ, self.speedup_unit.format_duration(u_min as f64))); }
+                        if t_min > 0 { spd_parts.push(format!("{}: {}", lbl_train, self.speedup_unit.format_duration(t_min as f64))); }
+                        if h_min > 0 { spd_parts.push(format!("{}: {}", lbl_heal, self.speedup_unit.format_duration(h_min as f64))); }
                         ui.label(egui::RichText::new(spd_parts.join("  |  ")).font(egui::FontId::proportional(11.0)).color(c.canvas_tint));
                     });
                 ui.add_space(8.0);
@@ -2549,23 +2767,31 @@ impl RoKLootWatcherApp {
                     .rounding(Rounding::same(6.0))
                     .inner_margin(Margin::same(10.0))
                     .show(ui, |ui| {
-                        ui.label(egui::RichText::new("VẬT LIỆU TRANG BỊ & ĐIỂM HÀNH ĐỘNG (AP)").font(egui::FontId::proportional(11.0)).strong().color(c.focus_teal));
+                        ui.label(egui::RichText::new(self.language.t(TrKey::InspectorMaterialsAp)).font(egui::FontId::proportional(11.0)).strong().color(c.focus_teal));
                         ui.add_space(4.0);
                         let mut parts = Vec::new();
+                        let unit_suffix = match self.language {
+                            AppLanguage::Vietnamese => "BT",
+                            AppLanguage::English => "Norm",
+                        };
                         if mats.leather_total_converted() > 0 {
-                            parts.push(format!("Da: {} BT", mats.leather_total_converted()));
+                            parts.push(format!("{}: {} {}", self.language.t(TrKey::InspectorLeather), mats.leather_total_converted(), unit_suffix));
                         }
                         if mats.iron_total_converted() > 0 {
-                            parts.push(format!("Sắt: {} BT", mats.iron_total_converted()));
+                            parts.push(format!("{}: {} {}", self.language.t(TrKey::InspectorIron), mats.iron_total_converted(), unit_suffix));
                         }
                         if mats.ebony_total_converted() > 0 {
-                            parts.push(format!("Gỗ: {} BT", mats.ebony_total_converted()));
+                            parts.push(format!("{}: {} {}", self.language.t(TrKey::InspectorEbony), mats.ebony_total_converted(), unit_suffix));
                         }
                         if mats.bone_total_converted() > 0 {
-                            parts.push(format!("Xương: {} BT", mats.bone_total_converted()));
+                            parts.push(format!("{}: {} {}", self.language.t(TrKey::InspectorBone), mats.bone_total_converted(), unit_suffix));
                         }
                         if ap.total_ap_points() > 0 {
-                            parts.push(format!("+{} AP ({} bình)", ap.total_ap_points(), ap.total_bottles()));
+                            let bottles_label = match self.language {
+                                AppLanguage::Vietnamese => format!("{} bình", ap.total_bottles()),
+                                AppLanguage::English => format!("{} pots", ap.total_bottles()),
+                            };
+                            parts.push(format!("+{} AP ({})", ap.total_ap_points(), bottles_label));
                         }
                         ui.label(egui::RichText::new(parts.join("  |  ")).font(egui::FontId::proportional(11.0)).color(c.canvas_tint));
                     });
@@ -2573,11 +2799,12 @@ impl RoKLootWatcherApp {
             }
 
             // Items List
-            ui.label(egui::RichText::new(format!("DANH SÁCH VẬT PHẨM ({} món)", record.items.len())).font(egui::FontId::proportional(11.5)).strong().color(c.canvas_tint));
+            let items_list_label = self.language.t(TrKey::InspectorItemsList).replace("{}", &record.items.len().to_string());
+            ui.label(egui::RichText::new(items_list_label).font(egui::FontId::proportional(11.5)).strong().color(c.canvas_tint));
             ui.add_space(6.0);
 
             if record.items.is_empty() {
-                ui.label(egui::RichText::new("Không có vật phẩm nào được ghi nhận trong chiến báo này.").color(c.text_muted));
+                ui.label(egui::RichText::new(self.language.t(TrKey::InspectorNoItems)).color(c.text_muted));
             } else {
                 for it in &record.items {
                     egui::Frame::none()
@@ -2588,9 +2815,9 @@ impl RoKLootWatcherApp {
                         .show(ui, |ui| {
                             ui.horizontal(|ui| {
                                 ui.vertical(|ui| {
-                                    ui.label(egui::RichText::new(&it.name_vi).strong().color(c.canvas_tint));
+                                    ui.label(egui::RichText::new(it.display_name(self.language)).strong().color(c.canvas_tint));
                                     ui.horizontal(|ui| {
-                                        ui.label(egui::RichText::new(format!("[{}]", it.category)).font(egui::FontId::proportional(10.0)).color(c.focus_teal));
+                                        ui.label(egui::RichText::new(format!("[{}]", category_name(&it.category, self.language))).font(egui::FontId::proportional(10.0)).color(c.focus_teal));
                                         if let Some(conv_str) = get_item_converted_display(it.itype, it.sub_type, it.value) {
                                             ui.label(egui::RichText::new(format!("(= {})", conv_str)).font(egui::FontId::proportional(10.0)).color(c.status_green));
                                         }
@@ -2749,5 +2976,25 @@ impl eframe::App for RoKLootWatcherApp {
                     _ => self.render_view_dashboard(ui),
                 }
             });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::AppLanguage;
+
+    #[test]
+    fn test_gui_language_state_default() {
+        let config = AppConfig::default();
+        assert_eq!(config.language, AppLanguage::Vietnamese);
+    }
+
+    #[test]
+    fn test_gui_language_switching() {
+        let mut config = AppConfig::default();
+        assert_eq!(config.language, AppLanguage::Vietnamese);
+        config.language = AppLanguage::English;
+        assert_eq!(config.language, AppLanguage::English);
     }
 }
