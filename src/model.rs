@@ -1156,6 +1156,30 @@ impl CloseBehavior {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AppLanguage {
+    #[serde(rename = "vi")]
+    Vietnamese,
+    #[serde(rename = "en")]
+    English,
+}
+
+impl Default for AppLanguage {
+    fn default() -> Self {
+        AppLanguage::Vietnamese
+    }
+}
+
+impl std::fmt::Display for AppLanguage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AppLanguage::Vietnamese => write!(f, "Tiếng Việt"),
+            AppLanguage::English => write!(f, "English"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
     #[serde(default)]
@@ -1164,6 +1188,8 @@ pub struct AppConfig {
     pub speedup_unit: SpeedupUnit,
     #[serde(default)]
     pub theme: AppTheme,
+    #[serde(default)]
+    pub language: AppLanguage,
     #[serde(default)]
     pub mail_dir: Option<PathBuf>,
     #[serde(default)]
@@ -1184,6 +1210,7 @@ impl Default for AppConfig {
             close_behavior: CloseBehavior::Tray,
             speedup_unit: SpeedupUnit::Minutes,
             theme: AppTheme::Dark,
+            language: AppLanguage::default(),
             mail_dir: None,
             mode: None,
             autostart: false,
@@ -1748,5 +1775,40 @@ mod tests {
         assert!(!FilterMode::Gathering.matches("motte"));
         assert!(!FilterMode::AllTargets.matches("gathering"));
         assert!(FilterMode::AllRewards.matches("gathering"));
+    }
+
+    #[test]
+    fn test_app_language_serde_and_default() {
+        assert_eq!(AppLanguage::default(), AppLanguage::Vietnamese);
+
+        let vi_json = r#""vi""#;
+        let en_json = r#""en""#;
+        assert_eq!(serde_json::from_str::<AppLanguage>(vi_json).unwrap(), AppLanguage::Vietnamese);
+        assert_eq!(serde_json::from_str::<AppLanguage>(en_json).unwrap(), AppLanguage::English);
+
+        assert_eq!(serde_json::to_string(&AppLanguage::Vietnamese).unwrap(), r#""vi""#);
+        assert_eq!(serde_json::to_string(&AppLanguage::English).unwrap(), r#""en""#);
+
+        assert_eq!(AppLanguage::Vietnamese.to_string(), "Tiếng Việt");
+        assert_eq!(AppLanguage::English.to_string(), "English");
+    }
+
+    #[test]
+    fn test_app_config_language_persistence() {
+        let legacy_config = r#"{
+            "close_behavior": "tray",
+            "speedup_unit": "minutes",
+            "theme": "dark",
+            "autostart": false,
+            "autostart_minimized": true
+        }"#;
+        let cfg: AppConfig = serde_json::from_str(legacy_config).expect("Must deserialize legacy config without language");
+        assert_eq!(cfg.language, AppLanguage::Vietnamese);
+
+        let en_config = r#"{
+            "language": "en"
+        }"#;
+        let cfg_en: AppConfig = serde_json::from_str(en_config).expect("Must deserialize config with en");
+        assert_eq!(cfg_en.language, AppLanguage::English);
     }
 }
