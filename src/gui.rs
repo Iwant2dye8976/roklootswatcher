@@ -7,7 +7,7 @@ use eframe::egui::{self, Color32, Margin, Rounding, Stroke};
 use crate::analyzer::parse_date_str;
 use crate::model::{
     format_in_millions_vietnamese, format_num, format_speedup_dhm, get_item_converted_display,
-    AppConfig, AppTheme, BattleRecord, CloseBehavior, DateFilterPreset, FilterMode,
+    AppConfig, AppLanguage, AppTheme, BattleRecord, CloseBehavior, DateFilterPreset, FilterMode,
     SpeedupUnit,
 };
 use crate::tray::SystemTrayManager;
@@ -138,6 +138,7 @@ pub struct RoKLootWatcherApp {
     pub tray: Option<SystemTrayManager>,
 
     pub theme: AppTheme,
+    pub language: AppLanguage,
     status_badge_text: String,
     status_badge_color: Color32,
 
@@ -416,6 +417,7 @@ impl RoKLootWatcherApp {
         let initial_speedup_unit = config.speedup_unit;
         let initial_close_behavior = config.close_behavior;
         let initial_theme = config.theme;
+        let initial_language = config.language;
         let is_armored = crate::armor::is_mailcache_armored(&watcher.get_mail_dir());
 
         let (reg_autostart, reg_minimized) = crate::autostart::get_autostart_status();
@@ -449,6 +451,7 @@ impl RoKLootWatcherApp {
             tray,
 
             theme: initial_theme,
+            language: initial_language,
             status_badge_text: "● Đang theo dõi".into(),
             status_badge_color: theme_colors.status_green,
 
@@ -489,7 +492,7 @@ impl RoKLootWatcherApp {
             mail_dir: Some(self.watcher.get_mail_dir()),
             mode: Some(self.selected_mode),
             theme: self.theme,
-            language: Default::default(),
+            language: self.language,
             autostart: self.autostart,
             autostart_minimized: self.autostart_minimized,
         };
@@ -626,19 +629,7 @@ impl RoKLootWatcherApp {
             .save_file()
         {
             let records = self.watcher.get_active_records();
-            let mut w = String::from("\u{FEFF}Time,BattleType,Target,DamagePct,PlunderTier,Crystals,TotalRSS,Exp,Arrows,UnivSpeedupMin,TrainSpeedupMin,HealSpeedupMin\n");
-            for r in records.iter() {
-                let cry = r.item_quantity(1, 9);
-                let rss = r.total_resource_value();
-                let exp = r.total_exp_value();
-                let arrow = r.item_quantity(2, 145);
-                w.push_str(&format!(
-                    "\"{}\",\"{}\",\"{}\",{},{},{},{},{},{},{},{},{}\n",
-                    r.time_vn, r.battle_type, r.target, r.damage_pct, r.plunder_tier,
-                    cry, rss, exp, arrow,
-                    r.univ_speedup_minutes(), r.training_speedup_minutes(), r.heal_speedup_minutes()
-                ));
-            }
+            let w = crate::exporters::generate_csv(&records, self.language);
             if let Err(e) = std::fs::write(&path, w) {
                 self.watcher.log("ERROR", &format!("Không thể lưu file CSV: {}", e));
             } else {
