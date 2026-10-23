@@ -109,6 +109,7 @@ pub enum BattleSortColumn {
     Time,
     Type,
     Target,
+    Level,
     Damage,
     Tier,
     Crystal,
@@ -488,6 +489,7 @@ impl RoKLootWatcherApp {
             mail_dir: Some(self.watcher.get_mail_dir()),
             mode: Some(self.selected_mode),
             theme: self.theme,
+            language: Default::default(),
             autostart: self.autostart,
             autostart_minimized: self.autostart_minimized,
         };
@@ -854,6 +856,7 @@ impl RoKLootWatcherApp {
                         ui.selectable_value(&mut self.selected_mode, FilterMode::Barbarian, "Dã Man");
                         ui.selectable_value(&mut self.selected_mode, FilterMode::AllForts, "Cả 2 Pháo Đài");
                         ui.selectable_value(&mut self.selected_mode, FilterMode::AllRewards, "Tất cả quà");
+                        ui.selectable_value(&mut self.selected_mode, FilterMode::Gathering, "Thu Thập");
 
                         if self.selected_mode != prev_mode {
                             self.watcher.set_mode(self.selected_mode);
@@ -1256,6 +1259,7 @@ impl RoKLootWatcherApp {
                     ui.selectable_value(&mut self.selected_mode, FilterMode::Barbarian, "Dã Man");
                     ui.selectable_value(&mut self.selected_mode, FilterMode::AllForts, "Cả 2 Pháo Đài");
                     ui.selectable_value(&mut self.selected_mode, FilterMode::AllRewards, "Tất cả quà");
+                    ui.selectable_value(&mut self.selected_mode, FilterMode::Gathering, "Thu Thập");
 
                     if self.selected_mode != prev_mode {
                         self.watcher.set_mode(self.selected_mode);
@@ -1337,14 +1341,21 @@ impl RoKLootWatcherApp {
 
         let records = self.watcher.get_active_records();
         let is_barb = self.selected_mode == FilterMode::Barbarian;
+        let is_gathering = self.selected_mode == FilterMode::Gathering;
 
         // Precise Responsive Layout Metrics
         const TABLE_PAD_X: f32 = 8.0;
         const ITEM_SPACING_X: f32 = 6.0;
 
+        let col_type = if is_gathering { 72.0 } else { 46.0 };
         const COL_TIME: f32 = 116.0;
-        const COL_TYPE: f32 = 46.0;
         const COL_DMG: f32 = 48.0;
+
+        // Gathering specific columns
+        const COL_GATHER_LVL: f32 = 60.0;
+        const COL_GATHER_RES: f32 = 80.0;
+        const COL_GATHER_TOTAL: f32 = 110.0;
+        const COL_GATHER_BONUS: f32 = 100.0;
 
         // Barbarian specific columns (NOW INCLUDES PHA LÊ!)
         const COL_BARB_CRY: f32 = 56.0;
@@ -1366,10 +1377,12 @@ impl RoKLootWatcherApp {
         const COL_VIEW: f32 = 56.0;
 
         let avail_w = ui.available_width();
-        let fixed_w = if is_barb {
-            COL_TIME + COL_TYPE + COL_DMG + COL_BARB_CRY + COL_BARB_RES + COL_BARB_EXP + COL_BARB_UNIV + COL_BARB_TRAIN + COL_BARB_HEAL + COL_BARB_ARROW + COL_VIEW + (TABLE_PAD_X * 2.0) + (ITEM_SPACING_X * 11.0)
+        let fixed_w = if is_gathering {
+            COL_TIME + col_type + COL_GATHER_LVL + COL_GATHER_RES + COL_GATHER_TOTAL + COL_GATHER_BONUS + COL_VIEW + (TABLE_PAD_X * 2.0) + (ITEM_SPACING_X * 7.0)
+        } else if is_barb {
+            COL_TIME + col_type + COL_DMG + COL_BARB_CRY + COL_BARB_RES + COL_BARB_EXP + COL_BARB_UNIV + COL_BARB_TRAIN + COL_BARB_HEAL + COL_BARB_ARROW + COL_VIEW + (TABLE_PAD_X * 2.0) + (ITEM_SPACING_X * 11.0)
         } else {
-            COL_TIME + COL_TYPE + COL_DMG + COL_TIER + COL_CRY + COL_PACKS + COL_TOME + COL_UNIV_SPD + COL_HEAL_SPD + COL_VIEW + (TABLE_PAD_X * 2.0) + (ITEM_SPACING_X * 10.0)
+            COL_TIME + col_type + COL_DMG + COL_TIER + COL_CRY + COL_PACKS + COL_TOME + COL_UNIV_SPD + COL_HEAL_SPD + COL_VIEW + (TABLE_PAD_X * 2.0) + (ITEM_SPACING_X * 10.0)
         };
 
         let min_target = 180.0_f32;
@@ -1393,17 +1406,32 @@ impl RoKLootWatcherApp {
                     if render_sort_header_cell(ui, "Thời Gian (VN)", BattleSortColumn::Time, self.battle_sort_col, self.battle_sort_dir, COL_TIME, egui::Align::LEFT, c.text_muted, c.focus_teal) {
                         toggle_sort_col = Some(BattleSortColumn::Time);
                     }
-                    if render_sort_header_cell(ui, "Loại", BattleSortColumn::Type, self.battle_sort_col, self.battle_sort_dir, COL_TYPE, egui::Align::Center, c.text_muted, c.focus_teal) {
+                    if render_sort_header_cell(ui, "Loại", BattleSortColumn::Type, self.battle_sort_col, self.battle_sort_dir, col_type, egui::Align::Center, c.text_muted, c.focus_teal) {
                         toggle_sort_col = Some(BattleSortColumn::Type);
                     }
                     if render_sort_header_cell(ui, "Mục Tiêu", BattleSortColumn::Target, self.battle_sort_col, self.battle_sort_dir, col_target, egui::Align::LEFT, c.text_muted, c.focus_teal) {
                         toggle_sort_col = Some(BattleSortColumn::Target);
                     }
-                    if render_sort_header_cell(ui, "Sát Thương", BattleSortColumn::Damage, self.battle_sort_col, self.battle_sort_dir, COL_DMG, egui::Align::RIGHT, c.text_muted, c.focus_teal) {
-                        toggle_sort_col = Some(BattleSortColumn::Damage);
+                    if !is_gathering {
+                        if render_sort_header_cell(ui, "Sát Thương", BattleSortColumn::Damage, self.battle_sort_col, self.battle_sort_dir, COL_DMG, egui::Align::RIGHT, c.text_muted, c.focus_teal) {
+                            toggle_sort_col = Some(BattleSortColumn::Damage);
+                        }
                     }
 
-                    if is_barb {
+                    if is_gathering {
+                        if render_sort_header_cell(ui, "Cấp Mỏ", BattleSortColumn::Level, self.battle_sort_col, self.battle_sort_dir, COL_GATHER_LVL, egui::Align::Center, c.text_muted, c.focus_teal) {
+                            toggle_sort_col = Some(BattleSortColumn::Level);
+                        }
+                        if render_sort_header_cell(ui, "Tài Nguyên", BattleSortColumn::Target, self.battle_sort_col, self.battle_sort_dir, COL_GATHER_RES, egui::Align::LEFT, c.text_muted, c.focus_teal) {
+                            toggle_sort_col = Some(BattleSortColumn::Target);
+                        }
+                        if render_sort_header_cell(ui, "Sản Lượng", BattleSortColumn::Resource, self.battle_sort_col, self.battle_sort_dir, COL_GATHER_TOTAL, egui::Align::RIGHT, c.accent_gold, c.focus_teal) {
+                            toggle_sort_col = Some(BattleSortColumn::Resource);
+                        }
+                        if render_sort_header_cell(ui, "Điểm Cộng", BattleSortColumn::Damage, self.battle_sort_col, self.battle_sort_dir, COL_GATHER_BONUS, egui::Align::RIGHT, c.status_green, c.focus_teal) {
+                            toggle_sort_col = Some(BattleSortColumn::Damage);
+                        }
+                    } else if is_barb {
                         if render_sort_header_cell(ui, "Pha Lê", BattleSortColumn::Crystal, self.battle_sort_col, self.battle_sort_dir, COL_BARB_CRY, egui::Align::RIGHT, c.crystal_cyan, c.focus_teal) {
                             toggle_sort_col = Some(BattleSortColumn::Crystal);
                         }
@@ -1520,8 +1548,13 @@ impl RoKLootWatcherApp {
                     BattleSortColumn::Damage => a.damage_pct.cmp(&b.damage_pct),
                     BattleSortColumn::Tier => a.plunder_tier.cmp(&b.plunder_tier),
                     BattleSortColumn::Crystal => a.crystal_quantity().cmp(&b.crystal_quantity()),
+                    BattleSortColumn::Level => a.target_level.cmp(&b.target_level),
                     BattleSortColumn::Resource => {
-                        if is_barb {
+                        if is_gathering {
+                            let a_val = a.items.first().map(|i| i.value).unwrap_or(0);
+                            let b_val = b.items.first().map(|i| i.value).unwrap_or(0);
+                            a_val.cmp(&b_val)
+                        } else if is_barb {
                             a.total_resource_value().cmp(&b.total_resource_value())
                         } else {
                             a.total_resources_breakdown().choice_packs.cmp(&b.total_resources_breakdown().choice_packs)
@@ -1587,12 +1620,13 @@ impl RoKLootWatcherApp {
 
                             ui.add_sized([COL_TIME, 24.0], egui::Label::new(egui::RichText::new(&r.time_vn).monospace().font(egui::FontId::monospace(11.0))).halign(egui::Align::LEFT));
 
-                            let type_badge_color = match r.battle_type.as_str() {
-                                "motte" => c.motte_accent,
-                                "fort" => c.fort_accent,
-                                _ => c.barb_accent,
+                            let (type_text, type_badge_color) = match r.battle_type.as_str() {
+                                "motte" => ("MOTTE", c.motte_accent),
+                                "fort" => ("FORT", c.fort_accent),
+                                "gathering" => ("THU THẬP", c.focus_teal),
+                                _ => ("DÃ MAN", c.barb_accent),
                             };
-                            ui.add_sized([COL_TYPE, 24.0], egui::Label::new(egui::RichText::new(r.battle_type.to_uppercase()).color(type_badge_color).strong()).halign(egui::Align::Center));
+                            ui.add_sized([col_type, 24.0], egui::Label::new(egui::RichText::new(type_text).font(egui::FontId::proportional(10.5)).color(type_badge_color).strong()).halign(egui::Align::Center));
 
                             let target_btn = egui::Button::new(
                                 egui::RichText::new(&r.target).strong().color(c.canvas_tint)
@@ -1603,9 +1637,23 @@ impl RoKLootWatcherApp {
                                 clicked_record = Some(r.clone());
                             }
 
-                            ui.add_sized([COL_DMG, 24.0], egui::Label::new(egui::RichText::new(format!("{}%", r.damage_pct)).monospace().color(c.focus_teal).strong()).halign(egui::Align::RIGHT));
+                            if !is_gathering {
+                                ui.add_sized([COL_DMG, 24.0], egui::Label::new(egui::RichText::new(format!("{}%", r.damage_pct)).monospace().color(c.focus_teal).strong()).halign(egui::Align::RIGHT));
+                            }
 
-                            if is_barb {
+                            if is_gathering {
+                                let lvl_str = if !r.target_level.is_empty() { format!("Cấp {}", r.target_level) } else { "-".to_string() };
+                                ui.add_sized([COL_GATHER_LVL, 24.0], egui::Label::new(egui::RichText::new(lvl_str).strong().color(c.focus_teal)).halign(egui::Align::Center));
+
+                                let res_name = r.items.first().map(|i| i.name_vi.as_str()).unwrap_or("-");
+                                ui.add_sized([COL_GATHER_RES, 24.0], egui::Label::new(egui::RichText::new(res_name).strong().color(c.canvas_tint)).halign(egui::Align::LEFT));
+
+                                let total_val = r.items.first().map(|i| i.value).unwrap_or(0);
+                                ui.add_sized([COL_GATHER_TOTAL, 24.0], egui::Label::new(egui::RichText::new(format_num(total_val)).monospace().strong().color(c.accent_gold)).halign(egui::Align::RIGHT));
+
+                                let bonus_str = if r.talent_add > 0 { format!("+{}", format_num(r.talent_add)) } else { "-".to_string() };
+                                ui.add_sized([COL_GATHER_BONUS, 24.0], egui::Label::new(egui::RichText::new(bonus_str).monospace().color(c.status_green)).halign(egui::Align::RIGHT));
+                            } else if is_barb {
                                 let cry = r.crystal_quantity();
                                 let (cry_str, cry_color) = if cry > 0 {
                                     (format_num(cry), c.crystal_cyan)
@@ -1648,8 +1696,17 @@ impl RoKLootWatcherApp {
                                 let cry_str = if cry > 0 { format_num(cry) } else { "-".to_string() };
                                 ui.add_sized([COL_CRY, 24.0], egui::Label::new(egui::RichText::new(cry_str).monospace().color(c.crystal_cyan).strong()).halign(egui::Align::RIGHT));
 
-                                let packs = r.total_resources_breakdown().choice_packs;
-                                ui.add_sized([COL_PACKS, 24.0], egui::Label::new(egui::RichText::new(format!("{} gói", format_num(packs))).monospace().color(c.accent_gold)).halign(egui::Align::RIGHT));
+                                let packs = if r.battle_type == "gathering" {
+                                    r.items.first().map(|i| i.value).unwrap_or(0)
+                                } else {
+                                    r.total_resources_breakdown().choice_packs
+                                };
+                                let pack_label = if r.battle_type == "gathering" {
+                                    format_num(packs)
+                                } else {
+                                    format!("{} gói", format_num(packs))
+                                };
+                                ui.add_sized([COL_PACKS, 24.0], egui::Label::new(egui::RichText::new(pack_label).monospace().color(c.accent_gold)).halign(egui::Align::RIGHT));
 
                                 let tome = r.item_quantity(2, 130);
                                 ui.add_sized([COL_TOME, 24.0], egui::Label::new(egui::RichText::new(format_num(tome)).monospace()).halign(egui::Align::RIGHT));
@@ -2385,7 +2442,14 @@ impl RoKLootWatcherApp {
                     let badge_color = match record.battle_type.as_str() {
                         "motte" => c.motte_accent,
                         "fort" => c.fort_accent,
+                        "gathering" => c.focus_teal,
                         _ => c.barb_accent,
+                    };
+
+                    let badge_label = if record.battle_type == "gathering" {
+                        "THU THẬP".to_string()
+                    } else {
+                        record.battle_type.to_uppercase()
                     };
 
                     ui.horizontal(|ui| {
@@ -2395,7 +2459,7 @@ impl RoKLootWatcherApp {
                             .stroke(Stroke::new(1.0_f32, badge_color))
                             .inner_margin(Margin::symmetric(6.0, 2.0))
                             .show(ui, |ui| {
-                                ui.label(egui::RichText::new(record.battle_type.to_uppercase()).strong().color(badge_color));
+                                ui.label(egui::RichText::new(badge_label).strong().color(badge_color));
                             });
 
                         if record.plunder_tier > 0 {
@@ -2412,7 +2476,19 @@ impl RoKLootWatcherApp {
 
                     ui.add_space(8.0);
                     ui.label(egui::RichText::new(format!("Thời gian: {}", record.time_vn)).font(egui::FontId::proportional(11.5)).color(c.text_muted));
-                    ui.label(egui::RichText::new(format!("Sát thương gây ra: {}%", record.damage_pct)).font(egui::FontId::proportional(11.5)).strong().color(c.focus_teal));
+                    if record.battle_type == "gathering" {
+                        let lvl_display = if !record.target_level.is_empty() {
+                            format!("Cấp {}", record.target_level)
+                        } else {
+                            "-".to_string()
+                        };
+                        ui.label(egui::RichText::new(format!("Cấp mỏ tài nguyên: {}", lvl_display)).font(egui::FontId::proportional(11.5)).strong().color(c.focus_teal));
+                        if record.talent_add > 0 {
+                            ui.label(egui::RichText::new(format!("Thưởng tài năng / công nghệ: +{}", format_num(record.talent_add))).font(egui::FontId::proportional(11.5)).color(c.status_green));
+                        }
+                    } else {
+                        ui.label(egui::RichText::new(format!("Sát thương gây ra: {}%", record.damage_pct)).font(egui::FontId::proportional(11.5)).strong().color(c.focus_teal));
+                    }
                 });
 
             ui.add_space(10.0);

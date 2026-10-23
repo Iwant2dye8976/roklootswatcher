@@ -76,7 +76,7 @@ fn print_help() {
     println!("  --cli                    Chạy ở chế độ dòng lệnh (Headless)");
     println!("  --mail-dir <PATH>        Đường dẫn thư mục mailcache");
     println!("  --loot-yaml <PATH>       Đường dẫn file loot.yaml");
-    println!("  --mode <MODE>            motte, fort, barbarian, all-targets, all-forts, all-rewards");
+    println!("  --mode <MODE>            motte, fort, barbarian, all-targets, all-forts, all-rewards, gathering");
     println!("  --start-date <YYYY-MM-DD> Lọc từ ngày");
     println!("  --end-date <YYYY-MM-DD>   Lọc đến ngày");
     println!("  --days <N>               Lọc N ngày gần nhất (vd: 7, 30)");
