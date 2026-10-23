@@ -1485,10 +1485,7 @@ impl RoKLootWatcherApp {
             COL_TIME + col_type + COL_DMG + COL_TIER + COL_CRY + COL_PACKS + COL_TOME + COL_UNIV_SPD + COL_HEAL_SPD + COL_VIEW + (TABLE_PAD_X * 2.0) + (ITEM_SPACING_X * 10.0)
         };
 
-        let min_target = 180.0_f32;
-        let min_table_width = fixed_w + min_target;
-        let table_width = avail_w.max(min_table_width);
-        let col_target = table_width - fixed_w;
+        let (table_width, col_target) = report_table_dimensions(avail_w, fixed_w);
 
         // Table Header
         let mut toggle_sort_col = None;
@@ -3001,6 +2998,14 @@ impl eframe::App for RoKLootWatcherApp {
     }
 }
 
+fn report_table_dimensions(available_width: f32, fixed_width: f32) -> (f32, f32) {
+    const MIN_TARGET_WIDTH: f32 = 180.0;
+    const MAX_TARGET_WIDTH: f32 = 260.0;
+
+    let target_width = (available_width - fixed_width).clamp(MIN_TARGET_WIDTH, MAX_TARGET_WIDTH);
+    (fixed_width + target_width, target_width)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3018,5 +3023,12 @@ mod tests {
         assert_eq!(config.language, AppLanguage::Vietnamese);
         config.language = AppLanguage::English;
         assert_eq!(config.language, AppLanguage::English);
+    }
+
+    #[test]
+    fn test_report_table_dimensions() {
+        assert_eq!(report_table_dimensions(2000.0, 1000.0), (1260.0, 260.0));
+        assert_eq!(report_table_dimensions(1250.0, 1000.0), (1250.0, 250.0));
+        assert_eq!(report_table_dimensions(1100.0, 1000.0), (1180.0, 180.0));
     }
 }
