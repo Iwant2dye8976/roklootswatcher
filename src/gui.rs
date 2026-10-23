@@ -124,8 +124,7 @@ pub enum BattleSortColumn {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ItemSortColumn {
-    NameVi,
-    NameEn,
+    Name,
     Category,
     TotalQty,
     Converted,
@@ -1340,8 +1339,8 @@ impl RoKLootWatcherApp {
                         (FilterMode::AllTargets, match self.language { AppLanguage::Vietnamese => "Tất cả", AppLanguage::English => "All" }),
                         (FilterMode::Motte, "Motte"),
                         (FilterMode::Fort, match self.language { AppLanguage::Vietnamese => "Pháo Đài", AppLanguage::English => "Forts" }),
-                        (FilterMode::Barbarian, match self.language { AppLanguage::Vietnamese => "Dã Man", AppLanguage::English => "Barbarians" }),
-                        (FilterMode::AllForts, match self.language { AppLanguage::Vietnamese => "Cả 2 Pháo Đài", AppLanguage::English => "Both Forts" }),
+                        (FilterMode::Barbarian, match self.language { AppLanguage::Vietnamese => "Man Rợ", AppLanguage::English => "Barbarians" }),
+                        (FilterMode::AllForts, match self.language { AppLanguage::Vietnamese => "Tất cả pháo đài", AppLanguage::English => "All Forts" }),
                         (FilterMode::AllRewards, match self.language { AppLanguage::Vietnamese => "Tất cả quà", AppLanguage::English => "All Loot" }),
                         (FilterMode::Gathering, match self.language { AppLanguage::Vietnamese => "Thu Thập", AppLanguage::English => "Gathering" }),
                     ];
@@ -1458,34 +1457,38 @@ impl RoKLootWatcherApp {
         const COL_GATHER_BONUS: f32 = 100.0;
 
         // Barbarian specific columns (NOW INCLUDES PHA LÊ!)
-        const COL_BARB_CRY: f32 = 56.0;
-        const COL_BARB_RES: f32 = 60.0;
+        const COL_BARB_CRY: f32 = 100.0;
+        const COL_BARB_RES: f32 = 100.0;
         const COL_BARB_EXP: f32 = 58.0;
-        const COL_BARB_UNIV: f32 = 56.0;
-        const COL_BARB_TRAIN: f32 = 56.0;
-        const COL_BARB_HEAL: f32 = 56.0;
-        const COL_BARB_ARROW: f32 = 46.0;
+        const COL_BARB_UNIV: f32 =100.0;
+        const COL_BARB_TRAIN: f32 = 100.0;
+        const COL_BARB_HEAL: f32 = 100.0;
+        const COL_BARB_ARROW: f32 = 60.0;
 
         // Motte / Fort columns
         const COL_TIER: f32 = 48.0;
-        const COL_CRY: f32 = 56.0;
-        const COL_PACKS: f32 = 58.0;
-        const COL_TOME: f32 = 52.0;
-        const COL_UNIV_SPD: f32 = 56.0;
-        const COL_HEAL_SPD: f32 = 56.0;
+        const COL_CRY: f32 = 100.0;
+        const COL_PACKS: f32 = 70.0;
+        const COL_TOME: f32 = 70.0;
+        const COL_UNIV_SPD: f32 = 100.0;
+        const COL_HEAL_SPD: f32 = 100.0;
 
-        const COL_VIEW: f32 = 56.0;
+        const COL_VIEW: f32 = 120.0;
 
         let avail_w = ui.available_width();
+        let non_target_column_count = report_non_target_column_count(is_gathering, is_barb);
         let fixed_w = if is_gathering {
-            COL_TIME + col_type + COL_GATHER_LVL + COL_GATHER_RES + COL_GATHER_TOTAL + COL_GATHER_BONUS + COL_VIEW + (TABLE_PAD_X * 2.0) + (ITEM_SPACING_X * 7.0)
+            COL_TIME + col_type + COL_GATHER_LVL + COL_GATHER_RES + COL_GATHER_TOTAL + COL_GATHER_BONUS + COL_VIEW + (TABLE_PAD_X * 2.0) + (ITEM_SPACING_X * non_target_column_count as f32)
         } else if is_barb {
-            COL_TIME + col_type + COL_DMG + COL_BARB_CRY + COL_BARB_RES + COL_BARB_EXP + COL_BARB_UNIV + COL_BARB_TRAIN + COL_BARB_HEAL + COL_BARB_ARROW + COL_VIEW + (TABLE_PAD_X * 2.0) + (ITEM_SPACING_X * 11.0)
+            COL_TIME + col_type + COL_DMG + COL_BARB_CRY + COL_BARB_RES + COL_BARB_EXP + COL_BARB_UNIV + COL_BARB_TRAIN + COL_BARB_HEAL + COL_BARB_ARROW + COL_VIEW + (TABLE_PAD_X * 2.0) + (ITEM_SPACING_X * non_target_column_count as f32)
         } else {
-            COL_TIME + col_type + COL_DMG + COL_TIER + COL_CRY + COL_PACKS + COL_TOME + COL_UNIV_SPD + COL_HEAL_SPD + COL_VIEW + (TABLE_PAD_X * 2.0) + (ITEM_SPACING_X * 10.0)
+            COL_TIME + col_type + COL_DMG + COL_TIER + COL_CRY + COL_PACKS + COL_TOME + COL_UNIV_SPD + COL_HEAL_SPD + COL_VIEW + (TABLE_PAD_X * 2.0) + (ITEM_SPACING_X * non_target_column_count as f32)
         };
 
-        let (table_width, col_target) = report_table_dimensions(avail_w, fixed_w);
+        let dimensions = report_table_dimensions(avail_w, fixed_w, non_target_column_count);
+        let table_width = dimensions.table_width;
+        let col_target = dimensions.target_width;
+        let extra_per_column = dimensions.extra_per_column;
 
         // Table Header
         let mut toggle_sort_col = None;
@@ -1500,79 +1503,79 @@ impl RoKLootWatcherApp {
                     ui.spacing_mut().item_spacing.x = ITEM_SPACING_X;
                     ui.set_min_height(26.0);
 
-                    if render_sort_header_cell(ui, self.language.t(TrKey::ColTime), BattleSortColumn::Time, self.battle_sort_col, self.battle_sort_dir, COL_TIME, egui::Align::LEFT, c.text_muted, c.focus_teal, self.language) {
+                    if render_sort_header_cell(ui, self.language.t(TrKey::ColTime), BattleSortColumn::Time, self.battle_sort_col, self.battle_sort_dir, COL_TIME + extra_per_column, egui::Align::Center, c.text_muted, c.focus_teal, self.language) {
                         toggle_sort_col = Some(BattleSortColumn::Time);
                     }
-                    if render_sort_header_cell(ui, self.language.t(TrKey::ColType), BattleSortColumn::Type, self.battle_sort_col, self.battle_sort_dir, col_type, egui::Align::Center, c.text_muted, c.focus_teal, self.language) {
+                    if render_sort_header_cell(ui, self.language.t(TrKey::ColType), BattleSortColumn::Type, self.battle_sort_col, self.battle_sort_dir, col_type + extra_per_column, egui::Align::Center, c.text_muted, c.focus_teal, self.language) {
                         toggle_sort_col = Some(BattleSortColumn::Type);
                     }
-                    if render_sort_header_cell(ui, self.language.t(TrKey::ColTarget), BattleSortColumn::Target, self.battle_sort_col, self.battle_sort_dir, col_target, egui::Align::LEFT, c.text_muted, c.focus_teal, self.language) {
+                    if render_sort_header_cell(ui, self.language.t(TrKey::ColTarget), BattleSortColumn::Target, self.battle_sort_col, self.battle_sort_dir, col_target, egui::Align::Center, c.text_muted, c.focus_teal, self.language) {
                         toggle_sort_col = Some(BattleSortColumn::Target);
                     }
                     if !is_gathering {
-                        if render_sort_header_cell(ui, self.language.t(TrKey::ColDamage), BattleSortColumn::Damage, self.battle_sort_col, self.battle_sort_dir, COL_DMG, egui::Align::RIGHT, c.text_muted, c.focus_teal, self.language) {
+                        if render_sort_header_cell(ui, self.language.t(TrKey::ColDamage), BattleSortColumn::Damage, self.battle_sort_col, self.battle_sort_dir, COL_DMG + extra_per_column, egui::Align::Center, c.text_muted, c.focus_teal, self.language) {
                             toggle_sort_col = Some(BattleSortColumn::Damage);
                         }
                     }
 
                     if is_gathering {
-                        if render_sort_header_cell(ui, self.language.t(TrKey::ColGatherLvl), BattleSortColumn::Level, self.battle_sort_col, self.battle_sort_dir, COL_GATHER_LVL, egui::Align::Center, c.text_muted, c.focus_teal, self.language) {
+                        if render_sort_header_cell(ui, self.language.t(TrKey::ColGatherLvl), BattleSortColumn::Level, self.battle_sort_col, self.battle_sort_dir, COL_GATHER_LVL + extra_per_column, egui::Align::Center, c.text_muted, c.focus_teal, self.language) {
                             toggle_sort_col = Some(BattleSortColumn::Level);
                         }
-                        if render_sort_header_cell(ui, self.language.t(TrKey::ColGatherRes), BattleSortColumn::Target, self.battle_sort_col, self.battle_sort_dir, COL_GATHER_RES, egui::Align::LEFT, c.text_muted, c.focus_teal, self.language) {
+                        if render_sort_header_cell(ui, self.language.t(TrKey::ColGatherRes), BattleSortColumn::Target, self.battle_sort_col, self.battle_sort_dir, COL_GATHER_RES + extra_per_column, egui::Align::Center, c.text_muted, c.focus_teal, self.language) {
                             toggle_sort_col = Some(BattleSortColumn::Target);
                         }
-                        if render_sort_header_cell(ui, self.language.t(TrKey::ColGatherTotal), BattleSortColumn::Resource, self.battle_sort_col, self.battle_sort_dir, COL_GATHER_TOTAL, egui::Align::RIGHT, c.accent_gold, c.focus_teal, self.language) {
+                        if render_sort_header_cell(ui, self.language.t(TrKey::ColGatherTotal), BattleSortColumn::Resource, self.battle_sort_col, self.battle_sort_dir, COL_GATHER_TOTAL + extra_per_column, egui::Align::Center, c.accent_gold, c.focus_teal, self.language) {
                             toggle_sort_col = Some(BattleSortColumn::Resource);
                         }
-                        if render_sort_header_cell(ui, self.language.t(TrKey::ColGatherBonus), BattleSortColumn::Damage, self.battle_sort_col, self.battle_sort_dir, COL_GATHER_BONUS, egui::Align::RIGHT, c.status_green, c.focus_teal, self.language) {
+                        if render_sort_header_cell(ui, self.language.t(TrKey::ColGatherBonus), BattleSortColumn::Damage, self.battle_sort_col, self.battle_sort_dir, COL_GATHER_BONUS + extra_per_column, egui::Align::Center, c.status_green, c.focus_teal, self.language) {
                             toggle_sort_col = Some(BattleSortColumn::Damage);
                         }
                     } else if is_barb {
-                        if render_sort_header_cell(ui, self.language.t(TrKey::ColCrystal), BattleSortColumn::Crystal, self.battle_sort_col, self.battle_sort_dir, COL_BARB_CRY, egui::Align::RIGHT, c.crystal_cyan, c.focus_teal, self.language) {
+                        if render_sort_header_cell(ui, self.language.t(TrKey::ColCrystal), BattleSortColumn::Crystal, self.battle_sort_col, self.battle_sort_dir, COL_BARB_CRY + extra_per_column, egui::Align::Center, c.crystal_cyan, c.focus_teal, self.language) {
                             toggle_sort_col = Some(BattleSortColumn::Crystal);
                         }
-                        if render_sort_header_cell(ui, self.language.t(TrKey::ColRss), BattleSortColumn::Resource, self.battle_sort_col, self.battle_sort_dir, COL_BARB_RES, egui::Align::RIGHT, c.accent_gold, c.focus_teal, self.language) {
+                        if render_sort_header_cell(ui, self.language.t(TrKey::ColRss), BattleSortColumn::Resource, self.battle_sort_col, self.battle_sort_dir, COL_BARB_RES + extra_per_column, egui::Align::Center, c.accent_gold, c.focus_teal, self.language) {
                             toggle_sort_col = Some(BattleSortColumn::Resource);
                         }
-                        if render_sort_header_cell(ui, self.language.t(TrKey::ColExp), BattleSortColumn::TomeExp, self.battle_sort_col, self.battle_sort_dir, COL_BARB_EXP, egui::Align::RIGHT, c.text_muted, c.focus_teal, self.language) {
+                        if render_sort_header_cell(ui, self.language.t(TrKey::ColExp), BattleSortColumn::TomeExp, self.battle_sort_col, self.battle_sort_dir, COL_BARB_EXP + extra_per_column, egui::Align::Center, c.text_muted, c.focus_teal, self.language) {
                             toggle_sort_col = Some(BattleSortColumn::TomeExp);
                         }
-                        if render_sort_header_cell(ui, self.language.t(TrKey::ColUnivSpd), BattleSortColumn::UnivSpeedup, self.battle_sort_col, self.battle_sort_dir, COL_BARB_UNIV, egui::Align::RIGHT, c.status_green, c.focus_teal, self.language) {
+                        if render_sort_header_cell(ui, self.language.t(TrKey::ColUnivSpd), BattleSortColumn::UnivSpeedup, self.battle_sort_col, self.battle_sort_dir, COL_BARB_UNIV + extra_per_column, egui::Align::Center, c.status_green, c.focus_teal, self.language) {
                             toggle_sort_col = Some(BattleSortColumn::UnivSpeedup);
                         }
-                        if render_sort_header_cell(ui, self.language.t(TrKey::ColTrainSpd), BattleSortColumn::TrainSpeedup, self.battle_sort_col, self.battle_sort_dir, COL_BARB_TRAIN, egui::Align::RIGHT, Color32::from_rgb(0xfb, 0x92, 0x3c), c.focus_teal, self.language) {
+                        if render_sort_header_cell(ui, self.language.t(TrKey::ColTrainSpd), BattleSortColumn::TrainSpeedup, self.battle_sort_col, self.battle_sort_dir, COL_BARB_TRAIN + extra_per_column, egui::Align::Center, Color32::from_rgb(0xfb, 0x92, 0x3c), c.focus_teal, self.language) {
                             toggle_sort_col = Some(BattleSortColumn::TrainSpeedup);
                         }
-                        if render_sort_header_cell(ui, self.language.t(TrKey::ColHealSpd), BattleSortColumn::HealSpeedup, self.battle_sort_col, self.battle_sort_dir, COL_BARB_HEAL, egui::Align::RIGHT, Color32::from_rgb(0x38, 0xbd, 0xf8), c.focus_teal, self.language) {
+                        if render_sort_header_cell(ui, self.language.t(TrKey::ColHealSpd), BattleSortColumn::HealSpeedup, self.battle_sort_col, self.battle_sort_dir, COL_BARB_HEAL + extra_per_column, egui::Align::Center, Color32::from_rgb(0x38, 0xbd, 0xf8), c.focus_teal, self.language) {
                             toggle_sort_col = Some(BattleSortColumn::HealSpeedup);
                         }
-                        if render_sort_header_cell(ui, self.language.t(TrKey::ColArrow), BattleSortColumn::Arrow, self.battle_sort_col, self.battle_sort_dir, COL_BARB_ARROW, egui::Align::RIGHT, c.text_muted, c.focus_teal, self.language) {
+                        if render_sort_header_cell(ui, self.language.t(TrKey::ColArrow), BattleSortColumn::Arrow, self.battle_sort_col, self.battle_sort_dir, COL_BARB_ARROW + extra_per_column, egui::Align::Center, c.text_muted, c.focus_teal, self.language) {
                             toggle_sort_col = Some(BattleSortColumn::Arrow);
                         }
                     } else {
-                        if render_sort_header_cell(ui, self.language.t(TrKey::ColTier), BattleSortColumn::Tier, self.battle_sort_col, self.battle_sort_dir, COL_TIER, egui::Align::Center, c.text_muted, c.focus_teal, self.language) {
+                        if render_sort_header_cell(ui, self.language.t(TrKey::ColTier), BattleSortColumn::Tier, self.battle_sort_col, self.battle_sort_dir, COL_TIER + extra_per_column, egui::Align::Center, c.text_muted, c.focus_teal, self.language) {
                             toggle_sort_col = Some(BattleSortColumn::Tier);
                         }
-                        if render_sort_header_cell(ui, self.language.t(TrKey::ColCrystal), BattleSortColumn::Crystal, self.battle_sort_col, self.battle_sort_dir, COL_CRY, egui::Align::RIGHT, c.crystal_cyan, c.focus_teal, self.language) {
+                        if render_sort_header_cell(ui, self.language.t(TrKey::ColCrystal), BattleSortColumn::Crystal, self.battle_sort_col, self.battle_sort_dir, COL_CRY + extra_per_column, egui::Align::Center, c.crystal_cyan, c.focus_teal, self.language) {
                             toggle_sort_col = Some(BattleSortColumn::Crystal);
                         }
-                        if render_sort_header_cell(ui, self.language.t(TrKey::ColPacks), BattleSortColumn::Resource, self.battle_sort_col, self.battle_sort_dir, COL_PACKS, egui::Align::RIGHT, c.text_muted, c.focus_teal, self.language) {
+                        if render_sort_header_cell(ui, self.language.t(TrKey::ColPacks), BattleSortColumn::Resource, self.battle_sort_col, self.battle_sort_dir, COL_PACKS + extra_per_column, egui::Align::Center, c.text_muted, c.focus_teal, self.language) {
                             toggle_sort_col = Some(BattleSortColumn::Resource);
                         }
-                        if render_sort_header_cell(ui, self.language.t(TrKey::ColTome), BattleSortColumn::TomeExp, self.battle_sort_col, self.battle_sort_dir, COL_TOME, egui::Align::RIGHT, c.text_muted, c.focus_teal, self.language) {
+                        if render_sort_header_cell(ui, self.language.t(TrKey::ColTome), BattleSortColumn::TomeExp, self.battle_sort_col, self.battle_sort_dir, COL_TOME + extra_per_column, egui::Align::Center, c.text_muted, c.focus_teal, self.language) {
                             toggle_sort_col = Some(BattleSortColumn::TomeExp);
                         }
-                        if render_sort_header_cell(ui, self.language.t(TrKey::ColUnivSpd), BattleSortColumn::UnivSpeedup, self.battle_sort_col, self.battle_sort_dir, COL_UNIV_SPD, egui::Align::RIGHT, c.status_green, c.focus_teal, self.language) {
+                        if render_sort_header_cell(ui, self.language.t(TrKey::ColUnivSpd), BattleSortColumn::UnivSpeedup, self.battle_sort_col, self.battle_sort_dir, COL_UNIV_SPD + extra_per_column, egui::Align::Center, c.status_green, c.focus_teal, self.language) {
                             toggle_sort_col = Some(BattleSortColumn::UnivSpeedup);
                         }
-                        if render_sort_header_cell(ui, self.language.t(TrKey::ColHealSpd), BattleSortColumn::HealSpeedup, self.battle_sort_col, self.battle_sort_dir, COL_HEAL_SPD, egui::Align::RIGHT, Color32::from_rgb(0x38, 0xbd, 0xf8), c.focus_teal, self.language) {
+                        if render_sort_header_cell(ui, self.language.t(TrKey::ColHealSpd), BattleSortColumn::HealSpeedup, self.battle_sort_col, self.battle_sort_dir, COL_HEAL_SPD + extra_per_column, egui::Align::Center, Color32::from_rgb(0x38, 0xbd, 0xf8), c.focus_teal, self.language) {
                             toggle_sort_col = Some(BattleSortColumn::HealSpeedup);
                         }
                     }
 
                     ui.add_sized(
-                        [COL_VIEW, 20.0],
+                        [COL_VIEW + extra_per_column, 20.0],
                         egui::Label::new(egui::RichText::new(self.language.t(TrKey::ColActions)).strong().color(c.focus_teal)).halign(egui::Align::Center),
                     );
                 });
@@ -1734,7 +1737,7 @@ impl RoKLootWatcherApp {
                         ui.horizontal(|ui| {
                             ui.spacing_mut().item_spacing.x = ITEM_SPACING_X;
 
-                            ui.add_sized([COL_TIME, 24.0], egui::Label::new(egui::RichText::new(&r.time_vn).monospace().font(egui::FontId::monospace(11.0))).halign(egui::Align::LEFT));
+                            ui.add_sized([COL_TIME + extra_per_column, 24.0], egui::Label::new(egui::RichText::new(&r.time_vn).monospace().font(egui::FontId::monospace(11.0))).halign(egui::Align::Center));
 
                             let (type_text, type_badge_color) = match r.battle_type.as_str() {
                                 "motte" => ("MOTTE", c.motte_accent),
@@ -1742,7 +1745,7 @@ impl RoKLootWatcherApp {
                                 "gathering" => (match self.language { AppLanguage::Vietnamese => "THU THẬP", AppLanguage::English => "GATHERING" }, c.focus_teal),
                                 _ => (match self.language { AppLanguage::Vietnamese => "DÃ MAN", AppLanguage::English => "BARBARIAN" }, c.barb_accent),
                             };
-                            ui.add_sized([col_type, 24.0], egui::Label::new(egui::RichText::new(type_text).font(egui::FontId::proportional(10.5)).color(type_badge_color).strong()).halign(egui::Align::Center));
+                            ui.add_sized([col_type + extra_per_column, 24.0], egui::Label::new(egui::RichText::new(type_text).font(egui::FontId::proportional(10.5)).color(type_badge_color).strong()).halign(egui::Align::Center));
 
                             let target_btn = egui::Button::new(
                                 egui::RichText::new(r.display_target(self.language)).strong().color(c.canvas_tint)
@@ -1754,7 +1757,7 @@ impl RoKLootWatcherApp {
                             }
 
                             if !is_gathering {
-                                ui.add_sized([COL_DMG, 24.0], egui::Label::new(egui::RichText::new(format!("{}%", r.damage_pct)).monospace().color(c.focus_teal).strong()).halign(egui::Align::RIGHT));
+                                ui.add_sized([COL_DMG + extra_per_column, 24.0], egui::Label::new(egui::RichText::new(format!("{}%", r.damage_pct)).monospace().color(c.focus_teal).strong()).halign(egui::Align::Center));
                             }
 
                             if is_gathering {
@@ -1766,16 +1769,16 @@ impl RoKLootWatcherApp {
                                 } else {
                                     "-".to_string()
                                 };
-                                ui.add_sized([COL_GATHER_LVL, 24.0], egui::Label::new(egui::RichText::new(lvl_str).strong().color(c.focus_teal)).halign(egui::Align::Center));
+                                ui.add_sized([COL_GATHER_LVL + extra_per_column, 24.0], egui::Label::new(egui::RichText::new(lvl_str).strong().color(c.focus_teal)).halign(egui::Align::Center));
 
                                 let res_name = r.items.first().map(|i| i.display_name(self.language)).unwrap_or("-");
-                                ui.add_sized([COL_GATHER_RES, 24.0], egui::Label::new(egui::RichText::new(res_name).strong().color(c.canvas_tint)).halign(egui::Align::LEFT));
+                                ui.add_sized([COL_GATHER_RES + extra_per_column, 24.0], egui::Label::new(egui::RichText::new(res_name).strong().color(c.canvas_tint)).halign(egui::Align::Center));
 
                                 let total_val = r.items.first().map(|i| i.value).unwrap_or(0);
-                                ui.add_sized([COL_GATHER_TOTAL, 24.0], egui::Label::new(egui::RichText::new(format_num(total_val)).monospace().strong().color(c.accent_gold)).halign(egui::Align::RIGHT));
+                                ui.add_sized([COL_GATHER_TOTAL + extra_per_column, 24.0], egui::Label::new(egui::RichText::new(format_num(total_val)).monospace().strong().color(c.accent_gold)).halign(egui::Align::Center));
 
                                 let bonus_str = if r.talent_add > 0 { format!("+{}", format_num(r.talent_add)) } else { "-".to_string() };
-                                ui.add_sized([COL_GATHER_BONUS, 24.0], egui::Label::new(egui::RichText::new(bonus_str).monospace().color(c.status_green)).halign(egui::Align::RIGHT));
+                                ui.add_sized([COL_GATHER_BONUS + extra_per_column, 24.0], egui::Label::new(egui::RichText::new(bonus_str).monospace().color(c.status_green)).halign(egui::Align::Center));
                             } else if is_barb {
                                 let cry = r.crystal_quantity();
                                 let (cry_str, cry_color) = if cry > 0 {
@@ -1783,41 +1786,41 @@ impl RoKLootWatcherApp {
                                 } else {
                                     ("-".to_string(), c.text_muted)
                                 };
-                                ui.add_sized([COL_BARB_CRY, 24.0], egui::Label::new(egui::RichText::new(cry_str).monospace().color(cry_color).strong()).halign(egui::Align::RIGHT));
+                                ui.add_sized([COL_BARB_CRY + extra_per_column, 24.0], egui::Label::new(egui::RichText::new(cry_str).monospace().color(cry_color).strong()).halign(egui::Align::Center));
 
                                 let res_breakdown = r.total_resources_breakdown();
                                 let res_val = res_breakdown.total_rss_val();
                                 let res_str = format_in_millions_vietnamese(res_val);
-                                ui.add_sized([COL_BARB_RES, 24.0], egui::Label::new(egui::RichText::new(res_str).monospace().color(c.accent_gold).strong()).halign(egui::Align::RIGHT));
+                                ui.add_sized([COL_BARB_RES + extra_per_column, 24.0], egui::Label::new(egui::RichText::new(res_str).monospace().color(c.accent_gold).strong()).halign(egui::Align::Center));
 
                                 let exp_val = r.total_exp_value();
-                                ui.add_sized([COL_BARB_EXP, 24.0], egui::Label::new(egui::RichText::new(format_in_millions_vietnamese(exp_val)).monospace()).halign(egui::Align::RIGHT));
+                                ui.add_sized([COL_BARB_EXP + extra_per_column, 24.0], egui::Label::new(egui::RichText::new(format_in_millions_vietnamese(exp_val)).monospace()).halign(egui::Align::Center));
 
                                 let univ_spd_min = r.univ_speedup_minutes();
                                 let univ_spd_str = self.speedup_unit.format_duration(univ_spd_min as f64);
-                                ui.add_sized([COL_BARB_UNIV, 24.0], egui::Label::new(egui::RichText::new(univ_spd_str).monospace().color(c.status_green)).halign(egui::Align::RIGHT));
+                                ui.add_sized([COL_BARB_UNIV + extra_per_column, 24.0], egui::Label::new(egui::RichText::new(univ_spd_str).monospace().color(c.status_green)).halign(egui::Align::Center));
 
                                 let train_spd_min = r.training_speedup_minutes();
                                 let train_spd_str = self.speedup_unit.format_duration(train_spd_min as f64);
-                                ui.add_sized([COL_BARB_TRAIN, 24.0], egui::Label::new(egui::RichText::new(train_spd_str).monospace().color(Color32::from_rgb(0xfb, 0x92, 0x3c))).halign(egui::Align::RIGHT));
+                                ui.add_sized([COL_BARB_TRAIN + extra_per_column, 24.0], egui::Label::new(egui::RichText::new(train_spd_str).monospace().color(Color32::from_rgb(0xfb, 0x92, 0x3c))).halign(egui::Align::Center));
 
                                 let heal_spd_min = r.heal_speedup_minutes();
                                 let heal_spd_str = self.speedup_unit.format_duration(heal_spd_min as f64);
-                                ui.add_sized([COL_BARB_HEAL, 24.0], egui::Label::new(egui::RichText::new(heal_spd_str).monospace().color(Color32::from_rgb(0x38, 0xbd, 0xf8))).halign(egui::Align::RIGHT));
+                                ui.add_sized([COL_BARB_HEAL + extra_per_column, 24.0], egui::Label::new(egui::RichText::new(heal_spd_str).monospace().color(Color32::from_rgb(0x38, 0xbd, 0xf8))).halign(egui::Align::Center));
 
                                 let arrows = r.item_quantity(2, 145);
-                                ui.add_sized([COL_BARB_ARROW, 24.0], egui::Label::new(egui::RichText::new(format_num(arrows)).monospace()).halign(egui::Align::RIGHT));
+                                ui.add_sized([COL_BARB_ARROW + extra_per_column, 24.0], egui::Label::new(egui::RichText::new(format_num(arrows)).monospace()).halign(egui::Align::Center));
                             } else {
                                 let tier_str = if r.plunder_tier > 0 {
                                     format!("Tier {}", r.plunder_tier)
                                 } else {
                                     "-".to_string()
                                 };
-                                ui.add_sized([COL_TIER, 24.0], egui::Label::new(egui::RichText::new(tier_str).color(c.accent_gold).strong()).halign(egui::Align::Center));
+                                ui.add_sized([COL_TIER + extra_per_column, 24.0], egui::Label::new(egui::RichText::new(tier_str).color(c.accent_gold).strong()).halign(egui::Align::Center));
 
                                 let cry = r.crystal_quantity();
                                 let cry_str = if cry > 0 { format_num(cry) } else { "-".to_string() };
-                                ui.add_sized([COL_CRY, 24.0], egui::Label::new(egui::RichText::new(cry_str).monospace().color(c.crystal_cyan).strong()).halign(egui::Align::RIGHT));
+                                ui.add_sized([COL_CRY + extra_per_column, 24.0], egui::Label::new(egui::RichText::new(cry_str).monospace().color(c.crystal_cyan).strong()).halign(egui::Align::Center));
 
                                 let packs = if r.battle_type == "gathering" {
                                     r.items.first().map(|i| i.value).unwrap_or(0)
@@ -1832,18 +1835,18 @@ impl RoKLootWatcherApp {
                                         AppLanguage::English => format!("{} packs", format_num(packs)),
                                     }
                                 };
-                                ui.add_sized([COL_PACKS, 24.0], egui::Label::new(egui::RichText::new(pack_label).monospace().color(c.accent_gold)).halign(egui::Align::RIGHT));
+                                ui.add_sized([COL_PACKS + extra_per_column, 24.0], egui::Label::new(egui::RichText::new(pack_label).monospace().color(c.accent_gold)).halign(egui::Align::Center));
 
                                 let tome = r.item_quantity(2, 130);
-                                ui.add_sized([COL_TOME, 24.0], egui::Label::new(egui::RichText::new(format_num(tome)).monospace()).halign(egui::Align::RIGHT));
+                                ui.add_sized([COL_TOME + extra_per_column, 24.0], egui::Label::new(egui::RichText::new(format_num(tome)).monospace()).halign(egui::Align::Center));
 
                                 let u_spd_min = r.univ_speedup_minutes();
                                 let u_spd_str = self.speedup_unit.format_duration(u_spd_min as f64);
-                                ui.add_sized([COL_UNIV_SPD, 24.0], egui::Label::new(egui::RichText::new(u_spd_str).monospace().color(c.status_green)).halign(egui::Align::RIGHT));
+                                ui.add_sized([COL_UNIV_SPD + extra_per_column, 24.0], egui::Label::new(egui::RichText::new(u_spd_str).monospace().color(c.status_green)).halign(egui::Align::Center));
 
                                 let h_spd_min = r.heal_speedup_minutes();
                                 let h_spd_str = self.speedup_unit.format_duration(h_spd_min as f64);
-                                ui.add_sized([COL_HEAL_SPD, 24.0], egui::Label::new(egui::RichText::new(h_spd_str).monospace().color(Color32::from_rgb(0x38, 0xbd, 0xf8))).halign(egui::Align::RIGHT));
+                                ui.add_sized([COL_HEAL_SPD + extra_per_column, 24.0], egui::Label::new(egui::RichText::new(h_spd_str).monospace().color(Color32::from_rgb(0x38, 0xbd, 0xf8))).halign(egui::Align::Center));
                             }
 
                             let view_btn = egui::Button::new(
@@ -1856,7 +1859,7 @@ impl RoKLootWatcherApp {
                             .stroke(egui::Stroke::new(1.0_f32, c.focus_teal.linear_multiply(0.45)))
                             .rounding(egui::Rounding::same(4.0));
 
-                            if ui.add_sized([COL_VIEW, 22.0], view_btn).clicked() {
+                            if ui.add_sized([COL_VIEW + extra_per_column, 22.0], view_btn).clicked() {
                                 clicked_record = Some(r.clone());
                             }
                         });
@@ -2153,8 +2156,9 @@ impl RoKLootWatcherApp {
         if let Some(col) = self.item_sort_col {
             filtered_items.sort_by(|a, b| {
                 let ordering = match col {
-                    ItemSortColumn::NameVi => a.name_vi.cmp(&b.name_vi),
-                    ItemSortColumn::NameEn => a.name_en.cmp(&b.name_en),
+                    ItemSortColumn::Name => a
+                        .display_name(self.language)
+                        .cmp(b.display_name(self.language)),
                     ItemSortColumn::Category => a.category.cmp(&b.category),
                     ItemSortColumn::TotalQty => a.total_quantity.cmp(&b.total_quantity),
                     ItemSortColumn::Converted => {
@@ -2184,13 +2188,19 @@ impl RoKLootWatcherApp {
         const COL_MAX: f32 = 52.0;
 
         let avail_w = ui.available_width();
-        // 9 items total, 8 gaps
-        let inv_fixed_w = COL_CAT + COL_TOTAL + COL_CONV + COL_BATTLES + COL_RATE + COL_AVG + COL_MAX + (INV_PAD_X * 2.0) + (INV_SPACING_X * 8.0);
-        let min_names_w = 340.0_f32; // 190.0 for VI + 150.0 for EN
-        let inv_table_width = avail_w.max(inv_fixed_w + min_names_w);
+        // 8 items total, 7 gaps
+        let inv_fixed_w = COL_CAT
+            + COL_TOTAL
+            + COL_CONV
+            + COL_BATTLES
+            + COL_RATE
+            + COL_AVG
+            + COL_MAX
+            + (INV_PAD_X * 2.0)
+            + (INV_SPACING_X * 7.0);
+        let min_name_w = 190.0_f32;
+        let inv_table_width = avail_w.max(inv_fixed_w + min_name_w);
         let names_w = inv_table_width - inv_fixed_w;
-        let col_name_vi = (names_w * 0.55).round();
-        let col_name_en = names_w - col_name_vi;
 
         let mut toggle_item_sort_col = None;
 
@@ -2204,22 +2214,30 @@ impl RoKLootWatcherApp {
                     ui.spacing_mut().item_spacing.x = INV_SPACING_X;
                     ui.set_min_height(26.0);
 
-                    if render_item_sort_header_cell(ui, self.language.t(TrKey::InvColNameVi), ItemSortColumn::NameVi, self.item_sort_col, self.item_sort_dir, col_name_vi, egui::Align::LEFT, c.text_muted, c.focus_teal, self.language) {
-                        toggle_item_sort_col = Some(ItemSortColumn::NameVi);
-                    }
-                    if render_item_sort_header_cell(ui, self.language.t(TrKey::InvColNameEn), ItemSortColumn::NameEn, self.item_sort_col, self.item_sort_dir, col_name_en, egui::Align::LEFT, c.text_muted, c.focus_teal, self.language) {
-                        toggle_item_sort_col = Some(ItemSortColumn::NameEn);
+                    if render_item_sort_header_cell(
+                        ui,
+                        self.language.t(TrKey::InvColName),
+                        ItemSortColumn::Name,
+                        self.item_sort_col,
+                        self.item_sort_dir,
+                        names_w,
+                        egui::Align::Center,
+                        c.text_muted,
+                        c.focus_teal,
+                        self.language,
+                    ) {
+                        toggle_item_sort_col = Some(ItemSortColumn::Name);
                     }
                     if render_item_sort_header_cell(ui, self.language.t(TrKey::InvColCategory), ItemSortColumn::Category, self.item_sort_col, self.item_sort_dir, COL_CAT, egui::Align::Center, c.text_muted, c.focus_teal, self.language) {
                         toggle_item_sort_col = Some(ItemSortColumn::Category);
                     }
-                    if render_item_sort_header_cell(ui, self.language.t(TrKey::InvColTotalQty), ItemSortColumn::TotalQty, self.item_sort_col, self.item_sort_dir, COL_TOTAL, egui::Align::RIGHT, c.accent_gold, c.focus_teal, self.language) {
+                    if render_item_sort_header_cell(ui, self.language.t(TrKey::InvColTotalQty), ItemSortColumn::TotalQty, self.item_sort_col, self.item_sort_dir, COL_TOTAL, egui::Align::Center, c.accent_gold, c.focus_teal, self.language) {
                         toggle_item_sort_col = Some(ItemSortColumn::TotalQty);
                     }
-                    if render_item_sort_header_cell(ui, self.language.t(TrKey::InvColConverted), ItemSortColumn::Converted, self.item_sort_col, self.item_sort_dir, COL_CONV, egui::Align::RIGHT, c.status_green, c.focus_teal, self.language) {
+                    if render_item_sort_header_cell(ui, self.language.t(TrKey::InvColConverted), ItemSortColumn::Converted, self.item_sort_col, self.item_sort_dir, COL_CONV, egui::Align::Center, c.status_green, c.focus_teal, self.language) {
                         toggle_item_sort_col = Some(ItemSortColumn::Converted);
                     }
-                    if render_item_sort_header_cell(ui, self.language.t(TrKey::InvColBattles), ItemSortColumn::Battles, self.item_sort_col, self.item_sort_dir, COL_BATTLES, egui::Align::RIGHT, c.text_muted, c.focus_teal, self.language) {
+                    if render_item_sort_header_cell(ui, self.language.t(TrKey::InvColBattles), ItemSortColumn::Battles, self.item_sort_col, self.item_sort_dir, COL_BATTLES, egui::Align::Center, c.text_muted, c.focus_teal, self.language) {
                         toggle_item_sort_col = Some(ItemSortColumn::Battles);
                     }
 
@@ -2227,9 +2245,9 @@ impl RoKLootWatcherApp {
                         AppLanguage::Vietnamese => ("Tỷ Lệ Rơi", "TB / Trận", "Max / Trận"),
                         AppLanguage::English => ("Drop Rate", "Avg / Battle", "Max / Battle"),
                     };
-                    ui.add_sized([COL_RATE, 20.0], egui::Label::new(egui::RichText::new(rate_hdr).strong().color(c.text_muted)).halign(egui::Align::RIGHT));
-                    ui.add_sized([COL_AVG, 20.0], egui::Label::new(egui::RichText::new(avg_hdr).strong().color(c.text_muted)).halign(egui::Align::RIGHT));
-                    ui.add_sized([COL_MAX, 20.0], egui::Label::new(egui::RichText::new(max_hdr).strong().color(c.text_muted)).halign(egui::Align::RIGHT));
+                    ui.add_sized([COL_RATE, 20.0], egui::Label::new(egui::RichText::new(rate_hdr).strong().color(c.text_muted)).halign(egui::Align::Center));
+                    ui.add_sized([COL_AVG, 20.0], egui::Label::new(egui::RichText::new(avg_hdr).strong().color(c.text_muted)).halign(egui::Align::Center));
+                    ui.add_sized([COL_MAX, 20.0], egui::Label::new(egui::RichText::new(max_hdr).strong().color(c.text_muted)).halign(egui::Align::Center));
                 });
             });
 
@@ -2274,8 +2292,16 @@ impl RoKLootWatcherApp {
                         ui.horizontal(|ui| {
                             ui.spacing_mut().item_spacing.x = INV_SPACING_X;
 
-                            ui.add_sized([col_name_vi, 22.0], egui::Label::new(egui::RichText::new(&it.name_vi).strong().color(c.canvas_tint)).truncate().halign(egui::Align::LEFT));
-                            ui.add_sized([col_name_en, 22.0], egui::Label::new(egui::RichText::new(&it.name_en).color(c.text_muted)).truncate().halign(egui::Align::LEFT));
+                            ui.add_sized(
+                                [names_w, 22.0],
+                                egui::Label::new(
+                                    egui::RichText::new(it.display_name(self.language))
+                                        .strong()
+                                        .color(c.canvas_tint),
+                                )
+                                .truncate()
+                                .halign(egui::Align::Center),
+                            );
 
                             egui::Frame::none()
                                 .fill(c.primary)
@@ -2285,17 +2311,17 @@ impl RoKLootWatcherApp {
                                     ui.add_sized([COL_CAT - 10.0, 18.0], egui::Label::new(egui::RichText::new(category_name(&it.category, self.language)).font(egui::FontId::proportional(10.0)).color(c.focus_teal)).truncate().halign(egui::Align::Center));
                                 });
 
-                            ui.add_sized([COL_TOTAL, 22.0], egui::Label::new(egui::RichText::new(format_num(it.total_quantity)).monospace().strong().color(c.accent_gold)).truncate().halign(egui::Align::RIGHT));
+                            ui.add_sized([COL_TOTAL, 22.0], egui::Label::new(egui::RichText::new(format_num(it.total_quantity)).monospace().strong().color(c.accent_gold)).truncate().halign(egui::Align::Center));
 
                             let conv_str = get_item_converted_display(it.itype, it.sub_type, it.total_quantity).unwrap_or_else(|| "-".to_string());
                             let conv_color = if conv_str != "-" { c.status_green } else { c.text_muted };
-                            ui.add_sized([COL_CONV, 22.0], egui::Label::new(egui::RichText::new(conv_str).monospace().strong().color(conv_color)).truncate().halign(egui::Align::RIGHT));
+                            ui.add_sized([COL_CONV, 22.0], egui::Label::new(egui::RichText::new(conv_str).monospace().strong().color(conv_color)).truncate().halign(egui::Align::Center));
 
                             let drop_rate = (it.battle_count as f64 / total_battles as f64) * 100.0;
-                            ui.add_sized([COL_BATTLES, 22.0], egui::Label::new(egui::RichText::new(format!("{}", it.battle_count)).monospace()).truncate().halign(egui::Align::RIGHT));
-                            ui.add_sized([COL_RATE, 22.0], egui::Label::new(egui::RichText::new(format!("{:.1}%", drop_rate)).monospace().strong()).truncate().halign(egui::Align::RIGHT));
-                            ui.add_sized([COL_AVG, 22.0], egui::Label::new(egui::RichText::new(format!("{:.1}", it.avg_per_battle)).monospace()).truncate().halign(egui::Align::RIGHT));
-                            ui.add_sized([COL_MAX, 22.0], egui::Label::new(egui::RichText::new(format_num(it.max_in_battle)).monospace()).truncate().halign(egui::Align::RIGHT));
+                            ui.add_sized([COL_BATTLES, 22.0], egui::Label::new(egui::RichText::new(format!("{}", it.battle_count)).monospace()).truncate().halign(egui::Align::Center));
+                            ui.add_sized([COL_RATE, 22.0], egui::Label::new(egui::RichText::new(format!("{:.1}%", drop_rate)).monospace().strong()).truncate().halign(egui::Align::Center));
+                            ui.add_sized([COL_AVG, 22.0], egui::Label::new(egui::RichText::new(format!("{:.1}", it.avg_per_battle)).monospace()).truncate().halign(egui::Align::Center));
+                            ui.add_sized([COL_MAX, 22.0], egui::Label::new(egui::RichText::new(format_num(it.max_in_battle)).monospace()).truncate().halign(egui::Align::Center));
                         });
                     });
 
@@ -2998,12 +3024,43 @@ impl eframe::App for RoKLootWatcherApp {
     }
 }
 
-fn report_table_dimensions(available_width: f32, fixed_width: f32) -> (f32, f32) {
-    const MIN_TARGET_WIDTH: f32 = 180.0;
-    const MAX_TARGET_WIDTH: f32 = 260.0;
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct ReportTableDimensions {
+    table_width: f32,
+    target_width: f32,
+    extra_per_column: f32,
+}
+
+fn report_table_dimensions(
+    available_width: f32,
+    fixed_width: f32,
+    non_target_column_count: usize,
+) -> ReportTableDimensions {
+    const MIN_TARGET_WIDTH: f32 = 100.0;
+    const MAX_TARGET_WIDTH: f32 = 180.0;
 
     let target_width = (available_width - fixed_width).clamp(MIN_TARGET_WIDTH, MAX_TARGET_WIDTH);
-    (fixed_width + target_width, target_width)
+    let extra_per_column = if non_target_column_count == 0 {
+        0.0
+    } else {
+        ((available_width - fixed_width - target_width).max(0.0)) / non_target_column_count as f32
+    };
+
+    ReportTableDimensions {
+        table_width: fixed_width + target_width + extra_per_column * non_target_column_count as f32,
+        target_width,
+        extra_per_column,
+    }
+}
+
+fn report_non_target_column_count(is_gathering: bool, is_barb: bool) -> usize {
+    if is_gathering {
+        7
+    } else if is_barb {
+        11
+    } else {
+        10
+    }
 }
 
 #[cfg(test)]
@@ -3027,8 +3084,36 @@ mod tests {
 
     #[test]
     fn test_report_table_dimensions() {
-        assert_eq!(report_table_dimensions(2000.0, 1000.0), (1260.0, 260.0));
-        assert_eq!(report_table_dimensions(1250.0, 1000.0), (1250.0, 250.0));
-        assert_eq!(report_table_dimensions(1100.0, 1000.0), (1180.0, 180.0));
+        assert_eq!(
+            report_table_dimensions(2000.0, 1000.0, 10),
+            ReportTableDimensions {
+                table_width: 2000.0,
+                target_width: 180.0,
+                extra_per_column: 82.0,
+            }
+        );
+        assert_eq!(
+            report_table_dimensions(1200.0, 1000.0, 10),
+            ReportTableDimensions {
+                table_width: 1200.0,
+                target_width: 180.0,
+                extra_per_column: 2.0,
+            }
+        );
+        assert_eq!(
+            report_table_dimensions(1050.0, 1000.0, 10),
+            ReportTableDimensions {
+                table_width: 1100.0,
+                target_width: 100.0,
+                extra_per_column: 0.0,
+            }
+        );
+    }
+
+    #[test]
+    fn test_report_non_target_column_count() {
+        assert_eq!(report_non_target_column_count(true, false), 7);
+        assert_eq!(report_non_target_column_count(false, true), 11);
+        assert_eq!(report_non_target_column_count(false, false), 10);
     }
 }
