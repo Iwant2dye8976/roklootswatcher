@@ -27,7 +27,7 @@ use crate::exporters::{export_individual_mails_json, export_json};
 use crate::gui::RoKLootWatcherApp;
 use crate::lilith_stream::decode_mail_file;
 use crate::loot_catalog::LootCatalog;
-use crate::model::{format_num, get_item_converted_display, FilterMode, SpeedupUnit};
+use crate::model::{format_num, get_item_converted_display, AppLanguage, FilterMode, SpeedupUnit};
 use crate::tray::SystemTrayManager;
 use crate::watcher::RoKMailWatcher;
 
@@ -323,15 +323,15 @@ fn run_cli_mode(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     println!("{}", "-".repeat(88));
     println!("THỐNG KÊ TĂNG TỐC & VẬT PHẨM GIÁ TRỊ CAO:");
     if t_min > 0 {
-        let (t_val, t_unit) = speedup_unit.format_kpi(t_min);
+        let (t_val, t_unit) = speedup_unit.format_kpi(t_min, AppLanguage::Vietnamese);
         println!("  • Tăng tốc huấn luyện: {} {} ({} phút)", t_val, t_unit, format_num(t_min));
     }
     if h_min > 0 {
-        let (h_val, h_unit) = speedup_unit.format_kpi(h_min);
+        let (h_val, h_unit) = speedup_unit.format_kpi(h_min, AppLanguage::Vietnamese);
         println!("  • Tăng tốc chữa lành:  {} {} ({} phút)", h_val, h_unit, format_num(h_min));
     }
     if u_min > 0 {
-        let (u_val, u_unit) = speedup_unit.format_kpi(u_min);
+        let (u_val, u_unit) = speedup_unit.format_kpi(u_min, AppLanguage::Vietnamese);
         println!("  • Tăng tốc đa năng:   {} {} ({} phút)", u_val, u_unit, format_num(u_min));
     }
     let total_exp = stats.compute_total_exp();

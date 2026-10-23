@@ -7,7 +7,7 @@ use eframe::egui::{self, Color32, Margin, Rounding, Stroke};
 use crate::analyzer::parse_date_str;
 use crate::i18n::{category_name, date_preset_label, filter_mode_label, TrKey};
 use crate::model::{
-    format_in_millions_vietnamese, format_num, format_speedup_dhm, get_item_converted_display,
+    format_in_millions_vietnamese, format_num, get_item_converted_display,
     AppConfig, AppLanguage, AppTheme, BattleRecord, CloseBehavior, DateFilterPreset, FilterMode,
     SpeedupUnit,
 };
@@ -968,7 +968,10 @@ impl RoKLootWatcherApp {
                                     AppLanguage::English => format!("≈ {:.1} hours ({} minutes)", spd_total as f64 / 60.0, format_num(spd_total)),
                                 }
                             } else {
-                                format!("≈ {}", format_speedup_dhm(spd_total))
+                                format!(
+                                    "≈ {}",
+                                    SpeedupUnit::Dhm.format_kpi(spd_total, self.language).0
+                                )
                             };
                             ui.label(
                                 egui::RichText::new(equiv_text)
@@ -990,7 +993,8 @@ impl RoKLootWatcherApp {
             let total_spd_mins = train_spd_mins + heal_spd_mins + univ_spd_mins;
             let pha_le = stats.compute_crystals();
             let avg_crystal = if total_battles > 0 { (pha_le as f64) / (total_battles as f64) } else { 0.0 };
-            let (univ_spd_val, univ_spd_unit) = self.speedup_unit.format_kpi(total_spd_mins);
+            let (univ_spd_val, univ_spd_unit) =
+                self.speedup_unit.format_kpi(total_spd_mins, self.language);
 
             // 4 Primary KPI Cards
             let filter_prefix = match self.language {
@@ -1018,9 +1022,27 @@ impl RoKLootWatcherApp {
                         format!("{} {}", univ_spd_val, univ_spd_unit)
                     },
                     self.language.t(TrKey::CardSpeedupBreakdown)
-                        .replacen("{}", &self.speedup_unit.format_duration(univ_spd_mins as f64), 1)
-                        .replacen("{}", &self.speedup_unit.format_duration(train_spd_mins as f64), 1)
-                        .replacen("{}", &self.speedup_unit.format_duration(heal_spd_mins as f64), 1),
+                        .replacen(
+                            "{}",
+                            &self
+                                .speedup_unit
+                                .format_duration_for_language(univ_spd_mins as f64, self.language),
+                            1,
+                        )
+                        .replacen(
+                            "{}",
+                            &self
+                                .speedup_unit
+                                .format_duration_for_language(train_spd_mins as f64, self.language),
+                            1,
+                        )
+                        .replacen(
+                            "{}",
+                            &self
+                                .speedup_unit
+                                .format_duration_for_language(heal_spd_mins as f64, self.language),
+                            1,
+                        ),
                     c.speedup_purple,
                 ),
                 (

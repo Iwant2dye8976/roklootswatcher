@@ -190,6 +190,52 @@ pub fn format_speedup_dhm_short(minutes: i64) -> String {
     parts.join(" ")
 }
 
+fn format_speedup_dhm_english(minutes: i64, short: bool) -> String {
+    if minutes <= 0 {
+        return if short {
+            "0m".to_string()
+        } else {
+            "0 minutes".to_string()
+        };
+    }
+
+    let days = minutes / 1440;
+    let rem = minutes % 1440;
+    let hours = rem / 60;
+    let mins = rem % 60;
+    let mut parts = Vec::new();
+
+    if days > 0 {
+        parts.push(if short {
+            format!("{}d", days)
+        } else if days == 1 {
+            "1 day".to_string()
+        } else {
+            format!("{} days", days)
+        });
+    }
+    if hours > 0 {
+        parts.push(if short {
+            format!("{}h", hours)
+        } else if hours == 1 {
+            "1 hour".to_string()
+        } else {
+            format!("{} hours", hours)
+        });
+    }
+    if mins > 0 || parts.is_empty() {
+        parts.push(if short {
+            format!("{}m", mins)
+        } else if mins == 1 {
+            "1 minute".to_string()
+        } else {
+            format!("{} minutes", mins)
+        });
+    }
+
+    parts.join(" ")
+}
+
 #[allow(dead_code)]
 impl SpeedupUnit {
     pub fn from_str_loose(s: &str) -> Self {
@@ -255,12 +301,40 @@ impl SpeedupUnit {
         }
     }
 
-    pub fn format_kpi(&self, minutes: i64) -> (String, String) {
+    pub fn format_duration_for_language(
+        &self,
+        minutes: f64,
+        language: AppLanguage,
+    ) -> String {
         match self {
-            SpeedupUnit::Minutes => (
-                format_num(minutes),
-                "phút".to_string(),
+            SpeedupUnit::Minutes => format!(
+                "{}{}",
+                format_num(minutes.round() as i64),
+                if language == AppLanguage::English {
+                    "m"
+                } else {
+                    "p"
+                }
             ),
+            SpeedupUnit::Hours | SpeedupUnit::Days => self.format_duration(minutes),
+            SpeedupUnit::Dhm => match language {
+                AppLanguage::English => {
+                    format_speedup_dhm_english(minutes.round() as i64, true)
+                }
+                AppLanguage::Vietnamese => format_speedup_dhm_short(minutes.round() as i64),
+            },
+        }
+    }
+
+    pub fn format_kpi(&self, minutes: i64, language: AppLanguage) -> (String, String) {
+        match self {
+            SpeedupUnit::Minutes => {
+                let unit = match language {
+                    AppLanguage::English => "minutes",
+                    AppLanguage::Vietnamese => "phút",
+                };
+                (format_num(minutes), unit.to_string())
+            }
             SpeedupUnit::Hours => {
                 let hours = minutes as f64 / 60.0;
                 let val_str = if (hours - hours.round()).abs() < 0.05 {
@@ -268,7 +342,11 @@ impl SpeedupUnit {
                 } else {
                     format!("{:.1}", hours)
                 };
-                (val_str, "giờ".to_string())
+                let unit = match language {
+                    AppLanguage::English => "hours",
+                    AppLanguage::Vietnamese => "giờ",
+                };
+                (val_str, unit.to_string())
             }
             SpeedupUnit::Days => {
                 let days = minutes as f64 / 1440.0;
@@ -277,12 +355,19 @@ impl SpeedupUnit {
                 } else {
                     format!("{:.2}", days)
                 };
-                (val_str, "ngày".to_string())
+                let unit = match language {
+                    AppLanguage::English => "days",
+                    AppLanguage::Vietnamese => "ngày",
+                };
+                (val_str, unit.to_string())
             }
-            SpeedupUnit::Dhm => (
-                format_speedup_dhm(minutes),
-                "".to_string(),
-            ),
+            SpeedupUnit::Dhm => {
+                let value = match language {
+                    AppLanguage::English => format_speedup_dhm_english(minutes, false),
+                    AppLanguage::Vietnamese => format_speedup_dhm(minutes),
+                };
+                (value, "".to_string())
+            }
         }
     }
 }
@@ -1411,15 +1496,15 @@ mod tests {
         assert_eq!(days.format_duration(1440.0), "1.0d");
         assert_eq!(days.format_duration(2160.0), "1.50d");
 
-        let (val_m, unit_m) = mins.format_kpi(720);
+        let (val_m, unit_m) = mins.format_kpi(720, AppLanguage::Vietnamese);
         assert_eq!(val_m, "720");
         assert_eq!(unit_m, "phút");
 
-        let (val_h, unit_h) = hrs.format_kpi(720);
+        let (val_h, unit_h) = hrs.format_kpi(720, AppLanguage::Vietnamese);
         assert_eq!(val_h, "12");
         assert_eq!(unit_h, "giờ");
 
-        let (val_d, unit_d) = days.format_kpi(2880);
+        let (val_d, unit_d) = days.format_kpi(2880, AppLanguage::Vietnamese);
         assert_eq!(val_d, "2.0");
         assert_eq!(unit_d, "ngày");
 
@@ -1430,7 +1515,7 @@ mod tests {
         assert_eq!(dhm.format_duration(1500.0), "1d 1h");
         assert_eq!(dhm.format_duration(2910.0), "2d 30p");
 
-        let (val_dhm, unit_dhm) = dhm.format_kpi(1500);
+        let (val_dhm, unit_dhm) = dhm.format_kpi(1500, AppLanguage::Vietnamese);
         assert_eq!(val_dhm, "1 ngày 1 giờ");
         assert_eq!(unit_dhm, "");
 
@@ -1445,6 +1530,75 @@ mod tests {
         assert_eq!(SpeedupUnit::from_str_loose("minutes"), SpeedupUnit::Minutes);
         assert_eq!(SpeedupUnit::from_str_loose("dhm"), SpeedupUnit::Dhm);
         assert_eq!(SpeedupUnit::from_str_loose("ngày giờ"), SpeedupUnit::Dhm);
+    }
+
+    #[test]
+    fn test_speedup_formatting_is_localized() {
+        assert_eq!(
+            SpeedupUnit::Minutes.format_kpi(125, AppLanguage::English),
+            ("125".into(), "minutes".into())
+        );
+        assert_eq!(
+            SpeedupUnit::Minutes.format_duration_for_language(125.0, AppLanguage::English),
+            "125m"
+        );
+        assert_eq!(
+            SpeedupUnit::Hours.format_kpi(90, AppLanguage::English),
+            ("1.5".into(), "hours".into())
+        );
+        assert_eq!(
+            SpeedupUnit::Hours.format_duration_for_language(90.0, AppLanguage::English),
+            "1.5h"
+        );
+        assert_eq!(
+            SpeedupUnit::Days.format_kpi(2160, AppLanguage::English),
+            ("1.50".into(), "days".into())
+        );
+        assert_eq!(
+            SpeedupUnit::Days.format_duration_for_language(2160.0, AppLanguage::English),
+            "1.50d"
+        );
+        assert_eq!(
+            SpeedupUnit::Dhm.format_kpi(1595, AppLanguage::English),
+            ("1 day 2 hours 35 minutes".into(), "".into())
+        );
+        assert_eq!(
+            SpeedupUnit::Dhm.format_duration_for_language(1595.0, AppLanguage::English),
+            "1d 2h 35m"
+        );
+
+        assert_eq!(
+            SpeedupUnit::Minutes.format_kpi(125, AppLanguage::Vietnamese),
+            ("125".into(), "phút".into())
+        );
+        assert_eq!(
+            SpeedupUnit::Minutes.format_duration_for_language(125.0, AppLanguage::Vietnamese),
+            "125p"
+        );
+        assert_eq!(
+            SpeedupUnit::Hours.format_kpi(90, AppLanguage::Vietnamese),
+            ("1.5".into(), "giờ".into())
+        );
+        assert_eq!(
+            SpeedupUnit::Hours.format_duration_for_language(90.0, AppLanguage::Vietnamese),
+            "1.5h"
+        );
+        assert_eq!(
+            SpeedupUnit::Days.format_kpi(2160, AppLanguage::Vietnamese),
+            ("1.50".into(), "ngày".into())
+        );
+        assert_eq!(
+            SpeedupUnit::Days.format_duration_for_language(2160.0, AppLanguage::Vietnamese),
+            "1.50d"
+        );
+        assert_eq!(
+            SpeedupUnit::Dhm.format_kpi(1595, AppLanguage::Vietnamese),
+            ("1 ngày 2 giờ 35 phút".into(), "".into())
+        );
+        assert_eq!(
+            SpeedupUnit::Dhm.format_duration_for_language(1595.0, AppLanguage::Vietnamese),
+            "1d 2h 35p"
+        );
     }
 
     #[test]
