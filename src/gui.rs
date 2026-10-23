@@ -1545,7 +1545,13 @@ impl RoKLootWatcherApp {
                     BattleSortColumn::Time => a.time_raw.cmp(&b.time_raw),
                     BattleSortColumn::Type => a.battle_type.cmp(&b.battle_type),
                     BattleSortColumn::Target => a.target.cmp(&b.target),
-                    BattleSortColumn::Damage => a.damage_pct.cmp(&b.damage_pct),
+                    BattleSortColumn::Damage => {
+                        if is_gathering {
+                            a.talent_add.cmp(&b.talent_add)
+                        } else {
+                            a.damage_pct.cmp(&b.damage_pct)
+                        }
+                    },
                     BattleSortColumn::Tier => a.plunder_tier.cmp(&b.plunder_tier),
                     BattleSortColumn::Crystal => a.crystal_quantity().cmp(&b.crystal_quantity()),
                     BattleSortColumn::Level => a.target_level.cmp(&b.target_level),

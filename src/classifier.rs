@@ -458,6 +458,10 @@ pub fn extract_motte_details(
         return extract_barbarian_battle_details(mail, filename, catalog);
     }
 
+    if btype == "gathering" {
+        return extract_gathering_details(mail, filename);
+    }
+
     let body = mail.get("body");
     let content_raw = body
         .and_then(|b| b.get("content"))
@@ -777,6 +781,17 @@ mod tests {
             assert_eq!(rec.item_totals.get("Pha Lê"), Some(&688));
             assert_eq!(rec.item_totals.get("Sách Kiến Thức Cấp 3"), Some(&10));
         }
+    }
+
+    #[test]
+    fn test_extract_motte_details_delegates_to_gathering() {
+        let path = "mail_vault/Persistent.Mail.1002220217856803764";
+        let mail = crate::lilith_stream::decode_mail_file(path).expect("Decode mail");
+        let catalog = LootCatalog::load_from_candidates(None);
+        let rec = extract_motte_details(&mail, "Persistent.Mail.1002220217856803764", &catalog, None)
+            .expect("Should extract gathering via extract_motte_details");
+        assert_eq!(rec.battle_type, "gathering");
+        assert_eq!(rec.target, "Mỏ Đá Cấp 6");
     }
 
     #[test]

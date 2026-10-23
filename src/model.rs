@@ -732,6 +732,7 @@ pub fn get_item_conversion(itype: u32, isub: u32) -> ConvertedValue {
             2 => ConvertedValue::Resource { kind: ResourceKind::Wood, multiplier: 1 },
             3 => ConvertedValue::Resource { kind: ResourceKind::Stone, multiplier: 1 },
             4 => ConvertedValue::Resource { kind: ResourceKind::Gold, multiplier: 1 },
+            5 => ConvertedValue::Gem(1),
             9 => ConvertedValue::Crystal,
             _ => ConvertedValue::Other,
         }
@@ -1802,6 +1803,11 @@ mod tests {
         assert_eq!(rec.training_speedup_minutes(), 20);
         assert_eq!(rec.heal_speedup_minutes(), 20); // 4 * 5 = 20 phút
         assert_eq!(rec.total_speedup_minutes(), 55);
+    }
+
+    #[test]
+    fn test_gem_node_conversion() {
+        assert_eq!(get_item_conversion(1, 5), ConvertedValue::Gem(1));
     }
 
     #[test]
