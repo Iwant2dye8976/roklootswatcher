@@ -8,4 +8,4 @@ analytics.md
 *.json
 loot.yaml
 .superpowers/
-docs/
+/docs/
