@@ -36,7 +36,7 @@ pub fn parse_date_str(d_str: &str) -> Option<NaiveDate> {
         return None;
     }
 
-    if clean.len() >= 10 {
+    if clean.len() >= 10 && clean.is_char_boundary(10) {
         let prefix = &clean[..10];
         let b = prefix.as_bytes();
 
@@ -81,6 +81,16 @@ pub fn parse_date_str(d_str: &str) -> Option<NaiveDate> {
     if let Ok(d) = NaiveDate::parse_from_str(clean, "%d-%m-%Y") {
         return Some(d);
     }
+
+    // Tìm kiếm ngày nhúng trong chuỗi (ví dụ: "Ngày 22/10/2026")
+    for word in clean.split_whitespace() {
+        if word != clean {
+            if let Some(d) = parse_date_str(word) {
+                return Some(d);
+            }
+        }
+    }
+
     None
 }
 
@@ -132,6 +142,16 @@ pub fn filter_records_by_date<'a>(
         })
         .cloned()
         .collect()
+}
+
+/// Trả về N bản ghi mới nhất theo thứ tự giảm dần của thời gian (mới nhất đứng đầu).
+pub fn get_latest_records<'a>(records: &'a [BattleRecord], limit: usize) -> Vec<&'a BattleRecord> {
+    let mut sorted: Vec<&'a BattleRecord> = records.iter().collect();
+    sorted.sort_by(|a, b| {
+        b.time_raw.cmp(&a.time_raw).then_with(|| b.time_vn.cmp(&a.time_vn))
+    });
+    sorted.truncate(limit);
+    sorted
 }
 
 pub fn generate_statistics(records: &[BattleRecord]) -> Statistics {
@@ -307,6 +327,17 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_date_str_with_multibyte_utf8() {
+        // String where byte index 10 falls in the middle of a multibyte UTF-8 char:
+        // "123456789" (9 bytes) + "ư" (0xC6 0xB0 = 2 bytes: byte 9 and 10)
+        let s = "123456789ư";
+        assert_eq!(parse_date_str(s), None);
+
+        // Vietnamese prefix with valid date afterwards
+        assert_eq!(parse_date_str("Ngày 22/10/2026"), Some(NaiveDate::from_ymd_opt(2026, 10, 22).unwrap()));
+    }
+
+    #[test]
     fn test_filter_records_by_date() {
         let make_rec = |time_vn: &str, time_raw: i64| BattleRecord {
             filename: "".into(),
@@ -316,7 +347,8 @@ mod tests {
             time_utc: "".into(),
             time_vn: time_vn.into(),
             target: "".into(),
-            motte_level: "".into(),
+            target_level: "".into(),
+            talent_add: 0,
             pos_x: 0,
             pos_y: 0,
             damage_pct: 100,
@@ -357,5 +389,51 @@ mod tests {
         );
         assert_eq!(f_iter.len(), 1);
         assert_eq!(f_iter[0].time_vn, "2026-10-20 12:00:00");
+    }
+
+    #[test]
+    fn test_get_latest_records_excludes_old_records() {
+        let make_rec = |mail_id: &str, time_vn: &str, time_raw: i64| BattleRecord {
+            filename: "".into(),
+            mail_id: mail_id.into(),
+            battle_type: "motte".into(),
+            time_raw,
+            time_utc: "".into(),
+            time_vn: time_vn.into(),
+            target: format!("Target {}", mail_id),
+            target_level: "".into(),
+            talent_add: 0,
+            pos_x: 0,
+            pos_y: 0,
+            damage_pct: 100,
+            plunder_tier: 0,
+            items: vec![],
+            item_totals: HashMap::new(),
+            content: "".into(),
+        };
+
+        // Danh sách lưu theo thứ tự tăng dần thời gian (cũ nhất ở đầu, giống trong Vault)
+        let recs = vec![
+            make_rec("old_2022", "2022-08-21 07:03:04", 1661040184654146),
+            make_rec("old_2025", "2025-01-30 02:24:20", 1738178660507109),
+            make_rec("new_1", "2026-10-23 09:00:00", 1792720000000000),
+            make_rec("new_2", "2026-10-23 10:00:00", 1792723600000000),
+            make_rec("new_3", "2026-10-23 10:30:00", 1792725400000000),
+            make_rec("new_4", "2026-10-23 11:00:00", 1792727200000000),
+            make_rec("new_5", "2026-10-23 11:30:00", 1792729000000000),
+        ];
+
+        let latest = get_latest_records(&recs, 5);
+        assert_eq!(latest.len(), 5);
+
+        // Phải được sắp xếp theo thời gian mới nhất đứng đầu
+        assert_eq!(latest[0].mail_id, "new_5");
+        assert_eq!(latest[1].mail_id, "new_4");
+        assert_eq!(latest[2].mail_id, "new_3");
+        assert_eq!(latest[3].mail_id, "new_2");
+        assert_eq!(latest[4].mail_id, "new_1");
+
+        // Các bản ghi cũ từ 2022 và 2025 tuyệt đối không được xuất hiện
+        assert!(latest.iter().all(|r| r.mail_id != "old_2022" && r.mail_id != "old_2025"));
     }
 }

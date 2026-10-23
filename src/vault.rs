@@ -184,16 +184,16 @@ impl MailVault {
                     return false;
                 }
                 // Loại bỏ thư bắn tháp không có vật phẩm bị gán nhầm thành barbarian cấp 60
-                if (r.motte_level == "60" || r.target == "Dã Man Cấp 60") && r.items.is_empty() {
+                if (r.target_level == "60" || r.target == "Dã Man Cấp 60") && r.items.is_empty() {
                     return false;
                 }
                 // Chuẩn hóa lại các báo cáo dã man từng bị gán nhầm cấp 60 của pháo đài (vd: Cấp 52-60 (x2))
-                if r.motte_level.contains("60") || r.target.contains("60") {
-                    let maybe_min_lvl = r.motte_level.split_once("-60").map(|(min_str, _)| min_str.trim().to_string())
+                if r.target_level.contains("60") || r.target.contains("60") {
+                    let maybe_min_lvl = r.target_level.split_once("-60").map(|(min_str, _)| min_str.trim().to_string())
                         .or_else(|| {
                             if let Some(pos) = r.target.find("-60") {
                                 let prefix = &r.target[..pos];
-                                prefix.split(|c: char| !c.is_numeric()).filter(|s| !s.is_empty()).last().map(|s| s.to_string())
+                                prefix.split(|c: char| !c.is_numeric()).rfind(|s| !s.is_empty()).map(|s| s.to_string())
                             } else {
                                 None
                             }
@@ -206,16 +206,16 @@ impl MailVault {
                             } else {
                                 r.content = r.target.clone();
                             }
-                            r.motte_level = min_lvl;
+                            r.target_level = min_lvl;
                             modified = true;
                         } else {
-                            r.motte_level = String::new();
+                            r.target_level = String::new();
                             r.target = "Dã Man".to_string();
                             r.content = r.target.clone();
                             modified = true;
                         }
-                    } else if r.motte_level == "60" || r.target.contains("Cấp 60") {
-                        r.motte_level = String::new();
+                    } else if r.target_level == "60" || r.target.contains("Cấp 60") {
+                        r.target_level = String::new();
                         r.target = "Dã Man".to_string();
                         r.content = r.target.clone();
                         modified = true;
@@ -247,7 +247,8 @@ impl MailVault {
         }
 
         if let Ok(file) = fs::File::open(&self.vault_file) {
-            if let Ok(storage) = serde_json::from_reader::<_, VaultStorageData>(file) {
+            let reader = std::io::BufReader::new(file);
+            if let Ok(storage) = serde_json::from_reader::<_, VaultStorageData>(reader) {
                 let cnt = storage.records.len();
                 self.records = storage.records;
                 self.rebuild_index();
@@ -386,22 +387,21 @@ impl MailVault {
         if let Ok(entries) = fs::read_dir(&json_dir) {
             for entry in entries.flatten() {
                 let p = entry.path();
-                if p.is_file() && p.extension().map_or(false, |ext| ext == "json") {
+                if p.is_file() && p.extension().is_some_and(|ext| ext == "json") {
                     if let Ok(file) = fs::File::open(&p) {
+                        let reader = std::io::BufReader::new(file);
                         // Thử parse xem có metadata thống kê không
-                        if let Ok(val) = serde_json::from_reader::<_, serde_json::Value>(file) {
+                        if let Ok(val) = serde_json::from_reader::<_, serde_json::Value>(reader) {
                             if let Some(box_val) = val.get("box").and_then(|v| v.as_str()) {
-                                if box_val == "Report" {
+                                if box_val == "Report" || box_val == "Archive" {
                                     let fname = p.file_stem().unwrap_or_default().to_string_lossy().to_string();
                                     // Parse BattleRecord từ cấu trúc json
                                     if let Some(rec) = Self::parse_battle_record_from_exported_json(&val, &fname) {
                                         let key = get_record_dedup_key(&rec);
                                         // TUYỆT ĐỐI KHÔNG ghi đè bản ghi đã tồn tại trong Vault
                                         // vì bản ghi trong Vault có dữ liệu đầy đủ và chính xác hơn!
-                                        if !self.key_index.contains_key(&key) {
-                                            if self.upsert(rec) {
-                                                restored += 1;
-                                            }
+                                        if !self.key_index.contains_key(&key) && self.upsert(rec) {
+                                            restored += 1;
                                         }
                                     }
                                 }
@@ -518,7 +518,7 @@ impl MailVault {
                 }
             }
 
-            let (motte_level, target) = if !levels.is_empty() {
+            let (target_level, target) = if !levels.is_empty() {
                 let min_lvl = *levels.iter().min().unwrap();
                 let max_lvl = *levels.iter().max().unwrap();
                 let count = levels.len();
@@ -547,7 +547,8 @@ impl MailVault {
                 time_utc: "".into(),
                 time_vn,
                 target,
-                motte_level,
+                target_level,
+                talent_add: 0,
                 pos_x,
                 pos_y,
                 damage_pct: if damage_pct > 0 { damage_pct } else { 100 },
@@ -616,7 +617,8 @@ impl MailVault {
             time_utc: "".into(),
             time_vn,
             target,
-            motte_level: "".into(),
+            target_level: "".into(),
+            talent_add: 0,
             pos_x: 0,
             pos_y: 0,
             damage_pct,
@@ -642,7 +644,8 @@ mod tests {
             time_utc: "".into(),
             time_vn: "".into(),
             target: "Motte".into(),
-            motte_level: "10".into(),
+            target_level: "10".into(),
+            talent_add: 0,
             pos_x: 100,
             pos_y: 200,
             damage_pct: 50,
@@ -679,7 +682,8 @@ mod tests {
             time_utc: "".into(),
             time_vn: "2026-10-22 10:00:00".into(),
             target: "Barbarian Fort 10".into(),
-            motte_level: "10".into(),
+            target_level: "10".into(),
+            talent_add: 0,
             pos_x: 500,
             pos_y: 600,
             damage_pct: 45,
@@ -715,7 +719,7 @@ mod tests {
         for r in vault.get_records() {
             *btypes.entry(r.battle_type.clone()).or_insert(0) += 1;
             if r.battle_type == "barbarian" {
-                assert!(!r.motte_level.contains("60"), "Barbarian level must not contain 60: {:?}", r.motte_level);
+                assert!(!r.target_level.contains("60"), "Barbarian level must not contain 60: {:?}", r.target_level);
                 assert!(!r.target.contains("60"), "Barbarian target must not contain 60: {:?}", r.target);
             }
         }
@@ -736,7 +740,7 @@ mod tests {
                             for b in battles {
                                 if b.get("battle_type").and_then(|v| v.as_str()) == Some("barbarian") {
                                     let mut needs_clean = false;
-                                    let lvl = b.get("motte_level").and_then(|v| v.as_str()).unwrap_or("");
+                                    let lvl = b.get("target_level").or_else(|| b.get("motte_level")).and_then(|v| v.as_str()).unwrap_or("");
                                     let tgt = b.get("target").and_then(|v| v.as_str()).unwrap_or("");
                                     if lvl.contains("60") || tgt.contains("60") {
                                         needs_clean = true;
@@ -745,13 +749,13 @@ mod tests {
                                         let min_lvl = if let Some((m, _)) = lvl.split_once("-60") {
                                             m.to_string()
                                         } else if let Some(pos) = tgt.find("-60") {
-                                            tgt[..pos].split(|c: char| !c.is_numeric()).filter(|s| !s.is_empty()).last().unwrap_or("").to_string()
+                                            tgt[..pos].split(|c: char| !c.is_numeric()).rfind(|s| !s.is_empty()).unwrap_or("").to_string()
                                         } else {
                                             "".to_string()
                                         };
 
                                         if !min_lvl.is_empty() {
-                                            b["motte_level"] = serde_json::Value::String(min_lvl.clone());
+                                            b["target_level"] = serde_json::Value::String(min_lvl.clone());
                                             let new_tgt = format!("Dã Man Cấp {}", min_lvl);
                                             b["target"] = serde_json::Value::String(new_tgt.clone());
                                             let px = b.get("pos_x").and_then(|v| v.as_i64()).unwrap_or(0);
@@ -768,7 +772,8 @@ mod tests {
                             }
                         }
                         if modified {
-                            let _ = fs::write(motte_file, serde_json::to_string_pretty(&json_val).unwrap());
+                            // Verify json is serializable without mutating project workspace file
+                            assert!(serde_json::to_string_pretty(&json_val).is_ok());
                         }
                     }
                     Err(e) => {
@@ -813,6 +818,41 @@ mod tests {
         assert_eq!(rec.battle_type, "motte");
         assert_eq!(rec.damage_pct, 55);
         assert_eq!(rec.plunder_tier, 6);
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_restore_from_filtered_mails_json_with_archive_box() {
+        let temp_dir = std::env::temp_dir().join(format!("rok_test_restore_archive_{}", std::process::id()));
+        let json_dir = temp_dir.join("filtered_mails_json");
+        let _ = fs::create_dir_all(&json_dir);
+
+        let mock_json = r#"{
+            "box": "Archive",
+            "id": "888999",
+            "sendTime": 17858542764,
+            "body": {
+                "subType": 11,
+                "subParam": 4,
+                "targetName": "Motte 20",
+                "content": "Tiêu diệt thành công Motte cấp 20"
+            },
+            "_stats_metadata": {
+                "damage_pct": 80,
+                "plunder_tier": 6,
+                "time_vn": "2026-10-22 11:30:00"
+            }
+        }"#;
+
+        let sample_file = json_dir.join("Persistent.Mail.888999.json");
+        fs::write(&sample_file, mock_json).unwrap();
+
+        let vault = MailVault::new(&temp_dir);
+        assert_eq!(vault.total_count(), 1, "Thư trong hòm Archive phải được khôi phục vào Vault");
+        let rec = &vault.get_records()[0];
+        assert_eq!(rec.mail_id, "888999");
+        assert_eq!(rec.battle_type, "motte");
 
         let _ = fs::remove_dir_all(&temp_dir);
     }
