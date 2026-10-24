@@ -191,6 +191,7 @@ pub struct RoKLootWatcherApp {
     pub close_behavior: CloseBehavior,
     pub autostart: bool,
     pub autostart_minimized: bool,
+    pub overlay_config: crate::model::OverlayConfig,
     pending_start_minimized_frames: u32,
     is_armored: bool,
     pending_armor_check: Option<std::sync::mpsc::Receiver<bool>>,
@@ -599,6 +600,7 @@ impl RoKLootWatcherApp {
             close_behavior: initial_close_behavior,
             autostart: initial_autostart,
             autostart_minimized: initial_autostart_minimized,
+            overlay_config: config.overlay.clone(),
             pending_start_minimized_frames: if start_minimized { 5 } else { 0 },
             is_armored: false,
             pending_armor_check: Some(armor_rx),
@@ -616,6 +618,7 @@ impl RoKLootWatcherApp {
             language: self.language,
             autostart: self.autostart,
             autostart_minimized: self.autostart_minimized,
+            overlay: self.overlay_config.clone(),
         };
         config.save();
     }

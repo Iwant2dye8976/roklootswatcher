@@ -1470,6 +1470,70 @@ impl std::fmt::Display for AppLanguage {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OverlayConfig {
+    #[serde(default = "default_overlay_enabled")]
+    pub enabled: bool,
+    #[serde(default = "default_overlay_filter")]
+    pub filter: FilterMode,
+    #[serde(default = "default_overlay_opacity")]
+    pub opacity: f32,
+    #[serde(default = "default_overlay_text_color")]
+    pub text_color_hex: String,
+    #[serde(default = "default_overlay_accent_hex")]
+    pub accent_color_hex: String,
+}
+
+fn default_overlay_enabled() -> bool {
+    false
+}
+
+fn default_overlay_filter() -> FilterMode {
+    FilterMode::AllRewards
+}
+
+fn default_overlay_opacity() -> f32 {
+    0.85
+}
+
+fn default_overlay_text_color() -> String {
+    "#F8FAFC".to_string()
+}
+
+fn default_overlay_accent_hex() -> String {
+    "#38BDF8".to_string()
+}
+
+impl Default for OverlayConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_overlay_enabled(),
+            filter: default_overlay_filter(),
+            opacity: default_overlay_opacity(),
+            text_color_hex: default_overlay_text_color(),
+            accent_color_hex: default_overlay_accent_hex(),
+        }
+    }
+}
+
+pub fn parse_hex_color(hex: &str) -> Option<eframe::egui::Color32> {
+    let s = hex.trim().strip_prefix('#').unwrap_or(hex.trim());
+    if s.len() == 6 {
+        let r = u8::from_str_radix(&s[0..2], 16).ok()?;
+        let g = u8::from_str_radix(&s[2..4], 16).ok()?;
+        let b = u8::from_str_radix(&s[4..6], 16).ok()?;
+        Some(eframe::egui::Color32::from_rgb(r, g, b))
+    } else if s.len() == 8 {
+        let r = u8::from_str_radix(&s[0..2], 16).ok()?;
+        let g = u8::from_str_radix(&s[2..4], 16).ok()?;
+        let b = u8::from_str_radix(&s[4..6], 16).ok()?;
+        let a = u8::from_str_radix(&s[6..8], 16).ok()?;
+        Some(eframe::egui::Color32::from_rgba_premultiplied(r, g, b, a))
+    } else {
+        None
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
     #[serde(default)]
     pub close_behavior: CloseBehavior,
@@ -1487,6 +1551,8 @@ pub struct AppConfig {
     pub autostart: bool,
     #[serde(default = "default_autostart_minimized")]
     pub autostart_minimized: bool,
+    #[serde(default)]
+    pub overlay: OverlayConfig,
 }
 
 fn default_autostart_minimized() -> bool {
@@ -1504,6 +1570,7 @@ impl Default for AppConfig {
             mode: None,
             autostart: false,
             autostart_minimized: true,
+            overlay: OverlayConfig::default(),
         }
     }
 }
@@ -2408,5 +2475,24 @@ mod tests {
 
         // Other / Crystal: raw quantity fallback
         assert_eq!(make_item(1, 9, 75).raw_converted_value(), 75);
+    }
+
+    #[test]
+    fn test_overlay_config_defaults_and_legacy_deserialize() {
+        let legacy_json = r#"{"mail_dir":null,"mode":"all-targets","autostart":false}"#;
+        let config: AppConfig = serde_json::from_str(legacy_json).expect("Must deserialize legacy config without overlay");
+        assert!(!config.overlay.enabled);
+        assert_eq!(config.overlay.opacity, 0.85);
+        assert_eq!(config.overlay.filter, FilterMode::AllRewards);
+        assert_eq!(config.overlay.text_color_hex, "#F8FAFC");
+        assert_eq!(config.overlay.accent_color_hex, "#38BDF8");
+    }
+
+    #[test]
+    fn test_parse_hex_color() {
+        assert_eq!(parse_hex_color("#FFFFFF"), Some(eframe::egui::Color32::from_rgb(255, 255, 255)));
+        assert_eq!(parse_hex_color("#000000"), Some(eframe::egui::Color32::from_rgb(0, 0, 0)));
+        assert_eq!(parse_hex_color("#38BDF8"), Some(eframe::egui::Color32::from_rgb(0x38, 0xBD, 0xF8)));
+        assert_eq!(parse_hex_color("invalid"), None);
     }
 }
