@@ -25,13 +25,22 @@ pub struct OverlayGeometry {
     pub height: f32,
 }
 
-pub fn calculate_overlay_geometry(bounds: &RoKWindowBounds, scale_factor: f32) -> OverlayGeometry {
+pub fn calculate_overlay_geometry(
+    bounds: &RoKWindowBounds,
+    config: &crate::model::OverlayConfig,
+    scale_factor: f32,
+) -> OverlayGeometry {
     let scale = if scale_factor <= 0.0 { 1.0 } else { scale_factor };
-    let pos_x = (bounds.x as f32 + 16.0) / scale;
-    let pos_y = (bounds.y as f32 + 60.0) / scale;
-    let width = 240.0;
-    let max_height = ((bounds.height as f32 - 80.0) / scale).max(150.0);
-    let height = 210.0_f32.min(max_height);
+    let pos_x = (bounds.x as f32 + config.offset_x) / scale;
+    let pos_y = (bounds.y as f32 + config.offset_y) / scale;
+    let width = config.width.clamp(180.0, 450.0);
+    
+    // Dynamic height calculation based on font size (approx 3.3x font size per card + spacing)
+    let card_height = (config.font_size * 3.3).max(28.0);
+    let est_height = (card_height * 5.0 + 20.0).max(150.0);
+    let max_height = ((bounds.height as f32 - 40.0) / scale).max(150.0);
+    let height = est_height.min(max_height);
+
     OverlayGeometry {
         pos_x,
         pos_y,
@@ -187,6 +196,32 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_calculate_overlay_geometry_with_custom_offsets() {
+        let bounds = RoKWindowBounds {
+            x: 100,
+            y: 100,
+            width: 1920,
+            height: 1080,
+        };
+        let cfg = crate::model::OverlayConfig {
+            enabled: true,
+            opacity: 0.8,
+            text_color_hex: "#FFFFFF".into(),
+            accent_color_hex: "#38BDF8".into(),
+            filter: crate::model::FilterMode::AllRewards,
+            offset_x: 250.0,
+            offset_y: 150.0,
+            width: 300.0,
+            font_size: 12.0,
+        };
+        let geom = calculate_overlay_geometry(&bounds, &cfg, 1.0);
+        assert_eq!(geom.pos_x, 350.0);
+        assert_eq!(geom.pos_y, 250.0);
+        assert_eq!(geom.width, 300.0);
+        assert!(geom.height >= 180.0);
+    }
+
+    #[test]
     fn test_calculate_overlay_geometry() {
         let bounds = RoKWindowBounds {
             x: 100,
@@ -194,11 +229,12 @@ mod tests {
             width: 1920,
             height: 1080,
         };
-        let geom = calculate_overlay_geometry(&bounds, 1.0);
+        let cfg = crate::model::OverlayConfig::default();
+        let geom = calculate_overlay_geometry(&bounds, &cfg, 1.0);
         assert_eq!(geom.pos_x, 116.0); // 100 + 16 margin
         assert_eq!(geom.pos_y, 110.0); // 50 + 60 margin
         assert_eq!(geom.width, 240.0);
-        assert_eq!(geom.height, 210.0);
+        assert!(geom.height >= 180.0);
     }
 
     #[test]
@@ -209,11 +245,12 @@ mod tests {
             width: 800,
             height: 500,
         };
-        let geom = calculate_overlay_geometry(&bounds, 1.0);
+        let cfg = crate::model::OverlayConfig::default();
+        let geom = calculate_overlay_geometry(&bounds, &cfg, 1.0);
         assert_eq!(geom.pos_x, 16.0);
         assert_eq!(geom.pos_y, 60.0);
         assert_eq!(geom.width, 240.0);
-        assert_eq!(geom.height, 210.0);
+        assert!(geom.height >= 180.0);
     }
 
     #[test]

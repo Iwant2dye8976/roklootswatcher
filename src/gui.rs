@@ -3676,7 +3676,7 @@ impl eframe::App for RoKLootWatcherApp {
                 if crate::overlay_tracker::is_rok_active_and_visible(hwnd) {
                     if let Some(bounds) = crate::overlay_tracker::get_rok_window_bounds(hwnd) {
                         is_active_rendered = true;
-                        let geom = crate::overlay_tracker::calculate_overlay_geometry(&bounds, ctx.pixels_per_point());
+                        let geom = crate::overlay_tracker::calculate_overlay_geometry(&bounds, &self.overlay_config, ctx.pixels_per_point());
                         let overlay_id = egui::ViewportId::from_hash_of("rok_overlay_viewport");
                         let builder = egui::ViewportBuilder::default()
                             .with_title("Rise of Kingdoms Loot Overlay")
