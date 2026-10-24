@@ -1469,7 +1469,7 @@ impl std::fmt::Display for AppLanguage {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct OverlayConfig {
     #[serde(default = "default_overlay_enabled")]
     pub enabled: bool,
@@ -1481,6 +1481,14 @@ pub struct OverlayConfig {
     pub text_color_hex: String,
     #[serde(default = "default_overlay_accent_hex")]
     pub accent_color_hex: String,
+    #[serde(default = "default_overlay_offset_x")]
+    pub offset_x: f32,
+    #[serde(default = "default_overlay_offset_y")]
+    pub offset_y: f32,
+    #[serde(default = "default_overlay_width")]
+    pub width: f32,
+    #[serde(default = "default_overlay_font_size")]
+    pub font_size: f32,
 }
 
 fn default_overlay_enabled() -> bool {
@@ -1503,6 +1511,22 @@ fn default_overlay_accent_hex() -> String {
     "#38BDF8".to_string()
 }
 
+fn default_overlay_offset_x() -> f32 {
+    16.0
+}
+
+fn default_overlay_offset_y() -> f32 {
+    60.0
+}
+
+fn default_overlay_width() -> f32 {
+    240.0
+}
+
+fn default_overlay_font_size() -> f32 {
+    10.5
+}
+
 impl Default for OverlayConfig {
     fn default() -> Self {
         Self {
@@ -1511,6 +1535,10 @@ impl Default for OverlayConfig {
             opacity: default_overlay_opacity(),
             text_color_hex: default_overlay_text_color(),
             accent_color_hex: default_overlay_accent_hex(),
+            offset_x: default_overlay_offset_x(),
+            offset_y: default_overlay_offset_y(),
+            width: default_overlay_width(),
+            font_size: default_overlay_font_size(),
         }
     }
 }
@@ -2486,6 +2514,34 @@ mod tests {
         assert_eq!(config.overlay.filter, FilterMode::AllRewards);
         assert_eq!(config.overlay.text_color_hex, "#F8FAFC");
         assert_eq!(config.overlay.accent_color_hex, "#38BDF8");
+    }
+
+    #[test]
+    fn test_overlay_config_position_and_sizing_defaults() {
+        let legacy_json = r##"{"enabled":true,"opacity":0.8,"text_color_hex":"#FFFFFF"}"##;
+        let config: OverlayConfig = serde_json::from_str(legacy_json).expect("Must parse legacy config");
+        assert_eq!(config.offset_x, 16.0);
+        assert_eq!(config.offset_y, 60.0);
+        assert_eq!(config.width, 240.0);
+        assert_eq!(config.font_size, 10.5);
+    }
+
+    #[test]
+    fn test_overlay_config_custom_position_and_sizing_roundtrip() {
+        let cfg = OverlayConfig {
+            enabled: true,
+            opacity: 0.0,
+            text_color_hex: "#38BDF8".into(),
+            accent_color_hex: "#38BDF8".into(),
+            filter: FilterMode::AllRewards,
+            offset_x: 120.0,
+            offset_y: 200.0,
+            width: 320.0,
+            font_size: 13.0,
+        };
+        let json = serde_json::to_string(&cfg).expect("Must serialize");
+        let back: OverlayConfig = serde_json::from_str(&json).expect("Must deserialize");
+        assert_eq!(back, cfg);
     }
 
     #[test]
