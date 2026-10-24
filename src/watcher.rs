@@ -41,6 +41,7 @@ pub fn detect_default_mail_dir() -> PathBuf {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub enum WatcherStatus {
     Running(String),
     Scanning(String),

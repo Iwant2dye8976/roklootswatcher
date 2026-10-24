@@ -396,6 +396,24 @@ pub fn resolve_status_badge(
     }
 }
 
+pub(crate) fn poll_armor_check_channel(
+    pending_armor_check: &mut Option<std::sync::mpsc::Receiver<bool>>,
+    is_armored: &mut bool,
+) {
+    if let Some(ref rx) = pending_armor_check {
+        match rx.try_recv() {
+            Ok(armored) => {
+                *is_armored = armored;
+                *pending_armor_check = None;
+            }
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                *pending_armor_check = None;
+            }
+            Err(std::sync::mpsc::TryRecvError::Empty) => {}
+        }
+    }
+}
+
 impl RoKLootWatcherApp {
     pub fn configure_fonts(ctx: &egui::Context) {
         let mut fonts = egui::FontDefinitions::default();
@@ -645,6 +663,10 @@ impl RoKLootWatcherApp {
             }
         }
         had_events
+    }
+
+    fn poll_armor_check(&mut self) {
+        poll_armor_check_channel(&mut self.pending_armor_check, &mut self.is_armored);
     }
 
     fn toggle_watcher(&self) {
@@ -3371,18 +3393,7 @@ impl eframe::App for RoKLootWatcherApp {
         let _ = crate::tray::get_or_find_main_hwnd();
 
         // Nhận kết quả kiểm tra trạng thái armor từ luồng nền nếu có
-        if let Some(ref rx) = self.pending_armor_check {
-            match rx.try_recv() {
-                Ok(armored) => {
-                    self.is_armored = armored;
-                    self.pending_armor_check = None;
-                }
-                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                    self.pending_armor_check = None;
-                }
-                Err(std::sync::mpsc::TryRecvError::Empty) => {}
-            }
-        }
+        self.poll_armor_check();
 
         // Check if an external restore was requested (tray icon clicked, second instance opened, etc.)
         if crate::tray::check_and_clear_restore_request() {
@@ -3780,17 +3791,32 @@ mod tests {
         drop(tx); // sender drops, causing Disconnected
 
         let mut pending = Some(rx);
-        if let Some(ref r) = pending {
-            match r.try_recv() {
-                Ok(_) => {
-                    pending = None;
-                }
-                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                    pending = None;
-                }
-                Err(std::sync::mpsc::TryRecvError::Empty) => {}
-            }
-        }
+        let mut armored = false;
+        poll_armor_check_channel(&mut pending, &mut armored);
         assert!(pending.is_none());
+        assert!(!armored);
+    }
+
+    #[test]
+    fn test_pending_armor_check_ok_sets_armored_and_clears_receiver() {
+        let (tx, rx) = std::sync::mpsc::channel::<bool>();
+        tx.send(true).unwrap();
+
+        let mut pending = Some(rx);
+        let mut armored = false;
+        poll_armor_check_channel(&mut pending, &mut armored);
+        assert!(pending.is_none());
+        assert!(armored);
+    }
+
+    #[test]
+    fn test_pending_armor_check_empty_leaves_receiver_pending() {
+        let (_tx, rx) = std::sync::mpsc::channel::<bool>();
+
+        let mut pending = Some(rx);
+        let mut armored = false;
+        poll_armor_check_channel(&mut pending, &mut armored);
+        assert!(pending.is_some());
+        assert!(!armored);
     }
 }
