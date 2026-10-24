@@ -86,6 +86,7 @@ pub fn find_rok_window() -> Option<HWND> {
     }
 }
 
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn is_rok_active_and_visible(hwnd: HWND) -> bool {
     #[cfg(windows)]
     unsafe {
@@ -102,6 +103,7 @@ pub fn is_rok_active_and_visible(hwnd: HWND) -> bool {
     }
 }
 
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn get_rok_window_bounds(hwnd: HWND) -> Option<RoKWindowBounds> {
     #[cfg(windows)]
     unsafe {
@@ -130,6 +132,29 @@ pub fn get_rok_window_bounds(hwnd: HWND) -> Option<RoKWindowBounds> {
         None
     }
 }
+
+#[cfg(windows)]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+pub fn apply_click_through_styles(hwnd: HWND) {
+    unsafe {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            GetWindowLongPtrW, SetWindowLongPtrW, GWL_EXSTYLE,
+            WS_EX_LAYERED, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT,
+        };
+        let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+        let target_style = ex_style
+            | WS_EX_TRANSPARENT as isize
+            | WS_EX_LAYERED as isize
+            | WS_EX_TOOLWINDOW as isize
+            | WS_EX_TOPMOST as isize;
+        if ex_style != target_style {
+            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, target_style);
+        }
+    }
+}
+
+#[cfg(not(windows))]
+pub fn apply_click_through_styles(_hwnd: HWND) {}
 
 #[cfg(test)]
 mod tests {

@@ -1,5 +1,5 @@
-use eframe::egui::Color32;
-use crate::model::{BattleRecord, FilterMode};
+use eframe::egui::{self, Color32, Frame, Margin, Rounding, Stroke};
+use crate::model::{parse_hex_color, BattleRecord, FilterMode, OverlayConfig};
 
 #[derive(Debug, Clone)]
 pub struct CardDisplayData {
@@ -114,9 +114,100 @@ pub fn get_latest_filtered_records(records: &[BattleRecord], filter: FilterMode,
         .cloned()
         .collect();
 
-    filtered.sort_by(|a, b| b.time_raw.cmp(&a.time_raw));
+    filtered.sort_by_key(|a| std::cmp::Reverse(a.time_raw));
     filtered.truncate(limit);
     filtered
+}
+
+pub fn render_overlay_viewport(
+    ctx: &egui::Context,
+    records: &[BattleRecord],
+    config: &OverlayConfig,
+    last_mail_time: std::time::Instant,
+) {
+    let dim_factor = compute_idle_dim_factor(last_mail_time);
+    let alpha_u8 = (255.0 * config.opacity * dim_factor).clamp(0.0, 255.0) as u8;
+    let bg_color = Color32::from_black_alpha(alpha_u8);
+
+    let text_color = parse_hex_color(&config.text_color_hex)
+        .unwrap_or_else(|| Color32::from_rgb(248, 250, 252));
+    let muted_text = text_color.linear_multiply(0.7);
+
+    egui::CentralPanel::default()
+        .frame(Frame::none())
+        .show(ctx, |ui| {
+            ui.spacing_mut().item_spacing = egui::vec2(0.0, 8.0);
+
+            if records.is_empty() {
+                Frame::none()
+                    .fill(bg_color)
+                    .rounding(Rounding::same(6.0))
+                    .inner_margin(Margin::same(10.0))
+                    .show(ui, |ui| {
+                        ui.label(
+                            egui::RichText::new("[RoK Overlay - No matching reports]")
+                                .color(muted_text)
+                                .size(12.0)
+                                .strong(),
+                        );
+                    });
+                return;
+            }
+
+            for rec in records.iter().take(5) {
+                let card = format_card_data(rec);
+
+                Frame::none()
+                    .fill(bg_color)
+                    .rounding(Rounding::same(6.0))
+                    .stroke(Stroke::new(1.0_f32, Color32::from_white_alpha((40.0 * dim_factor) as u8)))
+                    .inner_margin(Margin {
+                        left: 10.0,
+                        right: 10.0,
+                        top: 8.0,
+                        bottom: 8.0,
+                    })
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                egui::RichText::new(&card.tag)
+                                    .color(card.accent_color)
+                                    .size(11.0)
+                                    .strong(),
+                            );
+                            ui.label(
+                                egui::RichText::new(&card.target_display)
+                                    .color(text_color)
+                                    .size(12.0)
+                                    .strong(),
+                            );
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                ui.label(
+                                    egui::RichText::new(&card.time_display)
+                                        .color(muted_text)
+                                        .size(10.0),
+                                );
+                            });
+                        });
+
+                        ui.add_space(2.0);
+                        ui.label(
+                            egui::RichText::new(&card.meta_display)
+                                .color(muted_text)
+                                .size(11.0),
+                        );
+
+                        ui.add_space(3.0);
+                        for line in &card.drops_summary {
+                            ui.label(
+                                egui::RichText::new(line)
+                                    .color(text_color)
+                                    .size(11.0),
+                            );
+                        }
+                    });
+            }
+        });
 }
 
 #[cfg(test)]
@@ -216,5 +307,13 @@ mod tests {
             assert_eq!(f.battle_type, "fort");
         }
         assert_eq!(forts[0].time_raw, 1000);
+    }
+
+    #[test]
+    fn test_card_accent_color_mapping() {
+        assert_eq!(accent_color_for_battle_type("fort"), egui::Color32::from_rgb(245, 158, 11));
+        assert_eq!(accent_color_for_battle_type("motte"), egui::Color32::from_rgb(239, 68, 68));
+        assert_eq!(accent_color_for_battle_type("barbarian"), egui::Color32::from_rgb(59, 130, 246));
+        assert_eq!(accent_color_for_battle_type("gathering"), egui::Color32::from_rgb(16, 185, 129));
     }
 }
