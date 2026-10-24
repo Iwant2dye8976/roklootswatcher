@@ -11,6 +11,7 @@ mod lilith_stream;
 mod loot_catalog;
 mod model;
 pub mod overlay_tracker;
+pub mod overlay_ui;
 mod single_instance;
 mod tray;
 mod vault;
