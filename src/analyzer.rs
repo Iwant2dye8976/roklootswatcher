@@ -177,12 +177,12 @@ pub fn generate_statistics(records: &[BattleRecord]) -> Statistics {
 
     // Aggregates by item
     let mut item_stats: HashMap<String, ItemStat> = HashMap::new();
+    let mut battle_items: HashMap<(u32, u32), (&ItemDrop, i64)> = HashMap::new();
 
     for r in records {
         // Gom nhóm vật phẩm trong cùng 1 trận theo (itype, sub_type)
         // để chiến báo đánh dã man chuỗi (chained barbarian) không làm thổi phồng battle_count
         // và tính đúng tổng max_in_battle của trận đó.
-        let mut battle_items: HashMap<(u32, u32), (&ItemDrop, i64)> = HashMap::new();
         for it in &r.items {
             battle_items
                 .entry((it.itype, it.sub_type))
@@ -190,7 +190,7 @@ pub fn generate_statistics(records: &[BattleRecord]) -> Statistics {
                 .or_insert((it, it.value));
         }
 
-        for ((itype, sub_type), (sample_it, battle_qty)) in battle_items {
+        for (&(itype, sub_type), &(sample_it, battle_qty)) in &battle_items {
             let key = format!("{}_{}", itype, sub_type);
             let entry = item_stats.entry(key).or_insert_with(|| {
                 let cat = crate::loot_catalog::LootCatalog::determine_category(itype, sub_type);
@@ -219,6 +219,8 @@ pub fn generate_statistics(records: &[BattleRecord]) -> Statistics {
             let btype = if r.battle_type.is_empty() { "other".to_string() } else { r.battle_type.clone() };
             *entry.by_battle_type.entry(btype).or_insert(0) += battle_qty;
         }
+
+        battle_items.clear();
     }
 
     for stat in item_stats.values_mut() {
@@ -231,12 +233,14 @@ pub fn generate_statistics(records: &[BattleRecord]) -> Statistics {
     struct TierAccum {
         tier: i32,
         count: usize,
-        dmgs: Vec<i32>,
-        crystals: Vec<i64>,
-        res_packs: Vec<i64>,
-        tomes: Vec<i64>,
-        heal_spd: Vec<i64>,
-        univ_spd: Vec<i64>,
+        min_dmg: i32,
+        max_dmg: i32,
+        sum_dmg: i32,
+        sum_crystals: i64,
+        sum_res_packs: i64,
+        sum_tomes: i64,
+        sum_heal_spd: i64,
+        sum_univ_spd: i64,
         starlight: i64,
     }
 
@@ -246,48 +250,45 @@ pub fn generate_statistics(records: &[BattleRecord]) -> Statistics {
         let entry = tier_map.entry(r.plunder_tier).or_insert_with(|| TierAccum {
             tier: r.plunder_tier,
             count: 0,
-            dmgs: Vec::new(),
-            crystals: Vec::new(),
-            res_packs: Vec::new(),
-            tomes: Vec::new(),
-            heal_spd: Vec::new(),
-            univ_spd: Vec::new(),
+            min_dmg: i32::MAX,
+            max_dmg: i32::MIN,
+            sum_dmg: 0,
+            sum_crystals: 0,
+            sum_res_packs: 0,
+            sum_tomes: 0,
+            sum_heal_spd: 0,
+            sum_univ_spd: 0,
             starlight: 0,
         });
 
         entry.count += 1;
-        entry.dmgs.push(r.damage_pct);
-        entry.crystals.push(r.item_quantity(1, 9));
-        entry.res_packs.push(r.total_resources_breakdown().choice_packs);
-        entry.tomes.push(r.item_quantity(2, 130));
-        entry.heal_spd.push(r.item_quantity(2, 92));
-        entry.univ_spd.push(r.item_quantity(2, 58));
+        entry.min_dmg = entry.min_dmg.min(r.damage_pct);
+        entry.max_dmg = entry.max_dmg.max(r.damage_pct);
+        entry.sum_dmg += r.damage_pct;
+        entry.sum_crystals += r.item_quantity(1, 9);
+        entry.sum_res_packs += r.total_resources_breakdown().choice_packs;
+        entry.sum_tomes += r.item_quantity(2, 130);
+        entry.sum_heal_spd += r.item_quantity(2, 92);
+        entry.sum_univ_spd += r.item_quantity(2, 58);
         entry.starlight += r.item_quantity(2, 9998);
-    }
-
-    fn calc_avg_i64(vals: &[i64]) -> i64 {
-        if vals.is_empty() {
-            0
-        } else {
-            (vals.iter().sum::<i64>() as f64 / vals.len() as f64).round() as i64
-        }
     }
 
     let mut plunder_breakdown = HashMap::new();
     for (tier, accum) in tier_map {
-        let min_d = accum.dmgs.iter().copied().min().unwrap_or(0);
-        let max_d = accum.dmgs.iter().copied().max().unwrap_or(0);
-        let avg_d = if !accum.dmgs.is_empty() {
-            ((accum.dmgs.iter().sum::<i32>() as f64) / (accum.dmgs.len() as f64) * 10.0).round() / 10.0
+        let count_f = if accum.count > 0 { accum.count as f64 } else { 1.0 };
+        let min_d = if accum.count > 0 { accum.min_dmg } else { 0 };
+        let max_d = if accum.count > 0 { accum.max_dmg } else { 0 };
+        let avg_d = if accum.count > 0 {
+            ((accum.sum_dmg as f64 / count_f) * 10.0).round() / 10.0
         } else {
             0.0
         };
 
-        let avg_c = calc_avg_i64(&accum.crystals);
-        let avg_r = calc_avg_i64(&accum.res_packs);
-        let avg_t = calc_avg_i64(&accum.tomes);
-        let avg_h = calc_avg_i64(&accum.heal_spd);
-        let avg_u = calc_avg_i64(&accum.univ_spd);
+        let avg_c = (accum.sum_crystals as f64 / count_f).round() as i64;
+        let avg_r = (accum.sum_res_packs as f64 / count_f).round() as i64;
+        let avg_t = (accum.sum_tomes as f64 / count_f).round() as i64;
+        let avg_h = (accum.sum_heal_spd as f64 / count_f).round() as i64;
+        let avg_u = (accum.sum_univ_spd as f64 / count_f).round() as i64;
 
         plunder_breakdown.insert(
             tier,
@@ -639,5 +640,136 @@ mod tests {
         assert_eq!(crystal_stat.total_quantity, 20000);
         assert_eq!(crystal_stat.by_battle_type.get("motte"), Some(&9000));
         assert_eq!(crystal_stat.by_battle_type.get("barbarian"), Some(&11000));
+    }
+
+    #[test]
+    fn test_plunder_tier_aggregation_and_battle_items_reuse() {
+        let make_item = |itype: u32, sub_type: u32, value: i64| ItemDrop {
+            itype,
+            sub_type,
+            value,
+            pic: "".into(),
+            name_vi: format!("Item {}_{}", itype, sub_type),
+            name_en: format!("Item {}_{}", itype, sub_type),
+            category: "Other".into(),
+            sprites: vec![],
+        };
+
+        let rec1 = BattleRecord {
+            filename: "rec1.mail".into(),
+            mail_id: "r1".into(),
+            battle_type: "barbarian".into(),
+            time_raw: 1000,
+            time_utc: "".into(),
+            time_vn: "2026-10-24 10:00:00".into(),
+            target: "Fort".into(),
+            target_level: "5".into(),
+            talent_add: 0,
+            pos_x: 0,
+            pos_y: 0,
+            damage_pct: 20,
+            plunder_tier: 1,
+            items: vec![
+                make_item(1, 9, 100),    // crystals
+                make_item(2, 7005, 4),   // choice pack
+                make_item(2, 130, 10),   // tomes
+                make_item(2, 92, 5),     // heal speedup
+                make_item(2, 58, 15),    // univ speedup
+                make_item(2, 9998, 2),   // starlight
+            ],
+            item_totals: HashMap::new(),
+            content: "".into(),
+        };
+
+        let rec2 = BattleRecord {
+            filename: "rec2.mail".into(),
+            mail_id: "r2".into(),
+            battle_type: "barbarian".into(),
+            time_raw: 1001,
+            time_utc: "".into(),
+            time_vn: "2026-10-24 10:05:00".into(),
+            target: "Fort".into(),
+            target_level: "5".into(),
+            talent_add: 0,
+            pos_x: 0,
+            pos_y: 0,
+            damage_pct: 40,
+            plunder_tier: 1,
+            items: vec![
+                make_item(1, 9, 200),
+                make_item(2, 7005, 6),
+                make_item(2, 130, 20),
+                make_item(2, 92, 15),
+                make_item(2, 58, 25),
+                make_item(2, 9998, 3),
+            ],
+            item_totals: HashMap::new(),
+            content: "".into(),
+        };
+
+        let rec3 = BattleRecord {
+            filename: "rec3.mail".into(),
+            mail_id: "r3".into(),
+            battle_type: "barbarian".into(),
+            time_raw: 1002,
+            time_utc: "".into(),
+            time_vn: "2026-10-24 10:10:00".into(),
+            target: "Fort".into(),
+            target_level: "6".into(),
+            talent_add: 0,
+            pos_x: 0,
+            pos_y: 0,
+            damage_pct: 60,
+            plunder_tier: 2,
+            items: vec![
+                make_item(1, 9, 500),
+                make_item(2, 7005, 10),
+                make_item(2, 130, 50),
+                make_item(2, 92, 30),
+                make_item(2, 58, 40),
+                make_item(2, 9998, 10),
+            ],
+            item_totals: HashMap::new(),
+            content: "".into(),
+        };
+
+        let stats = generate_statistics(&[rec1, rec2, rec3]);
+
+        assert_eq!(stats.total_battles, 3);
+        assert_eq!(stats.min_damage_pct, 20);
+        assert_eq!(stats.max_damage_pct, 60);
+        assert_eq!(stats.avg_damage_pct, 40.0);
+
+        let t1 = stats.plunder_breakdown.get(&1).expect("Tier 1 must exist");
+        assert_eq!(t1.tier, 1);
+        assert_eq!(t1.count, 2);
+        assert_eq!(t1.min_dmg, 20);
+        assert_eq!(t1.max_dmg, 40);
+        assert_eq!(t1.avg_dmg, 30.0);
+        assert_eq!(t1.avg_crystal, 150);
+        assert_eq!(t1.avg_res_packs, 5);
+        assert_eq!(t1.avg_tomes, 15);
+        assert_eq!(t1.avg_heal_spd, 10);
+        assert_eq!(t1.avg_univ_spd, 20);
+        assert_eq!(t1.starlight, 5);
+
+        let t2 = stats.plunder_breakdown.get(&2).expect("Tier 2 must exist");
+        assert_eq!(t2.tier, 2);
+        assert_eq!(t2.count, 1);
+        assert_eq!(t2.min_dmg, 60);
+        assert_eq!(t2.max_dmg, 60);
+        assert_eq!(t2.avg_dmg, 60.0);
+        assert_eq!(t2.avg_crystal, 500);
+        assert_eq!(t2.avg_res_packs, 10);
+        assert_eq!(t2.avg_tomes, 50);
+        assert_eq!(t2.avg_heal_spd, 30);
+        assert_eq!(t2.avg_univ_spd, 40);
+        assert_eq!(t2.starlight, 10);
+
+        let crystal_stat = stats.item_stats.get("1_9").expect("Crystals stat must exist");
+        assert_eq!(crystal_stat.battle_count, 3);
+        assert_eq!(crystal_stat.total_quantity, 800);
+        assert_eq!(crystal_stat.min_in_battle, 100);
+        assert_eq!(crystal_stat.max_in_battle, 500);
     }
 }
