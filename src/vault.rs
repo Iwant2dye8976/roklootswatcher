@@ -4,7 +4,7 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
-use crate::model::BattleRecord;
+use crate::model::{BattleRecord, FilterMode};
 
 #[cfg(windows)]
 use std::os::windows::fs::OpenOptionsExt;
@@ -137,6 +137,17 @@ impl MailVault {
 
     pub fn total_count(&self) -> usize {
         self.records.len()
+    }
+
+    #[allow(dead_code)]
+    pub fn query_latest_filtered(&self, filter: FilterMode, limit: usize) -> Vec<BattleRecord> {
+        self.records
+            .iter()
+            .rev()
+            .filter(|r| filter.matches(&r.battle_type))
+            .take(limit)
+            .cloned()
+            .collect()
     }
 
     #[allow(dead_code)]
@@ -1019,6 +1030,41 @@ mod tests {
         vault.upsert(rec2);
 
         assert!(vault.contains_file_or_id("backup_file.mail"));
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_query_latest_filtered() {
+        let temp_dir = std::env::temp_dir().join(format!("rok_test_query_{}", std::process::id()));
+        let _ = fs::create_dir_all(&temp_dir);
+        let mut vault = MailVault::new(&temp_dir);
+        for i in 1..=10 {
+            vault.upsert(BattleRecord {
+                filename: format!("mail_{}", i),
+                mail_id: i.to_string(),
+                battle_type: if i % 2 == 0 { "fort".into() } else { "motte".into() },
+                time_raw: i * 100,
+                time_utc: "".into(),
+                time_vn: "".into(),
+                target: format!("Target {}", i),
+                target_level: "1".into(),
+                talent_add: 0,
+                pos_x: 0,
+                pos_y: 0,
+                damage_pct: 100,
+                plunder_tier: 0,
+                items: vec![],
+                item_totals: HashMap::new(),
+                content: "".into(),
+            });
+        }
+
+        let forts = vault.query_latest_filtered(FilterMode::Fort, 3);
+        assert_eq!(forts.len(), 3);
+        assert_eq!(forts[0].time_raw, 1000);
+        assert_eq!(forts[1].time_raw, 800);
+        assert_eq!(forts[2].time_raw, 600);
 
         let _ = fs::remove_dir_all(&temp_dir);
     }

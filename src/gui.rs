@@ -193,6 +193,7 @@ pub struct RoKLootWatcherApp {
     pub autostart_minimized: bool,
     pub overlay_config: crate::model::OverlayConfig,
     pub last_mail_arrival: std::time::Instant,
+    overlay_styled_hwnd: Option<isize>,
     pending_start_minimized_frames: u32,
     is_armored: bool,
     pending_armor_check: Option<std::sync::mpsc::Receiver<bool>>,
@@ -603,6 +604,7 @@ impl RoKLootWatcherApp {
             autostart_minimized: initial_autostart_minimized,
             overlay_config: config.overlay.clone(),
             last_mail_arrival: std::time::Instant::now(),
+            overlay_styled_hwnd: None,
             pending_start_minimized_frames: if start_minimized { 5 } else { 0 },
             is_armored: false,
             pending_armor_check: Some(armor_rx),
@@ -3666,12 +3668,12 @@ impl eframe::App for RoKLootWatcherApp {
 
         // In-game overlay multi-viewport handling
         if self.overlay_config.enabled {
-            // Keep event loop active (especially when minimized to tray)
-            ctx.request_repaint_after(std::time::Duration::from_millis(100));
+            let mut is_active_rendered = false;
 
             if let Some(hwnd) = crate::overlay_tracker::find_rok_window() {
                 if crate::overlay_tracker::is_rok_active_and_visible(hwnd) {
                     if let Some(bounds) = crate::overlay_tracker::get_rok_window_bounds(hwnd) {
+                        is_active_rendered = true;
                         let geom = crate::overlay_tracker::calculate_overlay_geometry(&bounds, ctx.pixels_per_point());
                         let overlay_id = egui::ViewportId::from_hash_of("rok_overlay_viewport");
                         let builder = egui::ViewportBuilder::default()
@@ -3683,65 +3685,37 @@ impl eframe::App for RoKLootWatcherApp {
                             .with_inner_size([geom.width, geom.height])
                             .with_visible(true);
 
-                        let records = self.watcher.get_all_vault_records();
-                        let filtered = crate::overlay_ui::get_latest_filtered_records(
-                            &records,
+                        let filtered = self.watcher.get_latest_vault_records(
                             self.overlay_config.filter,
                             5,
                         );
                         let overlay_cfg = self.overlay_config.clone();
                         let last_mail = self.last_mail_arrival;
 
-                        ctx.show_viewport_immediate(overlay_id, builder, |ctx, _class| {
-                            #[cfg(windows)]
-                            {
-                                struct SearchData {
-                                    pid: u32,
-                                    found: Option<windows_sys::Win32::Foundation::HWND>,
-                                }
-                                unsafe extern "system" fn enum_vp(
-                                    h: windows_sys::Win32::Foundation::HWND,
-                                    lp: windows_sys::Win32::Foundation::LPARAM,
-                                ) -> windows_sys::Win32::Foundation::BOOL {
-                                    let d = &mut *(lp as *mut SearchData);
-                                    let mut p = 0;
-                                    windows_sys::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId(h, &mut p);
-                                    if p == d.pid {
-                                        let mut buf = [0u16; 512];
-                                        let len = windows_sys::Win32::UI::WindowsAndMessaging::GetWindowTextW(
-                                            h,
-                                            buf.as_mut_ptr(),
-                                            buf.len() as i32,
-                                        );
-                                        if len > 0 {
-                                            let title = String::from_utf16_lossy(&buf[..len as usize]);
-                                            if title == "Rise of Kingdoms Loot Overlay" {
-                                                d.found = Some(h);
-                                                return 0;
-                                            }
-                                        }
-                                    }
-                                    1
-                                }
-                                let mut sdata = SearchData {
-                                    pid: std::process::id(),
-                                    found: None,
-                                };
-                                unsafe {
-                                    windows_sys::Win32::UI::WindowsAndMessaging::EnumWindows(
-                                        Some(enum_vp),
-                                        &mut sdata as *mut _ as windows_sys::Win32::Foundation::LPARAM,
-                                    );
-                                    if let Some(vhwnd) = sdata.found {
-                                        crate::overlay_tracker::apply_click_through_styles(vhwnd);
-                                    }
+                        #[cfg(windows)]
+                        if self.overlay_styled_hwnd.is_none() {
+                            let title_wide: Vec<u16> = "Rise of Kingdoms Loot Overlay\0".encode_utf16().collect();
+                            unsafe {
+                                let vhwnd = windows_sys::Win32::UI::WindowsAndMessaging::FindWindowW(
+                                    std::ptr::null(),
+                                    title_wide.as_ptr(),
+                                );
+                                if vhwnd != 0 as _ {
+                                    crate::overlay_tracker::apply_click_through_styles(vhwnd);
+                                    self.overlay_styled_hwnd = Some(vhwnd as isize);
                                 }
                             }
+                        }
+
+                        ctx.show_viewport_immediate(overlay_id, builder, move |ctx, _class| {
                             crate::overlay_ui::render_overlay_viewport(ctx, &filtered, &overlay_cfg, last_mail);
                         });
                     }
                 }
             }
+
+            let delay_ms = if is_active_rendered { 100 } else { 500 };
+            ctx.request_repaint_after(std::time::Duration::from_millis(delay_ms));
         }
     }
 }

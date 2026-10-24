@@ -40,6 +40,21 @@ pub fn calculate_overlay_geometry(bounds: &RoKWindowBounds, scale_factor: f32) -
     }
 }
 
+pub fn is_rok_window_title(title: &str) -> bool {
+    let t = title.trim();
+    if !t.contains("Rise of Kingdoms") {
+        return false;
+    }
+    let lower = t.to_lowercase();
+    !(lower.contains("chrome")
+        || lower.contains("edge")
+        || lower.contains("firefox")
+        || lower.contains("loot watcher")
+        || lower.contains("explorer")
+        || lower.contains("visual studio")
+        || lower.contains("code"))
+}
+
 pub fn find_rok_window() -> Option<HWND> {
     #[cfg(windows)]
     unsafe {
@@ -64,7 +79,7 @@ pub fn find_rok_window() -> Option<HWND> {
             let len = GetWindowTextW(hwnd, buf.as_mut_ptr(), buf.len() as i32);
             if len > 0 {
                 let title = String::from_utf16_lossy(&buf[..len as usize]);
-                if title.contains("Rise of Kingdoms") {
+                if is_rok_window_title(&title) {
                     data.found_hwnd = Some(hwnd);
                     return 0; // Found target, stop enumeration
                 }
@@ -188,5 +203,15 @@ mod tests {
         assert_eq!(geom.pos_y, 60.0);
         assert_eq!(geom.width, 360.0);
         assert_eq!(geom.height, 420.0); // 500 - 80
+    }
+
+    #[test]
+    fn test_is_rok_window_title() {
+        assert!(is_rok_window_title("Rise of Kingdoms"));
+        assert!(is_rok_window_title("Rise of Kingdoms Game"));
+        assert!(!is_rok_window_title("Rise of Kingdoms Guide - Google Chrome"));
+        assert!(!is_rok_window_title("Rise of Kingdoms - Motte, Fort & Barbarian Loot Watcher"));
+        assert!(!is_rok_window_title("C:\\Program Files\\Rise of Kingdoms - File Explorer"));
+        assert!(!is_rok_window_title("Other Game"));
     }
 }

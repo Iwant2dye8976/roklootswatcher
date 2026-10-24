@@ -60,7 +60,7 @@ pub fn format_card_data(rec: &BattleRecord) -> CardDisplayData {
 
         let mut current_line = String::new();
         for (idx, (name, count)) in items.iter().take(6).enumerate() {
-            let part = format!("{}: {}", name, count);
+            let part = format!("{}: {}", name, crate::model::format_num(*count));
             if current_line.is_empty() {
                 current_line = format!("• {}", part);
             } else if current_line.len() + part.len() < 45 {
@@ -157,12 +157,12 @@ pub fn render_overlay_viewport(
             for rec in records.iter().take(5) {
                 let card = format_card_data(rec);
 
-                Frame::none()
+                let card_resp = Frame::none()
                     .fill(bg_color)
                     .rounding(Rounding::same(6.0))
                     .stroke(Stroke::new(1.0_f32, Color32::from_white_alpha((40.0 * dim_factor) as u8)))
                     .inner_margin(Margin {
-                        left: 10.0,
+                        left: 14.0,
                         right: 10.0,
                         top: 8.0,
                         bottom: 8.0,
@@ -206,6 +206,23 @@ pub fn render_overlay_viewport(
                             );
                         }
                     });
+
+                // Option B: Vertical left accent border matching battle type
+                let r = card_resp.response.rect;
+                let accent_rect = egui::Rect::from_min_max(
+                    egui::pos2(r.min.x, r.min.y),
+                    egui::pos2(r.min.x + 4.0, r.max.y),
+                );
+                ui.painter().rect_filled(
+                    accent_rect,
+                    Rounding {
+                        nw: 6.0,
+                        sw: 6.0,
+                        ne: 0.0,
+                        se: 0.0,
+                    },
+                    card.accent_color.linear_multiply(dim_factor),
+                );
             }
         });
 }
