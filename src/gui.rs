@@ -166,8 +166,6 @@ pub struct RoKLootWatcherApp {
     pub theme: AppTheme,
     pub language: AppLanguage,
     watcher_status: WatcherStatus,
-    status_badge_text: String,
-    status_badge_color: Color32,
 
     mail_path_input: String,
     selected_mode: FilterMode,
@@ -550,11 +548,6 @@ impl RoKLootWatcherApp {
             watcher.log("INFO", min_msg);
         }
 
-        let theme_colors = match initial_theme {
-            AppTheme::Dark => ThemeColors::dark(),
-            AppTheme::Light => ThemeColors::light(),
-        };
-
         Self {
             watcher,
             rx_ui,
@@ -563,11 +556,6 @@ impl RoKLootWatcherApp {
             theme: initial_theme,
             language: initial_language,
             watcher_status: WatcherStatus::Running(String::new()),
-            status_badge_text: match initial_language {
-                AppLanguage::Vietnamese => "● Đang theo dõi".into(),
-                AppLanguage::English => "● Watching".into(),
-            },
-            status_badge_color: theme_colors.status_green,
 
             mail_path_input: initial_path,
             selected_mode: initial_mode,
@@ -635,7 +623,6 @@ impl RoKLootWatcherApp {
 
     fn poll_watcher_events(&mut self, ctx: &egui::Context) -> bool {
         let mut had_events = false;
-        let c = self.colors();
         while let Ok(evt) = self.rx_ui.try_recv() {
             had_events = true;
             match evt {
@@ -646,41 +633,8 @@ impl RoKLootWatcherApp {
                     }
                 }
                 WatcherUiEvent::StatusChanged(status) => {
-                    self.watcher_status = status.clone();
-                    match status {
-                        WatcherStatus::Running(_text) => {
-                            self.status_badge_text = match self.language {
-                                AppLanguage::Vietnamese => "● Đang theo dõi".into(),
-                                AppLanguage::English => "● Watching".into(),
-                            };
-                            self.status_badge_color = c.status_green;
-                            ctx.request_repaint();
-                        }
-                        WatcherStatus::Scanning(_text) => {
-                            self.status_badge_text = match self.language {
-                                AppLanguage::Vietnamese => "● Đang quét...".into(),
-                                AppLanguage::English => "● Scanning...".into(),
-                            };
-                            self.status_badge_color = c.accent_gold;
-                            ctx.request_repaint();
-                        }
-                        WatcherStatus::Stopped(_text) => {
-                            self.status_badge_text = match self.language {
-                                AppLanguage::Vietnamese => "● Đã tạm dừng".into(),
-                                AppLanguage::English => "● Paused".into(),
-                            };
-                            self.status_badge_color = c.text_muted;
-                            ctx.request_repaint();
-                        }
-                        WatcherStatus::Error(_text) => {
-                            self.status_badge_text = match self.language {
-                                AppLanguage::Vietnamese => "● Lỗi watcher".into(),
-                                AppLanguage::English => "● Watcher error".into(),
-                            };
-                            self.status_badge_color = c.error;
-                            ctx.request_repaint();
-                        }
-                    }
+                    self.watcher_status = status;
+                    ctx.request_repaint();
                 }
                 WatcherUiEvent::StatsUpdated { .. } => {
                     ctx.request_repaint();
@@ -2934,17 +2888,6 @@ impl RoKLootWatcherApp {
                                 if let Some(tray) = &self.tray {
                                     tray.update_language(self.language);
                                 }
-                                if self.watcher.is_watching() {
-                                    self.status_badge_text = match self.language {
-                                        AppLanguage::Vietnamese => "● Đang theo dõi".into(),
-                                        AppLanguage::English => "● Watching".into(),
-                                    };
-                                } else {
-                                    self.status_badge_text = match self.language {
-                                        AppLanguage::Vietnamese => "● Đã tạm dừng".into(),
-                                        AppLanguage::English => "● Paused".into(),
-                                    };
-                                }
                             }
                         });
 
@@ -3429,9 +3372,15 @@ impl eframe::App for RoKLootWatcherApp {
 
         // Nhận kết quả kiểm tra trạng thái armor từ luồng nền nếu có
         if let Some(ref rx) = self.pending_armor_check {
-            if let Ok(armored) = rx.try_recv() {
-                self.is_armored = armored;
-                self.pending_armor_check = None;
+            match rx.try_recv() {
+                Ok(armored) => {
+                    self.is_armored = armored;
+                    self.pending_armor_check = None;
+                }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    self.pending_armor_check = None;
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
             }
         }
 
@@ -3823,5 +3772,25 @@ mod tests {
         });
         assert_eq!(converted_items[0].raw_converted_value(), 150_000);
         assert_eq!(converted_items[1].raw_converted_value(), 2_000_000);
+    }
+
+    #[test]
+    fn test_pending_armor_check_disconnect_clears_receiver() {
+        let (tx, rx) = std::sync::mpsc::channel::<bool>();
+        drop(tx); // sender drops, causing Disconnected
+
+        let mut pending = Some(rx);
+        if let Some(ref r) = pending {
+            match r.try_recv() {
+                Ok(_) => {
+                    pending = None;
+                }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    pending = None;
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+            }
+        }
+        assert!(pending.is_none());
     }
 }
