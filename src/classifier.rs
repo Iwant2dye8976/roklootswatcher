@@ -390,7 +390,7 @@ pub fn extract_gathering_details(
         _ => ("Tài nguyên khác", "resource"),
     };
 
-    let target = if res_type >= 1 && res_type <= 5 {
+    let target = if (1..=5).contains(&res_type) {
         if level > 0 {
             format!("Mỏ {} Cấp {}", res_name, level)
         } else {
@@ -706,8 +706,9 @@ mod tests {
     #[test]
     fn test_classify_and_extract_persistent_mail_95837234179264017425() {
         use crate::lilith_stream::decode_mail_file;
-        let path = "mail_vault/Persistent.Mail.95837234179264017425";
-        let mail = decode_mail_file(path).expect("Target barbarian mail should decode");
+        let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let path = manifest_dir.join("mail_vault/Persistent.Mail.95837234179264017425");
+        let mail = decode_mail_file(&path).expect("Target barbarian mail should decode");
 
         let btype = classify_mail(&mail);
         assert_eq!(btype, Some("barbarian"), "Persistent.Mail.95837234179264017425 must be classified as barbarian");
@@ -732,8 +733,9 @@ mod tests {
     #[test]
     fn test_pass_first_occupation_not_classified_as_barbarian() {
         use crate::lilith_stream::decode_mail_file;
-        let path = "mail_vault/Persistent.Mail.57774831178214367624";
-        if let Ok(mail) = decode_mail_file(path) {
+        let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let path = manifest_dir.join("mail_vault/Persistent.Mail.57774831178214367624");
+        if let Ok(mail) = decode_mail_file(&path) {
             let btype = classify_mail(&mail);
             assert_ne!(btype, Some("barbarian"), "Pass First Occupation must NOT be classified as barbarian");
             assert_eq!(btype, Some("reward_other"));
@@ -743,8 +745,9 @@ mod tests {
     #[test]
     fn test_chained_barbarian_battle_extraction() {
         use crate::lilith_stream::decode_mail_file;
-        let path = "mail_vault/Persistent.Mail.79355196177398328125";
-        if let Ok(mail) = decode_mail_file(path) {
+        let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let path = manifest_dir.join("mail_vault/Persistent.Mail.79355196177398328125");
+        if let Ok(mail) = decode_mail_file(&path) {
             let box_name = mail.get("box").and_then(|v| v.as_str());
             let mail_type = mail.get("type").and_then(|v| v.as_str());
             println!("BOX: {:?}, TYPE: {:?}", box_name, mail_type);
@@ -764,8 +767,9 @@ mod tests {
     #[test]
     fn test_mixed_barbarian_and_fort_extraction() {
         use crate::lilith_stream::decode_mail_file;
-        let path = "mail_vault/Persistent.Mail.95953682179264410425";
-        if let Ok(mail) = decode_mail_file(path) {
+        let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let path = manifest_dir.join("mail_vault/Persistent.Mail.95953682179264410425");
+        if let Ok(mail) = decode_mail_file(&path) {
             let btype = classify_mail(&mail);
             assert_eq!(btype, Some("barbarian"));
 
@@ -784,8 +788,9 @@ mod tests {
 
     #[test]
     fn test_extract_motte_details_delegates_to_gathering() {
-        let path = "mail_vault/Persistent.Mail.1002220217856803764";
-        let mail = crate::lilith_stream::decode_mail_file(path).expect("Decode mail");
+        let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let path = manifest_dir.join("mail_vault/Persistent.Mail.1002220217856803764");
+        let mail = crate::lilith_stream::decode_mail_file(&path).expect("Decode mail");
         let catalog = LootCatalog::load_from_candidates(None);
         let rec = extract_motte_details(&mail, "Persistent.Mail.1002220217856803764", &catalog, None)
             .expect("Should extract gathering via extract_motte_details");
@@ -795,8 +800,9 @@ mod tests {
 
     #[test]
     fn test_classify_and_extract_gathering_mail() {
-        let path = "mail_vault/Persistent.Mail.1002220217856803764";
-        let mail = crate::lilith_stream::decode_mail_file(path).expect("Must decode sample RSS mail");
+        let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let path = manifest_dir.join("mail_vault/Persistent.Mail.1002220217856803764");
+        let mail = crate::lilith_stream::decode_mail_file(&path).expect("Must decode sample RSS mail");
         assert_eq!(classify_mail(&mail), Some("gathering"));
 
         let rec = extract_gathering_details(&mail, "Persistent.Mail.1002220217856803764")

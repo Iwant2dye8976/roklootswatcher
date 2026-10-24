@@ -5,6 +5,10 @@ use serde_json::json;
 use crate::lilith_stream::decode_mail_file;
 use crate::model::{AppLanguage, BattleRecord, Statistics};
 
+fn escape_csv_field(val: &str) -> String {
+    val.replace('"', "\"\"")
+}
+
 pub fn generate_csv(records: &[BattleRecord], lang: AppLanguage) -> String {
     let header = match lang {
         AppLanguage::Vietnamese => "\u{FEFF}Thời gian,Loại trận,Mục tiêu,Sát thương (%),Tier quà,Pha lê,Tổng tài nguyên,Kinh nghiệm,Mũi tên,Tăng tốc chung (phút),Tăng tốc lính (phút),Tăng tốc trị (phút)\n",
@@ -30,9 +34,13 @@ pub fn generate_csv(records: &[BattleRecord], lang: AppLanguage) -> String {
         let exp = r.total_exp_value();
         let arrow = r.item_quantity(2, 145);
 
+        let safe_time = escape_csv_field(&r.time_vn);
+        let safe_btype = escape_csv_field(btype_label);
+        let safe_target = escape_csv_field(&target_display);
+
         w.push_str(&format!(
             "\"{}\",\"{}\",\"{}\",{},{},{},{},{},{},{},{},{}\n",
-            r.time_vn, btype_label, target_display, r.damage_pct, r.plunder_tier,
+            safe_time, safe_btype, safe_target, r.damage_pct, r.plunder_tier,
             cry, rss, exp, arrow,
             r.univ_speedup_minutes(), r.training_speedup_minutes(), r.heal_speedup_minutes()
         ));
@@ -54,7 +62,9 @@ pub fn export_json(
     });
 
     let s = serde_json::to_string_pretty(&payload)?;
-    fs::write(out_path, s)?;
+    let tmp_path = out_path.with_extension("tmp");
+    fs::write(&tmp_path, s)?;
+    fs::rename(&tmp_path, out_path)?;
     println!("[+] Đã xuất file JSON: {}", out_path.display());
     Ok(())
 }
@@ -141,12 +151,37 @@ mod tests {
             content: "".into(),
         };
 
-        let csv_vi = generate_csv(&[rec.clone()], AppLanguage::Vietnamese);
+        let csv_vi = generate_csv(std::slice::from_ref(&rec), AppLanguage::Vietnamese);
         assert!(csv_vi.starts_with("\u{FEFF}Thời gian,Loại trận,Mục tiêu,Sát thương (%),Tier quà,Pha lê,Tổng tài nguyên,Kinh nghiệm,Mũi tên,Tăng tốc chung (phút),Tăng tốc lính (phút),Tăng tốc trị (phút)\n"));
         assert!(csv_vi.contains("\"2026-10-23 12:00:00\",\"Pháo Đài\",\"Pháo Đài Cấp 10\",100,1,0,0,0,0,0,0,0\n"));
 
         let csv_en = generate_csv(&[rec], AppLanguage::English);
         assert!(csv_en.starts_with("\u{FEFF}Time,Battle Type,Target,Damage (%),Loot Tier,Crystals,Total Resources,Experience,Arrows,Univ Speedup (min),Train Speedup (min),Heal Speedup (min)\n"));
         assert!(csv_en.contains("\"2026-10-23 12:00:00\",\"Barbarian Fort\",\"Barbarian Fort Level 10\",100,1,0,0,0,0,0,0,0\n"));
+    }
+
+    #[test]
+    fn test_generate_csv_escapes_internal_quotes() {
+        let rec = BattleRecord {
+            filename: "mail_quote".into(),
+            mail_id: "101".into(),
+            battle_type: "other".into(),
+            time_raw: 12345,
+            time_utc: "".into(),
+            time_vn: "2026-10-23 12:00:00".into(),
+            target: "Target \"Special\" 25".into(),
+            target_level: "".into(),
+            talent_add: 0,
+            pos_x: 0,
+            pos_y: 0,
+            damage_pct: 100,
+            plunder_tier: 0,
+            items: vec![],
+            item_totals: HashMap::new(),
+            content: "".into(),
+        };
+
+        let csv = generate_csv(&[rec], AppLanguage::English);
+        assert!(csv.contains("\"Target \"\"Special\"\" 25\""));
     }
 }

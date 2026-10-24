@@ -106,37 +106,77 @@ fn run_cli_mode(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             "--cli" | "-c" => {
                 // Already checked
             }
-            "--mail-dir" if i + 1 < args.len() => {
-                mail_dir = PathBuf::from(&args[i + 1]);
-                i += 1;
+            "--mail-dir" => {
+                if i + 1 < args.len() {
+                    mail_dir = PathBuf::from(&args[i + 1]);
+                    i += 1;
+                } else {
+                    eprintln!("[!] Lỗi: Tham số --mail-dir yêu cầu đường dẫn thư mục.");
+                    return Ok(());
+                }
             }
-            "--loot-yaml" if i + 1 < args.len() => {
-                loot_yaml = Some(PathBuf::from(&args[i + 1]));
-                i += 1;
+            "--loot-yaml" => {
+                if i + 1 < args.len() {
+                    loot_yaml = Some(PathBuf::from(&args[i + 1]));
+                    i += 1;
+                } else {
+                    eprintln!("[!] Lỗi: Tham số --loot-yaml yêu cầu đường dẫn file YAML.");
+                    return Ok(());
+                }
             }
-            "--mode" if i + 1 < args.len() => {
-                mode = FilterMode::from_str_loose(&args[i + 1]);
-                i += 1;
+            "--mode" => {
+                if i + 1 < args.len() {
+                    mode = FilterMode::from_str_loose(&args[i + 1]);
+                    i += 1;
+                } else {
+                    eprintln!("[!] Lỗi: Tham số --mode yêu cầu tên chế độ lọc.");
+                    return Ok(());
+                }
             }
-            "--start-date" if i + 1 < args.len() => {
-                start_date = parse_date_str(&args[i + 1]);
-                i += 1;
+            "--start-date" => {
+                if i + 1 < args.len() {
+                    start_date = parse_date_str(&args[i + 1]);
+                    i += 1;
+                } else {
+                    eprintln!("[!] Lỗi: Tham số --start-date yêu cầu giá trị ngày.");
+                    return Ok(());
+                }
             }
-            "--end-date" if i + 1 < args.len() => {
-                end_date = parse_date_str(&args[i + 1]);
-                i += 1;
+            "--end-date" => {
+                if i + 1 < args.len() {
+                    end_date = parse_date_str(&args[i + 1]);
+                    i += 1;
+                } else {
+                    eprintln!("[!] Lỗi: Tham số --end-date yêu cầu giá trị ngày.");
+                    return Ok(());
+                }
             }
-            "--days" if i + 1 < args.len() => {
-                days = args[i + 1].parse().ok();
-                i += 1;
+            "--days" => {
+                if i + 1 < args.len() {
+                    days = args[i + 1].parse().ok();
+                    i += 1;
+                } else {
+                    eprintln!("[!] Lỗi: Tham số --days yêu cầu số ngày.");
+                    return Ok(());
+                }
             }
-            "--speedup-unit" | "-u" if i + 1 < args.len() => {
-                speedup_unit = SpeedupUnit::from_str_loose(&args[i + 1]);
-                i += 1;
+            "--speedup-unit" | "-u" => {
+                if i + 1 < args.len() {
+                    speedup_unit = SpeedupUnit::from_str_loose(&args[i + 1]);
+                    i += 1;
+                } else {
+                    eprintln!("[!] Lỗi: Tham số --speedup-unit yêu cầu đơn vị (minutes/hours/days/dhm).");
+                    return Ok(());
+                }
             }
-            "--out-dir" if i + 1 < args.len() => {
-                out_dir = PathBuf::from(&args[i + 1]);
-                i += 1;
+            "--out-dir" => {
+                if i + 1 < args.len() {
+                    out_dir = PathBuf::from(&args[i + 1]);
+                    i += 1;
+                } else {
+                    eprintln!("[!] Lỗi: Tham số --out-dir yêu cầu đường dẫn thư mục xuất.");
+                    return Ok(());
+                }
             }
             "--json" | "--export-json" | "-j" => {
                 export_json_flag = true;
@@ -263,9 +303,8 @@ fn run_cli_mode(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     if export_json_flag {
         let json_path = out_dir.join("motte_filtered_mails.json");
         export_json(&active_records, &stats, &json_path)?;
+        export_individual_mails_json(&active_records, &mail_dir, &out_dir);
     }
-
-    export_individual_mails_json(&active_records, &mail_dir, &out_dir);
 
     println!("\n{}", "=".repeat(88));
     println!(
@@ -284,26 +323,85 @@ fn run_cli_mode(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     if res.total_rss_val() > 0 {
         println!("{}", "-".repeat(88));
         println!("THỐNG KÊ TÀI NGUYÊN (QUY ĐỔI SỐ LƯỢNG GÓI x GIÁ TRỊ GÓI -> TRIỆU / M):");
-        println!(
-            "  • Thực phẩm (Ngô): {:>10} gói  x  1.000 = {:>8.2}M Thực phẩm",
-            format_num(res.food_packs),
-            res.food_val as f64 / 1_000_000.0
-        );
-        println!(
-            "  • Gỗ (Wood):        {:>10} gói  x  1.000 = {:>8.2}M Gỗ",
-            format_num(res.wood_packs),
-            res.wood_val as f64 / 1_000_000.0
-        );
-        println!(
-            "  • Đá (Stone):       {:>10} gói  x    750 = {:>8.2}M Đá",
-            format_num(res.stone_packs),
-            res.stone_val as f64 / 1_000_000.0
-        );
-        println!(
-            "  • Vàng (Gold):      {:>10} gói  x    500 = {:>8.2}M Vàng",
-            format_num(res.gold_packs),
-            res.gold_val as f64 / 1_000_000.0
-        );
+        if res.food_packs * 1_000 == res.food_val {
+            println!(
+                "  • Thực phẩm (Ngô): {:>10} gói  x  1.000 = {:>8.2}M Thực phẩm",
+                format_num(res.food_packs),
+                res.food_val as f64 / 1_000_000.0
+            );
+        } else if res.food_packs == res.food_val {
+            println!(
+                "  • Thực phẩm (Ngô): {:>10} RSS           = {:>8.2}M Thực phẩm",
+                format_num(res.food_val),
+                res.food_val as f64 / 1_000_000.0
+            );
+        } else {
+            println!(
+                "  • Thực phẩm (Ngô): {:>10} gói           = {:>8.2}M Thực phẩm",
+                format_num(res.food_packs),
+                res.food_val as f64 / 1_000_000.0
+            );
+        }
+
+        if res.wood_packs * 1_000 == res.wood_val {
+            println!(
+                "  • Gỗ (Wood):        {:>10} gói  x  1.000 = {:>8.2}M Gỗ",
+                format_num(res.wood_packs),
+                res.wood_val as f64 / 1_000_000.0
+            );
+        } else if res.wood_packs == res.wood_val {
+            println!(
+                "  • Gỗ (Wood):        {:>10} RSS           = {:>8.2}M Gỗ",
+                format_num(res.wood_val),
+                res.wood_val as f64 / 1_000_000.0
+            );
+        } else {
+            println!(
+                "  • Gỗ (Wood):        {:>10} gói           = {:>8.2}M Gỗ",
+                format_num(res.wood_packs),
+                res.wood_val as f64 / 1_000_000.0
+            );
+        }
+
+        if res.stone_packs * 750 == res.stone_val {
+            println!(
+                "  • Đá (Stone):       {:>10} gói  x    750 = {:>8.2}M Đá",
+                format_num(res.stone_packs),
+                res.stone_val as f64 / 1_000_000.0
+            );
+        } else if res.stone_packs == res.stone_val {
+            println!(
+                "  • Đá (Stone):       {:>10} RSS           = {:>8.2}M Đá",
+                format_num(res.stone_val),
+                res.stone_val as f64 / 1_000_000.0
+            );
+        } else {
+            println!(
+                "  • Đá (Stone):       {:>10} gói           = {:>8.2}M Đá",
+                format_num(res.stone_packs),
+                res.stone_val as f64 / 1_000_000.0
+            );
+        }
+
+        if res.gold_packs * 500 == res.gold_val {
+            println!(
+                "  • Vàng (Gold):      {:>10} gói  x    500 = {:>8.2}M Vàng",
+                format_num(res.gold_packs),
+                res.gold_val as f64 / 1_000_000.0
+            );
+        } else if res.gold_packs == res.gold_val {
+            println!(
+                "  • Vàng (Gold):      {:>10} RSS           = {:>8.2}M Vàng",
+                format_num(res.gold_val),
+                res.gold_val as f64 / 1_000_000.0
+            );
+        } else {
+            println!(
+                "  • Vàng (Gold):      {:>10} gói           = {:>8.2}M Vàng",
+                format_num(res.gold_packs),
+                res.gold_val as f64 / 1_000_000.0
+            );
+        }
         if res.choice_packs > 0 {
             println!(
                 "  • Gói C Tự Chọn:    {:>10} gói          = {:>8.2}M Tùy chọn",
@@ -433,6 +531,9 @@ fn run_cli_mode(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn run_gui_mode(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+    // Đảm bảo thư mục làm việc luôn là thư mục chứa file .exe (tránh lỗi khi Windows Autostart chạy từ C:\Windows\System32)
+    let _ = crate::autostart::ensure_working_dir_is_exe_dir();
+
     let allow_multiple = args.iter().any(|a| a == "--multi-instance");
     let start_minimized = args.iter().any(|a| a == "--minimized" || a == "--tray");
 
@@ -451,8 +552,10 @@ fn run_gui_mode(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         None
     };
 
-    let cur_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let exe_dir = std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.to_path_buf()));
+    let cur_dir = std::env::current_dir().unwrap_or_else(|_| {
+        exe_dir.clone().unwrap_or_else(|| PathBuf::from("."))
+    });
 
     let mut icon_candidates = vec![
         cur_dir.join("rok_icon.png"),
@@ -559,4 +662,20 @@ fn run_gui_mode(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     );
 
     std::process::exit(0);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_vault_init_performance() {
+        let root_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let start = std::time::Instant::now();
+        let vault = crate::vault::MailVault::new(&root_dir);
+        let elapsed = start.elapsed();
+        // Warm vault init should complete in well under 1000ms even in debug mode (was >670ms prior to optimization)
+        assert!(elapsed.as_millis() < 1000, "MailVault::init took too long: {:?}", elapsed);
+        assert!(vault.total_count() > 0);
+    }
 }

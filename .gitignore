@@ -9,3 +9,6 @@ analytics.md
 loot.yaml
 .superpowers/
 /docs/
+.agents/
+AGENT.md
+AUDIT.md

@@ -187,9 +187,30 @@ pub mod windows {
 
 pub use windows::*;
 
+/// Đảm bảo thư mục làm việc hiện tại trùng với thư mục chứa file thực thi (.exe).
+/// Điều này ngăn chặn lỗi khi Windows khởi chạy từ Autostart (Registry Run key)
+/// vốn đặt working directory mặc định là C:\Windows\System32.
+pub fn ensure_working_dir_is_exe_dir() -> Result<std::path::PathBuf, String> {
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let parent = exe.parent().ok_or_else(|| "No parent directory for executable".to_string())?;
+    std::env::set_current_dir(parent).map_err(|e| e.to_string())?;
+    std::env::current_dir().map_err(|e| e.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_ensure_working_dir_is_exe_dir() {
+        let original_dir = std::env::current_dir().unwrap();
+        let res = ensure_working_dir_is_exe_dir();
+        assert!(res.is_ok());
+        let cur = std::env::current_dir().unwrap();
+        let exe = std::env::current_exe().unwrap();
+        assert_eq!(cur, exe.parent().unwrap());
+        let _ = std::env::set_current_dir(original_dir);
+    }
 
     #[test]
     fn test_clean_exe_path() {

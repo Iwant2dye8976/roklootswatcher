@@ -62,6 +62,7 @@ impl FilterMode {
         }
     }
 
+    #[allow(dead_code)]
     pub fn display_label(&self) -> &'static str {
         match self {
             FilterMode::AllTargets => "Tất cả (Motte, Pháo Đài, Dã Man)",
@@ -431,44 +432,84 @@ impl BattleRecord {
         match lang {
             AppLanguage::Vietnamese => self.target.clone(),
             AppLanguage::English => {
-                if self.target.starts_with("Pháo Đài Cấp ") {
-                    return self.target.replacen("Pháo Đài Cấp ", "Barbarian Fort Level ", 1);
-                } else if self.target == "Pháo Đài Dã Man" {
-                    return "Barbarian Fort".to_string();
-                } else if self.target.starts_with("Dã Man Cấp ") {
-                    return self.target.replacen("Dã Man Cấp ", "Barbarian Level ", 1);
-                } else if self.target == "Dã Man" {
-                    return "Barbarian".to_string();
-                } else if self.target.starts_with("Mỏ Thu Thập Cấp ") {
-                    return self.target.replacen("Mỏ Thu Thập Cấp ", "Resource Tile Level ", 1);
-                } else if self.target == "Phần thưởng" {
-                    return "Reward".to_string();
+                let mut res = self.target.clone();
+                if res.starts_with("Pháo Đài Cấp ") {
+                    res = res.replacen("Pháo Đài Cấp ", "Barbarian Fort Level ", 1);
+                } else if res == "Pháo Đài Dã Man" {
+                    res = "Barbarian Fort".to_string();
+                } else if res.starts_with("Dã Man Cấp ") {
+                    res = res.replacen("Dã Man Cấp ", "Barbarian Level ", 1);
+                } else if res == "Dã Man" {
+                    res = "Barbarian".to_string();
+                } else if res.starts_with("Mỏ Thu Thập Cấp ") {
+                    res = res.replacen("Mỏ Thu Thập Cấp ", "Resource Tile Level ", 1);
+                } else if res == "Mỏ Thu Thập" {
+                    res = "Resource Tile".to_string();
+                } else if res.starts_with("Mỏ Đá quý Cấp ") {
+                    res = res.replacen("Mỏ Đá quý Cấp ", "Gem Deposit Level ", 1);
+                } else if res.starts_with("Mỏ Đá quý ") {
+                    res = res.replacen("Mỏ Đá quý ", "Gem Deposit ", 1);
+                } else if res == "Mỏ Đá quý" {
+                    res = "Gem Deposit".to_string();
+                } else if res.starts_with("Mỏ Đá Cấp ") {
+                    res = res.replacen("Mỏ Đá Cấp ", "Stone Deposit Level ", 1);
+                } else if res.starts_with("Mỏ Đá ") {
+                    res = res.replacen("Mỏ Đá ", "Stone Deposit ", 1);
+                } else if res == "Mỏ Đá" {
+                    res = "Stone Deposit".to_string();
+                } else if res.starts_with("Mỏ Thực phẩm Cấp ") {
+                    res = res.replacen("Mỏ Thực phẩm Cấp ", "Cropland Level ", 1);
+                } else if res.starts_with("Mỏ Thực phẩm ") {
+                    res = res.replacen("Mỏ Thực phẩm ", "Cropland ", 1);
+                } else if res == "Mỏ Thực phẩm" {
+                    res = "Cropland".to_string();
+                } else if res.starts_with("Mỏ Gỗ Cấp ") {
+                    res = res.replacen("Mỏ Gỗ Cấp ", "Logging Camp Level ", 1);
+                } else if res.starts_with("Mỏ Gỗ ") {
+                    res = res.replacen("Mỏ Gỗ ", "Logging Camp ", 1);
+                } else if res == "Mỏ Gỗ" {
+                    res = "Logging Camp".to_string();
+                } else if res.starts_with("Mỏ Vàng Cấp ") {
+                    res = res.replacen("Mỏ Vàng Cấp ", "Gold Deposit Level ", 1);
+                } else if res.starts_with("Mỏ Vàng ") {
+                    res = res.replacen("Mỏ Vàng ", "Gold Deposit ", 1);
+                } else if res == "Mỏ Vàng" {
+                    res = "Gold Deposit".to_string();
+                } else if res.starts_with("Tiêu diệt Motte") {
+                    res = res.replacen("Tiêu diệt Motte", "Motte Destroyed", 1);
+                } else if res == "Phần thưởng" {
+                    res = "Reward".to_string();
+                } else {
+                    match self.battle_type.as_str() {
+                        "fort" => {
+                            if !self.target_level.is_empty() {
+                                res = format!("Barbarian Fort Level {}", self.target_level);
+                            } else {
+                                res = "Barbarian Fort".to_string();
+                            }
+                        }
+                        "barbarian" => {
+                            if !self.target_level.is_empty() {
+                                res = format!("Barbarian Level {}", self.target_level);
+                            } else {
+                                res = "Barbarian".to_string();
+                            }
+                        }
+                        "motte" => {
+                            if !self.target_level.is_empty() {
+                                res = format!("Motte {}", self.target_level);
+                            } else {
+                                res = "Motte".to_string();
+                            }
+                        }
+                        _ => {}
+                    }
                 }
 
-                match self.battle_type.as_str() {
-                    "fort" => {
-                        if !self.target_level.is_empty() {
-                            format!("Barbarian Fort Level {}", self.target_level)
-                        } else {
-                            "Barbarian Fort".to_string()
-                        }
-                    }
-                    "barbarian" => {
-                        if !self.target_level.is_empty() {
-                            format!("Barbarian Level {}", self.target_level)
-                        } else {
-                            "Barbarian".to_string()
-                        }
-                    }
-                    "motte" => {
-                        if !self.target_level.is_empty() {
-                            format!("Motte {}", self.target_level)
-                        } else {
-                            "Motte".to_string()
-                        }
-                    }
-                    _ => self.target.clone(),
+                if res.contains(" tại ") {
+                    res = res.replace(" tại ", " at ");
                 }
+                res
             }
         }
     }
@@ -950,20 +991,33 @@ pub fn get_item_conversion(itype: u32, isub: u32) -> ConvertedValue {
     }
 }
 
-pub fn get_item_converted_display(itype: u32, isub: u32, total_qty: i64) -> Option<String> {
+pub fn get_item_converted_display_for_lang(
+    itype: u32,
+    isub: u32,
+    total_qty: i64,
+    lang: AppLanguage,
+) -> Option<String> {
     match get_item_conversion(itype, isub) {
         ConvertedValue::Resource { kind, multiplier } => {
             if kind == ResourceKind::ChoicePack {
-                Some(format!("{} gói", format_num(total_qty)))
+                match lang {
+                    AppLanguage::Vietnamese => Some(format!("{} gói", format_num(total_qty))),
+                    AppLanguage::English => Some(format!("{} packs", format_num(total_qty))),
+                }
             } else {
                 let total = total_qty * multiplier;
                 let millions = (total as f64) / 1_000_000.0;
-                let kind_label = match kind {
-                    ResourceKind::Food => "Ngô",
-                    ResourceKind::Wood => "Gỗ",
-                    ResourceKind::Stone => "Đá",
-                    ResourceKind::Gold => "Vàng",
-                    ResourceKind::ChoicePack => "gói",
+                let kind_label = match (kind, lang) {
+                    (ResourceKind::Food, AppLanguage::Vietnamese) => "Ngô",
+                    (ResourceKind::Food, AppLanguage::English) => "Food",
+                    (ResourceKind::Wood, AppLanguage::Vietnamese) => "Gỗ",
+                    (ResourceKind::Wood, AppLanguage::English) => "Wood",
+                    (ResourceKind::Stone, AppLanguage::Vietnamese) => "Đá",
+                    (ResourceKind::Stone, AppLanguage::English) => "Stone",
+                    (ResourceKind::Gold, AppLanguage::Vietnamese) => "Vàng",
+                    (ResourceKind::Gold, AppLanguage::English) => "Gold",
+                    (ResourceKind::ChoicePack, AppLanguage::Vietnamese) => "gói",
+                    (ResourceKind::ChoicePack, AppLanguage::English) => "packs",
                 };
                 if millions >= 0.01 {
                     Some(format!("{:.2}M {}", millions, kind_label))
@@ -987,37 +1041,93 @@ pub fn get_item_converted_display(itype: u32, isub: u32, total_qty: i64) -> Opti
             if hours >= 1.0 {
                 Some(format!("{:.1}h ({})", hours, format_num(total_m)))
             } else {
-                Some(format!("{}p", format_num(total_m)))
+                let suffix = match lang {
+                    AppLanguage::Vietnamese => "p",
+                    AppLanguage::English => "m",
+                };
+                Some(format!("{}{}", format_num(total_m), suffix))
             }
         }
         ConvertedValue::Gem(multiplier) => {
             let total = total_qty * multiplier;
             Some(format!("{} Gems", format_num(total)))
         }
-        ConvertedValue::Crystal => {
-            Some(format!("{} Pha Lê", format_num(total_qty)))
-        }
-        ConvertedValue::ArrowOfResistance => Some(format!("{} Mũi tên", format_num(total_qty))),
-        ConvertedValue::BookOfCovenant => Some(format!("{} Sách ước", format_num(total_qty))),
-        ConvertedValue::Starlight => Some(format!("{} Tượng", format_num(total_qty))),
-        ConvertedValue::ApRecovery(points) => {
-            Some(format!("{} bình ({} AP)", format_num(total_qty), format_num(total_qty * points)))
-        }
+        ConvertedValue::Crystal => match lang {
+            AppLanguage::Vietnamese => Some(format!("{} Pha Lê", format_num(total_qty))),
+            AppLanguage::English => Some(format!("{} Crystals", format_num(total_qty))),
+        },
+        ConvertedValue::ArrowOfResistance => match lang {
+            AppLanguage::Vietnamese => Some(format!("{} Mũi tên", format_num(total_qty))),
+            AppLanguage::English => Some(format!("{} Arrows", format_num(total_qty))),
+        },
+        ConvertedValue::BookOfCovenant => match lang {
+            AppLanguage::Vietnamese => Some(format!("{} Sách ước", format_num(total_qty))),
+            AppLanguage::English => Some(format!("{} Books", format_num(total_qty))),
+        },
+        ConvertedValue::Starlight => match lang {
+            AppLanguage::Vietnamese => Some(format!("{} Tượng", format_num(total_qty))),
+            AppLanguage::English => Some(format!("{} Starlight", format_num(total_qty))),
+        },
+        ConvertedValue::ApRecovery(points) => match lang {
+            AppLanguage::Vietnamese => Some(format!(
+                "{} bình ({} AP)",
+                format_num(total_qty),
+                format_num(total_qty * points)
+            )),
+            AppLanguage::English => Some(format!(
+                "{} pots ({} AP)",
+                format_num(total_qty),
+                format_num(total_qty * points)
+            )),
+        },
         ConvertedValue::EquipmentMaterial { kind, tier_mult } => {
-            let label = match kind {
-                MaterialKind::Leather => "Da",
-                MaterialKind::IronOre => "Sắt",
-                MaterialKind::Ebony => "Gỗ mun",
-                MaterialKind::AnimalBone => "Xương",
+            let label = match (kind, lang) {
+                (MaterialKind::Leather, AppLanguage::Vietnamese) => "Da",
+                (MaterialKind::Leather, AppLanguage::English) => "Leather",
+                (MaterialKind::IronOre, AppLanguage::Vietnamese) => "Sắt",
+                (MaterialKind::IronOre, AppLanguage::English) => "Iron Ore",
+                (MaterialKind::Ebony, AppLanguage::Vietnamese) => "Gỗ mun",
+                (MaterialKind::Ebony, AppLanguage::English) => "Ebony",
+                (MaterialKind::AnimalBone, AppLanguage::Vietnamese) => "Xương",
+                (MaterialKind::AnimalBone, AppLanguage::English) => "Bone",
             };
             if tier_mult > 1 {
-                Some(format!("{} {} (={})", format_num(total_qty), label, format_num(total_qty * tier_mult)))
+                Some(format!(
+                    "{} {} (={})",
+                    format_num(total_qty),
+                    label,
+                    format_num(total_qty * tier_mult)
+                ))
             } else {
                 Some(format!("{} {}", format_num(total_qty), label))
             }
         }
-        ConvertedValue::AllianceChest => Some(format!("{} Rương LM", format_num(total_qty))),
+        ConvertedValue::AllianceChest => match lang {
+            AppLanguage::Vietnamese => Some(format!("{} Rương LM", format_num(total_qty))),
+            AppLanguage::English => Some(format!("{} Alliance Chest", format_num(total_qty))),
+        },
         ConvertedValue::Other => None,
+    }
+}
+
+pub fn get_item_converted_display(itype: u32, isub: u32, total_qty: i64) -> Option<String> {
+    get_item_converted_display_for_lang(itype, isub, total_qty, AppLanguage::Vietnamese)
+}
+
+pub fn format_in_millions(val: i64, lang: AppLanguage) -> String {
+    match lang {
+        AppLanguage::English => {
+            if val >= 1_000_000_000 {
+                format!("{:.2}B", (val as f64) / 1_000_000_000.0)
+            } else if val >= 1_000_000 {
+                format!("{:.2}M", (val as f64) / 1_000_000.0)
+            } else if val >= 1_000 {
+                format!("{:.1}k", (val as f64) / 1_000.0)
+            } else {
+                val.to_string()
+            }
+        }
+        AppLanguage::Vietnamese => format_in_millions_vietnamese(val),
     }
 }
 
@@ -1049,6 +1159,8 @@ pub struct ItemStat {
     pub max_in_battle: i64,
     pub min_in_battle: i64,
     pub avg_per_battle: f64,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub by_battle_type: HashMap<String, i64>,
 }
 
 impl ItemStat {
@@ -1320,19 +1432,14 @@ impl CloseBehavior {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AppLanguage {
+    #[default]
     #[serde(rename = "vi")]
     Vietnamese,
     #[serde(rename = "en")]
     English,
-}
-
-impl Default for AppLanguage {
-    fn default() -> Self {
-        AppLanguage::Vietnamese
-    }
 }
 
 impl std::fmt::Display for AppLanguage {
@@ -1760,20 +1867,19 @@ mod tests {
         assert_eq!(get_item_converted_display(2, 130, 10), Some("10,000 EXP".into()));
 
         // Materials & AP
-        let mut mats = MaterialTotals::default();
-        mats.leather_normal = 84;
-        mats.leather_advanced = 3; // 3 * 4 = 12
+        let mats = MaterialTotals {
+            leather_normal: 84,
+            leather_advanced: 3, // 3 * 4 = 12
+            iron_normal: 87,
+            iron_advanced: 6, // 6 * 4 = 24
+            ebony_normal: 89,
+            bone_normal: 41,
+            bone_advanced: 4, // 4 * 4 = 16
+            ..Default::default()
+        };
         assert_eq!(mats.leather_total_converted(), 96);
-
-        mats.iron_normal = 87;
-        mats.iron_advanced = 6; // 6 * 4 = 24
         assert_eq!(mats.iron_total_converted(), 111);
-
-        mats.ebony_normal = 89;
         assert_eq!(mats.ebony_total_converted(), 89);
-
-        mats.bone_normal = 41;
-        mats.bone_advanced = 4; // 4 * 4 = 16
         assert_eq!(mats.bone_total_converted(), 57);
 
         assert_eq!(mats.total_normal(), 84 + 87 + 89 + 41);
@@ -1781,9 +1887,11 @@ mod tests {
         assert_eq!(mats.total_pieces(), 84 + 3 + 87 + 6 + 89 + 41 + 4);
         assert_eq!(mats.total_converted_normal(), 96 + 111 + 89 + 57);
 
-        let mut ap = ApTotals::default();
-        ap.ap_50 = 14;
-        ap.ap_100 = 7;
+        let ap = ApTotals {
+            ap_50: 14,
+            ap_100: 7,
+            ..Default::default()
+        };
         assert_eq!(ap.total_bottles(), 21);
         assert_eq!(ap.total_ap_points(), 14 * 50 + 7 * 100);
 
@@ -1809,11 +1917,13 @@ mod tests {
         assert_eq!(get_item_converted_display(2, 7005, 120), Some("120 gói".into()));
         assert_eq!(get_item_converted_display(2, 7006, 45), Some("45 gói".into()));
 
-        let mut res = ResourceTotals::default();
-        res.food_val = 100_000;
-        res.wood_val = 200_000;
-        res.choice_packs = 50;
-        res.choice_val = 0;
+        let res = ResourceTotals {
+            food_val: 100_000,
+            wood_val: 200_000,
+            choice_packs: 50,
+            choice_val: 0,
+            ..Default::default()
+        };
         // Tổng RSS không cộng bừa giá trị của gói C
         assert_eq!(res.total_rss_val(), 300_000);
         assert_eq!(res.choice_packs, 50);
@@ -2116,11 +2226,126 @@ mod tests {
         assert_eq!(rec.display_target(AppLanguage::Vietnamese), "Motte 13");
         assert_eq!(rec.display_target(AppLanguage::English), "Motte 13");
 
+        // Gathering deposits
+        rec.battle_type = "gathering".into();
+        rec.target = "Mỏ Đá Cấp 6 tại X:120 Y:340".into();
+        rec.target_level = "6".into();
+        assert_eq!(rec.display_target(AppLanguage::Vietnamese), "Mỏ Đá Cấp 6 tại X:120 Y:340");
+        assert_eq!(rec.display_target(AppLanguage::English), "Stone Deposit Level 6 at X:120 Y:340");
+
+        rec.target = "Mỏ Thực phẩm Cấp 5".into();
+        rec.target_level = "5".into();
+        assert_eq!(rec.display_target(AppLanguage::English), "Cropland Level 5");
+
+        rec.target = "Mỏ Gỗ Cấp 4".into();
+        rec.target_level = "4".into();
+        assert_eq!(rec.display_target(AppLanguage::English), "Logging Camp Level 4");
+
+        rec.target = "Mỏ Vàng Cấp 5".into();
+        rec.target_level = "5".into();
+        assert_eq!(rec.display_target(AppLanguage::English), "Gold Deposit Level 5");
+
+        rec.target = "Mỏ Đá quý Cấp 2".into();
+        rec.target_level = "2".into();
+        assert_eq!(rec.display_target(AppLanguage::English), "Gem Deposit Level 2");
+
+        rec.target = "Mỏ Thu Thập Cấp 3".into();
+        rec.target_level = "3".into();
+        assert_eq!(rec.display_target(AppLanguage::English), "Resource Tile Level 3");
+
         // Fallback reward
         rec.battle_type = "reward".into();
         rec.target = "Phần thưởng".into();
         rec.target_level = "".into();
         assert_eq!(rec.display_target(AppLanguage::Vietnamese), "Phần thưởng");
         assert_eq!(rec.display_target(AppLanguage::English), "Reward");
+    }
+
+    #[test]
+    fn test_format_in_millions_bilingual() {
+        assert_eq!(format_in_millions(1_500_000_000, AppLanguage::Vietnamese), "1.50 tỷ");
+        assert_eq!(format_in_millions(1_500_000_000, AppLanguage::English), "1.50B");
+
+        assert_eq!(format_in_millions(25_000_000, AppLanguage::Vietnamese), "25.00M");
+        assert_eq!(format_in_millions(25_000_000, AppLanguage::English), "25.00M");
+
+        assert_eq!(format_in_millions(12_500, AppLanguage::Vietnamese), "12.5k");
+        assert_eq!(format_in_millions(12_500, AppLanguage::English), "12.5k");
+
+        assert_eq!(format_in_millions(450, AppLanguage::Vietnamese), "450");
+        assert_eq!(format_in_millions(450, AppLanguage::English), "450");
+    }
+
+    #[test]
+    fn test_get_item_converted_display_for_lang_bilingual() {
+        // Choice pack (itype 2, sub 7005)
+        assert_eq!(
+            get_item_converted_display_for_lang(2, 7005, 12, AppLanguage::Vietnamese),
+            Some("12 gói".to_string())
+        );
+        assert_eq!(
+            get_item_converted_display_for_lang(2, 7005, 12, AppLanguage::English),
+            Some("12 packs".to_string())
+        );
+
+        // Food pack 50k (itype 2, sub 2)
+        assert_eq!(
+            get_item_converted_display_for_lang(2, 2, 10, AppLanguage::Vietnamese),
+            Some("0.50M Ngô".to_string())
+        );
+        assert_eq!(
+            get_item_converted_display_for_lang(2, 2, 10, AppLanguage::English),
+            Some("0.50M Food".to_string())
+        );
+
+        // Wood pack 50k (itype 2, sub 8)
+        assert_eq!(
+            get_item_converted_display_for_lang(2, 8, 20, AppLanguage::Vietnamese),
+            Some("1.00M Gỗ".to_string())
+        );
+        assert_eq!(
+            get_item_converted_display_for_lang(2, 8, 20, AppLanguage::English),
+            Some("1.00M Wood".to_string())
+        );
+
+        // Speedup under 1h (itype 2, sub 58: 5 min)
+        assert_eq!(
+            get_item_converted_display_for_lang(2, 58, 3, AppLanguage::Vietnamese),
+            Some("15p".to_string())
+        );
+        assert_eq!(
+            get_item_converted_display_for_lang(2, 58, 3, AppLanguage::English),
+            Some("15m".to_string())
+        );
+
+        // Crystal (itype 1, sub 9)
+        assert_eq!(
+            get_item_converted_display_for_lang(1, 9, 50, AppLanguage::Vietnamese),
+            Some("50 Pha Lê".to_string())
+        );
+        assert_eq!(
+            get_item_converted_display_for_lang(1, 9, 50, AppLanguage::English),
+            Some("50 Crystals".to_string())
+        );
+
+        // AP potion (itype 2, sub 182: 50 AP)
+        assert_eq!(
+            get_item_converted_display_for_lang(2, 182, 4, AppLanguage::Vietnamese),
+            Some("4 bình (200 AP)".to_string())
+        );
+        assert_eq!(
+            get_item_converted_display_for_lang(2, 182, 4, AppLanguage::English),
+            Some("4 pots (200 AP)".to_string())
+        );
+
+        // Material Leather (itype 2, sub 412: Tier 1)
+        assert_eq!(
+            get_item_converted_display_for_lang(2, 412, 10, AppLanguage::Vietnamese),
+            Some("10 Da".to_string())
+        );
+        assert_eq!(
+            get_item_converted_display_for_lang(2, 412, 10, AppLanguage::English),
+            Some("10 Leather".to_string())
+        );
     }
 }

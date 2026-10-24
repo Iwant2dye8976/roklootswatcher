@@ -99,10 +99,10 @@ impl SystemTrayManager {
     }
 
     pub fn update_language(&self, lang: AppLanguage) {
-        let _ = self.show_item.set_text(tray_show_text(lang));
-        let _ = self.rescan_item.set_text(tray_rescan_text(lang));
-        let _ = self.toggle_item.set_text(tray_toggle_text(lang));
-        let _ = self.quit_item.set_text(tray_quit_text(lang));
+        self.show_item.set_text(tray_show_text(lang));
+        self.rescan_item.set_text(tray_rescan_text(lang));
+        self.toggle_item.set_text(tray_toggle_text(lang));
+        self.quit_item.set_text(tray_quit_text(lang));
         let tooltip = match lang {
             AppLanguage::Vietnamese => "Rise of Kingdoms - Loot Watcher (Nhấp để mở lại)",
             AppLanguage::English => "Rise of Kingdoms - Loot Watcher (Click to restore)",

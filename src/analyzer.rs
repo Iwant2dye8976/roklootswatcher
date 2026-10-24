@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use chrono::{DateTime, Duration, NaiveDate, Utc};
 
-use crate::model::{BattleRecord, ItemStat, PlunderTierStat, Statistics};
+use crate::model::{BattleRecord, ItemDrop, ItemStat, PlunderTierStat, Statistics};
 
 /// Trả về ngày hiện tại theo múi giờ Việt Nam (UTC+7)
 pub fn current_date_vn() -> NaiveDate {
@@ -26,52 +26,62 @@ pub fn get_record_date_vn(r: &BattleRecord) -> Option<NaiveDate> {
     None
 }
 
+fn parse_single_date_token(token: &str) -> Option<NaiveDate> {
+    let parts: Vec<&str> = token.split(['-', '/', '.']).collect();
+    if parts.len() == 3 {
+        // YYYY[-/.]M[-/.]D (hỗ trợ cả 1 hoặc 2 chữ số cho tháng và ngày)
+        if parts[0].len() == 4 && (1..=2).contains(&parts[1].len()) && (1..=2).contains(&parts[2].len()) {
+            if let (Ok(y), Ok(m), Ok(d)) = (
+                parts[0].parse::<i32>(),
+                parts[1].parse::<u32>(),
+                parts[2].parse::<u32>(),
+            ) {
+                if let Some(date) = NaiveDate::from_ymd_opt(y, m, d) {
+                    return Some(date);
+                }
+            }
+        }
+        // D[-/.]M[-/.]YYYY (hỗ trợ cả 1 hoặc 2 chữ số cho ngày và tháng)
+        if parts[2].len() == 4 && (1..=2).contains(&parts[0].len()) && (1..=2).contains(&parts[1].len()) {
+            if let (Ok(d), Ok(m), Ok(y)) = (
+                parts[0].parse::<u32>(),
+                parts[1].parse::<u32>(),
+                parts[2].parse::<i32>(),
+            ) {
+                if let Some(date) = NaiveDate::from_ymd_opt(y, m, d) {
+                    return Some(date);
+                }
+            }
+        }
+    }
+    None
+}
+
 /// Parse chuỗi ngày linh hoạt hỗ trợ nhiều định dạng:
-/// - YYYY-MM-DD (e.g. "2026-10-22" hoặc "2026-10-22 14:30:00")
-/// - YYYY/MM/DD, YYYY.MM.DD
-/// - DD/MM/YYYY, DD-MM-YYYY, DD.MM.YYYY
+/// - YYYY-MM-DD, YYYY-M-D (e.g. "2026-10-22", "2026-5-1", "2026-10-22 14:30:00")
+/// - YYYY/MM/DD, YYYY/M/D, YYYY.MM.DD, YYYY.M.D
+/// - DD/MM/YYYY, D/M/YYYY, DD-MM-YYYY, D-M-YYYY, DD.MM.YYYY, D.M.YYYY
 pub fn parse_date_str(d_str: &str) -> Option<NaiveDate> {
     let clean = d_str.trim();
     if clean.is_empty() {
         return None;
     }
 
-    if clean.len() >= 10 && clean.is_char_boundary(10) {
-        let prefix = &clean[..10];
-        let b = prefix.as_bytes();
+    // 1. Thử trực tiếp toàn bộ chuỗi
+    if let Some(d) = parse_single_date_token(clean) {
+        return Some(d);
+    }
 
-        // Định dạng YYYY[-/.]MM[-/.]DD
-        let is_sep_4 = b[4] == b'-' || b[4] == b'/' || b[4] == b'.';
-        let is_sep_7 = b[7] == b'-' || b[7] == b'/' || b[7] == b'.';
-        if is_sep_4 && is_sep_7 {
-            if let (Ok(y), Ok(m), Ok(d)) = (
-                prefix[0..4].parse::<i32>(),
-                prefix[5..7].parse::<u32>(),
-                prefix[8..10].parse::<u32>(),
-            ) {
-                if let Some(date) = NaiveDate::from_ymd_opt(y, m, d) {
-                    return Some(date);
-                }
-            }
-        }
-
-        // Định dạng DD[-/.]MM[-/.]YYYY
-        let is_sep_2 = b[2] == b'-' || b[2] == b'/' || b[2] == b'.';
-        let is_sep_5 = b[5] == b'-' || b[5] == b'/' || b[5] == b'.';
-        if is_sep_2 && is_sep_5 {
-            if let (Ok(d), Ok(m), Ok(y)) = (
-                prefix[0..2].parse::<u32>(),
-                prefix[3..5].parse::<u32>(),
-                prefix[6..10].parse::<i32>(),
-            ) {
-                if let Some(date) = NaiveDate::from_ymd_opt(y, m, d) {
-                    return Some(date);
-                }
+    // 2. Thử từ đầu tiên nếu chuỗi chứa giờ (vd: "2026-5-1 14:30:00")
+    if let Some(first_word) = clean.split_whitespace().next() {
+        if first_word != clean {
+            if let Some(d) = parse_single_date_token(first_word) {
+                return Some(d);
             }
         }
     }
 
-    // Các mẫu dự phòng bổ sung
+    // 3. Fallback Chrono parse
     if let Ok(d) = NaiveDate::parse_from_str(clean, "%Y-%m-%d") {
         return Some(d);
     }
@@ -82,10 +92,10 @@ pub fn parse_date_str(d_str: &str) -> Option<NaiveDate> {
         return Some(d);
     }
 
-    // Tìm kiếm ngày nhúng trong chuỗi (ví dụ: "Ngày 22/10/2026")
+    // 4. Tìm kiếm từ ngày nhúng trong chuỗi (ví dụ: "Ngày 1/5/2026")
     for word in clean.split_whitespace() {
         if word != clean {
-            if let Some(d) = parse_date_str(word) {
+            if let Some(d) = parse_single_date_token(word) {
                 return Some(d);
             }
         }
@@ -169,30 +179,45 @@ pub fn generate_statistics(records: &[BattleRecord]) -> Statistics {
     let mut item_stats: HashMap<String, ItemStat> = HashMap::new();
 
     for r in records {
+        // Gom nhóm vật phẩm trong cùng 1 trận theo (itype, sub_type)
+        // để chiến báo đánh dã man chuỗi (chained barbarian) không làm thổi phồng battle_count
+        // và tính đúng tổng max_in_battle của trận đó.
+        let mut battle_items: HashMap<(u32, u32), (&ItemDrop, i64)> = HashMap::new();
         for it in &r.items {
-            let key = format!("{}_{}", it.itype, it.sub_type);
+            battle_items
+                .entry((it.itype, it.sub_type))
+                .and_modify(|(_, sum)| *sum += it.value)
+                .or_insert((it, it.value));
+        }
+
+        for ((itype, sub_type), (sample_it, battle_qty)) in battle_items {
+            let key = format!("{}_{}", itype, sub_type);
             let entry = item_stats.entry(key).or_insert_with(|| {
-                let cat = crate::loot_catalog::LootCatalog::determine_category(it.itype, it.sub_type);
+                let cat = crate::loot_catalog::LootCatalog::determine_category(itype, sub_type);
                 ItemStat {
-                    itype: it.itype,
-                    sub_type: it.sub_type,
-                    name_vi: it.name_vi.clone(),
-                    name_en: it.name_en.clone(),
+                    itype,
+                    sub_type,
+                    name_vi: sample_it.name_vi.clone(),
+                    name_en: sample_it.name_en.clone(),
                     category: cat.to_string(),
-                    sprites: it.sprites.clone(),
-                    pic: it.pic.clone(),
+                    sprites: sample_it.sprites.clone(),
+                    pic: sample_it.pic.clone(),
                     total_quantity: 0,
                     battle_count: 0,
-                    max_in_battle: it.value,
-                    min_in_battle: it.value,
+                    max_in_battle: 0,
+                    min_in_battle: i64::MAX,
                     avg_per_battle: 0.0,
+                    by_battle_type: HashMap::new(),
                 }
             });
 
-            entry.total_quantity += it.value;
+            entry.total_quantity += battle_qty;
             entry.battle_count += 1;
-            entry.max_in_battle = entry.max_in_battle.max(it.value);
-            entry.min_in_battle = entry.min_in_battle.min(it.value);
+            entry.max_in_battle = entry.max_in_battle.max(battle_qty);
+            entry.min_in_battle = entry.min_in_battle.min(battle_qty);
+
+            let btype = if r.battle_type.is_empty() { "other".to_string() } else { r.battle_type.clone() };
+            *entry.by_battle_type.entry(btype).or_insert(0) += battle_qty;
         }
     }
 
@@ -322,6 +347,34 @@ mod tests {
             parse_date_str("22.10.2026"),
             Some(NaiveDate::from_ymd_opt(2026, 10, 22).unwrap())
         );
+        assert_eq!(
+            parse_date_str("2026-5-1"),
+            Some(NaiveDate::from_ymd_opt(2026, 5, 1).unwrap())
+        );
+        assert_eq!(
+            parse_date_str("1/5/2026"),
+            Some(NaiveDate::from_ymd_opt(2026, 5, 1).unwrap())
+        );
+        assert_eq!(
+            parse_date_str("1-5-2026"),
+            Some(NaiveDate::from_ymd_opt(2026, 5, 1).unwrap())
+        );
+        assert_eq!(
+            parse_date_str("2026.5.1"),
+            Some(NaiveDate::from_ymd_opt(2026, 5, 1).unwrap())
+        );
+        assert_eq!(
+            parse_date_str("1.5.2026"),
+            Some(NaiveDate::from_ymd_opt(2026, 5, 1).unwrap())
+        );
+        assert_eq!(
+            parse_date_str("2026-5-1 14:30:00"),
+            Some(NaiveDate::from_ymd_opt(2026, 5, 1).unwrap())
+        );
+        assert_eq!(
+            parse_date_str("Ngày 1/5/2026"),
+            Some(NaiveDate::from_ymd_opt(2026, 5, 1).unwrap())
+        );
         assert_eq!(parse_date_str(""), None);
         assert_eq!(parse_date_str("invalid-date"), None);
     }
@@ -435,5 +488,156 @@ mod tests {
 
         // Các bản ghi cũ từ 2022 và 2025 tuyệt đối không được xuất hiện
         assert!(latest.iter().all(|r| r.mail_id != "old_2022" && r.mail_id != "old_2025"));
+    }
+
+    #[test]
+    fn test_chained_barbarian_item_aggregation_no_drop_rate_inflation() {
+        let mut items = Vec::new();
+        // Giả lập 4 dã man trong 1 chiến báo cùng rớt Gems (1, 5)
+        for _ in 0..4 {
+            items.push(ItemDrop {
+                itype: 1,
+                sub_type: 5,
+                value: 10,
+                pic: "".into(),
+                name_vi: "Gems".into(),
+                name_en: "Gems".into(),
+                category: "Gems".into(),
+                sprites: vec![],
+            });
+        }
+
+        let record = BattleRecord {
+            filename: "chained.mail".into(),
+            mail_id: "123".into(),
+            battle_type: "barbarian".into(),
+            time_raw: 1000,
+            time_utc: "".into(),
+            time_vn: "2026-10-24 10:00:00".into(),
+            target: "Dã Man Cấp 25".into(),
+            target_level: "25".into(),
+            talent_add: 0,
+            pos_x: 100,
+            pos_y: 200,
+            damage_pct: 100,
+            plunder_tier: 0,
+            items,
+            item_totals: HashMap::new(),
+            content: "".into(),
+        };
+
+        let stats = generate_statistics(&[record]);
+        let gem_stat = stats.item_stats.get("1_5").expect("Must have Gems stats");
+
+        // 1 battle only, so battle_count MUST be 1 (not 4)
+        assert_eq!(gem_stat.battle_count, 1, "Battle count must be 1 per battle even if chained kills drop same item");
+        // Total quantity is 4 * 10 = 40
+        assert_eq!(gem_stat.total_quantity, 40);
+        // Max in battle must be the sum for this battle = 40
+        assert_eq!(gem_stat.max_in_battle, 40);
+        // Min in battle is also 40
+        assert_eq!(gem_stat.min_in_battle, 40);
+    }
+
+    #[test]
+    fn test_filter_records_by_rolling_days() {
+        let today = current_date_vn();
+        let yest = today - Duration::days(1);
+        let make_rec = |d: NaiveDate| BattleRecord {
+            filename: "".into(),
+            mail_id: "".into(),
+            battle_type: "barbarian".into(),
+            time_raw: 1000,
+            time_utc: "".into(),
+            time_vn: format!("{} 12:00:00", d),
+            target: "".into(),
+            target_level: "".into(),
+            talent_add: 0,
+            pos_x: 0,
+            pos_y: 0,
+            damage_pct: 100,
+            plunder_tier: 0,
+            items: vec![],
+            item_totals: HashMap::new(),
+            content: "".into(),
+        };
+
+        let rec_today = make_rec(today);
+        let rec_yest = make_rec(yest);
+        let recs = vec![rec_today.clone(), rec_yest.clone()];
+
+        // 1 rolling day = Today only
+        let filtered_today = filter_records_by_date(&recs, None, None, Some(1));
+        assert_eq!(filtered_today.len(), 1);
+        assert_eq!(filtered_today[0].time_vn, rec_today.time_vn);
+
+        // 2 rolling days = Today and Yesterday
+        let filtered_2days = filter_records_by_date(&recs, None, None, Some(2));
+        assert_eq!(filtered_2days.len(), 2);
+    }
+
+    #[test]
+    fn test_item_stat_by_battle_type_distribution() {
+        let rec_motte = BattleRecord {
+            filename: "motte.mail".into(),
+            mail_id: "m1".into(),
+            battle_type: "motte".into(),
+            time_raw: 1000,
+            time_utc: "".into(),
+            time_vn: "2026-10-24 10:00:00".into(),
+            target: "Motte 10".into(),
+            target_level: "10".into(),
+            talent_add: 0,
+            pos_x: 0,
+            pos_y: 0,
+            damage_pct: 100,
+            plunder_tier: 1,
+            items: vec![ItemDrop {
+                itype: 1,
+                sub_type: 9,
+                value: 9000,
+                pic: "".into(),
+                name_vi: "Pha Lê".into(),
+                name_en: "Crystals".into(),
+                category: "Pha Lê".into(),
+                sprites: vec![],
+            }],
+            item_totals: HashMap::new(),
+            content: "".into(),
+        };
+
+        let rec_barb = BattleRecord {
+            filename: "barb.mail".into(),
+            mail_id: "b1".into(),
+            battle_type: "barbarian".into(),
+            time_raw: 1001,
+            time_utc: "".into(),
+            time_vn: "2026-10-24 10:05:00".into(),
+            target: "Dã Man Cấp 25".into(),
+            target_level: "25".into(),
+            talent_add: 0,
+            pos_x: 0,
+            pos_y: 0,
+            damage_pct: 100,
+            plunder_tier: 0,
+            items: vec![ItemDrop {
+                itype: 1,
+                sub_type: 9,
+                value: 11000,
+                pic: "".into(),
+                name_vi: "Pha Lê".into(),
+                name_en: "Crystals".into(),
+                category: "Pha Lê".into(),
+                sprites: vec![],
+            }],
+            item_totals: HashMap::new(),
+            content: "".into(),
+        };
+
+        let stats = generate_statistics(&[rec_motte, rec_barb]);
+        let crystal_stat = stats.item_stats.get("1_9").expect("Crystal stat must exist");
+        assert_eq!(crystal_stat.total_quantity, 20000);
+        assert_eq!(crystal_stat.by_battle_type.get("motte"), Some(&9000));
+        assert_eq!(crystal_stat.by_battle_type.get("barbarian"), Some(&11000));
     }
 }

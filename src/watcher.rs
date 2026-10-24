@@ -10,9 +10,10 @@ use notify::{Config, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 
 use crate::analyzer::{filter_records_by_date, generate_statistics};
 use crate::classifier::{classify_mail, extract_motte_details};
+use crate::i18n::filter_mode_name;
 use crate::lilith_stream::decode_mail_file;
 use crate::loot_catalog::LootCatalog;
-use crate::model::{BattleRecord, FilterMode, Statistics};
+use crate::model::{AppLanguage, BattleRecord, FilterMode, Statistics};
 use crate::vault::{read_file_shared, MailVault};
 
 pub const DEFAULT_MAIL_DIR: &str =
@@ -72,6 +73,7 @@ pub struct RoKMailWatcher {
     mail_dir: Arc<RwLock<PathBuf>>,
     out_dir: Arc<RwLock<PathBuf>>,
     mode: Arc<RwLock<FilterMode>>,
+    language: Arc<RwLock<AppLanguage>>,
 
     start_date: Arc<RwLock<Option<NaiveDate>>>,
     end_date: Arc<RwLock<Option<NaiveDate>>>,
@@ -111,6 +113,7 @@ impl RoKMailWatcher {
             mail_dir: Arc::new(RwLock::new(m_dir)),
             out_dir: Arc::new(RwLock::new(o_dir)),
             mode: Arc::new(RwLock::new(mode)),
+            language: Arc::new(RwLock::new(AppLanguage::default())),
 
             start_date: Arc::new(RwLock::new(None)),
             end_date: Arc::new(RwLock::new(None)),
@@ -134,6 +137,14 @@ impl RoKMailWatcher {
         // Tính toán thống kê ban đầu từ Vault nếu có
         watcher.recompute_filtered_records_and_stats();
         watcher
+    }
+
+    pub fn set_language(&self, lang: AppLanguage) {
+        *self.language.write().unwrap_or_else(|e| e.into_inner()) = lang;
+    }
+
+    pub fn get_language(&self) -> AppLanguage {
+        *self.language.read().unwrap_or_else(|e| e.into_inner())
     }
 
     pub fn get_vault_total_count(&self) -> usize {
@@ -189,7 +200,11 @@ impl RoKMailWatcher {
             self.stop();
         }
         *self.mail_dir.write().unwrap_or_else(|e| e.into_inner()) = new_dir.clone();
-        self.log("INFO", &format!("Đã chuyển thư mục theo dõi sang: {}", new_dir.display()));
+        let msg = match self.get_language() {
+            AppLanguage::Vietnamese => format!("Đã chuyển thư mục theo dõi sang: {}", new_dir.display()),
+            AppLanguage::English => format!("Switched watch directory to: {}", new_dir.display()),
+        };
+        self.log("INFO", &msg);
         self.start(true);
     }
 
@@ -237,15 +252,25 @@ impl RoKMailWatcher {
 
     pub fn set_mode(&self, new_mode: FilterMode) {
         *self.mode.write().unwrap_or_else(|e| e.into_inner()) = new_mode;
-        self.log("INFO", &format!("Đã chuyển chế độ mục tiêu: {}", new_mode.display_label()));
+        let lang = self.get_language();
+        let mode_lbl = filter_mode_name(&new_mode, lang);
+        let msg1 = match lang {
+            AppLanguage::Vietnamese => format!("Đã chuyển chế độ mục tiêu: {}", mode_lbl),
+            AppLanguage::English => format!("Switched target filter mode: {}", mode_lbl),
+        };
+        self.log("INFO", &msg1);
         let (total_mode, active_cnt) = self.recompute_filtered_records_and_stats();
-        self.log(
-            "SUCCESS",
-            &format!(
+        let msg2 = match lang {
+            AppLanguage::Vietnamese => format!(
                 "Bộ lọc cập nhật tức thì: Tìm thấy {} trận ({} trận khớp ngày).",
                 total_mode, active_cnt
             ),
-        );
+            AppLanguage::English => format!(
+                "Filter updated immediately: Found {} records ({} matching date).",
+                total_mode, active_cnt
+            ),
+        };
+        self.log("SUCCESS", &msg2);
     }
 
     pub fn get_active_records(&self) -> Arc<Vec<BattleRecord>> {
@@ -292,6 +317,7 @@ impl RoKMailWatcher {
         let s = *self.start_date.read().unwrap_or_else(|e| e.into_inner());
         let e = *self.end_date.read().unwrap_or_else(|e| e.into_inner());
         let d = *self.days.read().unwrap_or_else(|e| e.into_inner());
+        let lang = self.get_language();
 
         let today_vn = crate::analyzer::current_date_vn();
         let yest_vn = today_vn - chrono::Duration::try_days(1).unwrap_or_else(|| chrono::Duration::days(1));
@@ -300,23 +326,54 @@ impl RoKMailWatcher {
             (Some(s_d), Some(e_d)) => {
                 if s_d == e_d {
                     if s_d == today_vn {
-                        format!("Hôm nay ({})", s_d)
+                        match lang {
+                            AppLanguage::Vietnamese => format!("Hôm nay ({})", s_d),
+                            AppLanguage::English => format!("Today ({})", s_d),
+                        }
                     } else if s_d == yest_vn {
-                        format!("Hôm qua ({})", s_d)
+                        match lang {
+                            AppLanguage::Vietnamese => format!("Hôm qua ({})", s_d),
+                            AppLanguage::English => format!("Yesterday ({})", s_d),
+                        }
                     } else {
-                        format!("Ngày {}", s_d)
+                        match lang {
+                            AppLanguage::Vietnamese => format!("Ngày {}", s_d),
+                            AppLanguage::English => format!("Date {}", s_d),
+                        }
                     }
                 } else {
-                    format!("Từ {} đến {}", s_d, e_d)
+                    match lang {
+                        AppLanguage::Vietnamese => format!("Từ {} đến {}", s_d, e_d),
+                        AppLanguage::English => format!("From {} to {}", s_d, e_d),
+                    }
                 }
             }
-            (Some(s_d), None) => format!("Từ {} đến nay", s_d),
-            (None, Some(e_d)) => format!("Đến ngày {}", e_d),
+            (Some(s_d), None) => match lang {
+                AppLanguage::Vietnamese => format!("Từ {} đến nay", s_d),
+                AppLanguage::English => format!("From {} to present", s_d),
+            },
+            (None, Some(e_d)) => match lang {
+                AppLanguage::Vietnamese => format!("Đến ngày {}", e_d),
+                AppLanguage::English => format!("Until date {}", e_d),
+            },
             (None, None) => {
                 if let Some(days) = d {
-                    format!("{} ngày gần nhất", days)
+                    if days == 1 {
+                        match lang {
+                            AppLanguage::Vietnamese => format!("Hôm nay ({})", today_vn),
+                            AppLanguage::English => format!("Today ({})", today_vn),
+                        }
+                    } else {
+                        match lang {
+                            AppLanguage::Vietnamese => format!("{} ngày gần nhất", days),
+                            AppLanguage::English => format!("Last {} days", days),
+                        }
+                    }
                 } else {
-                    "Tất cả thời gian".to_string()
+                    match lang {
+                        AppLanguage::Vietnamese => "Tất cả thời gian".to_string(),
+                        AppLanguage::English => "All time".to_string(),
+                    }
                 }
             }
         }
@@ -334,14 +391,19 @@ impl RoKMailWatcher {
 
         let (_, active_cnt) = self.recompute_filtered_records_and_stats();
 
-        self.log(
-            "INFO",
-            &format!(
+        let msg = match self.get_language() {
+            AppLanguage::Vietnamese => format!(
                 "Đã áp dụng lọc ngày: {} ({} trận)",
                 self.get_date_range_label(),
                 active_cnt
             ),
-        );
+            AppLanguage::English => format!(
+                "Applied date filter: {} ({} records)",
+                self.get_date_range_label(),
+                active_cnt
+            ),
+        };
+        self.log("INFO", &msg);
     }
 
     pub fn start(&self, initial_scan: bool) {
@@ -351,14 +413,18 @@ impl RoKMailWatcher {
 
         let dir = self.get_mail_dir();
         if !dir.is_dir() {
-            self.log(
-                "WARN",
-                &format!("Thư mục mailcache không tồn tại: {}", dir.display()),
-            );
-            self.set_status(WatcherStatus::Stopped(format!(
-                "Không tìm thấy: {}",
-                dir.display()
-            )));
+            let (warn_msg, status_msg) = match self.get_language() {
+                AppLanguage::Vietnamese => (
+                    format!("Thư mục mailcache không tồn tại: {}", dir.display()),
+                    format!("Không tìm thấy: {}", dir.display()),
+                ),
+                AppLanguage::English => (
+                    format!("Mailcache directory does not exist: {}", dir.display()),
+                    format!("Not found: {}", dir.display()),
+                ),
+            };
+            self.log("WARN", &warn_msg);
+            self.set_status(WatcherStatus::Stopped(status_msg));
             return;
         }
 
@@ -373,6 +439,8 @@ impl RoKMailWatcher {
     }
 
     pub fn stop(&self) {
+        self.flush_vault_if_dirty();
+
         if !*self.is_watching.read().unwrap_or_else(|e| e.into_inner()) {
             return;
         }
@@ -381,12 +449,15 @@ impl RoKMailWatcher {
             let _ = stop_tx.send(());
         }
 
-        self.flush_vault_if_dirty();
         crate::tray::trim_memory_working_set();
 
         *self.is_watching.write().unwrap_or_else(|e| e.into_inner()) = false;
-        self.set_status(WatcherStatus::Stopped("Đã dừng theo dõi".into()));
-        self.log("INFO", "Đã tạm dừng theo dõi thư mục mailcache");
+        let (status_msg, log_msg) = match self.get_language() {
+            AppLanguage::Vietnamese => ("Đã dừng theo dõi".to_string(), "Đã tạm dừng theo dõi thư mục mailcache"),
+            AppLanguage::English => ("Watching stopped".to_string(), "Paused watching mailcache directory"),
+        };
+        self.set_status(WatcherStatus::Stopped(status_msg));
+        self.log("INFO", log_msg);
     }
 
     pub fn rescan(&self) {
@@ -414,8 +485,19 @@ impl RoKMailWatcher {
         let vault_dir = self.get_vault_binary_dir();
         let _ = std::fs::create_dir_all(&vault_dir);
 
-        self.set_status(WatcherStatus::Scanning("Đang quét và đồng bộ kho lưu trữ Vault...".into()));
-        self.log("INFO", &format!("Bắt đầu quét thư mục game: {} (Chế độ: {})", mail_dir.display(), mode.as_str()));
+        let lang = self.get_language();
+        let (scan_status, scan_start) = match lang {
+            AppLanguage::Vietnamese => (
+                "Đang quét và đồng bộ kho lưu trữ Vault...".to_string(),
+                format!("Bắt đầu quét thư mục game: {} (Chế độ: {})", mail_dir.display(), mode.as_str()),
+            ),
+            AppLanguage::English => (
+                "Scanning and synchronizing Vault archive...".to_string(),
+                format!("Started scanning game directory: {} (Mode: {})", mail_dir.display(), mode.as_str()),
+            ),
+        };
+        self.set_status(WatcherStatus::Scanning(scan_status));
+        self.log("INFO", &scan_start);
 
         let mut all_files_map = HashMap::new();
 
@@ -451,7 +533,11 @@ impl RoKMailWatcher {
         }
 
         let total_cache_files = all_files_map.len();
-        self.log("INFO", &format!("Tìm thấy tổng cộng {} file thư nhị phân (gồm cả trong mailcache & kho vault).", total_cache_files));
+        let cache_msg = match lang {
+            AppLanguage::Vietnamese => format!("Tìm thấy tổng cộng {} file thư nhị phân (gồm cả trong mailcache & kho vault).", total_cache_files),
+            AppLanguage::English => format!("Found {} binary mail files total (including mailcache & vault).", total_cache_files),
+        };
+        self.log("INFO", &cache_msg);
 
         // FAST-SKIP: Lọc ra chỉ những file thực sự cần giải mã
         let (files_to_decode, skipped_count): (Vec<PathBuf>, usize) = if force_all {
@@ -471,21 +557,26 @@ impl RoKMailWatcher {
         };
 
         if skipped_count > 0 {
-            self.log(
-                "INFO",
-                &format!(
+            let skip_msg = match lang {
+                AppLanguage::Vietnamese => format!(
                     "Fast-Skip: Đã bỏ qua {} file thư đã đồng bộ trong Vault (0 MB RAM, 0 ms I/O).",
                     skipped_count
                 ),
-            );
+                AppLanguage::English => format!(
+                    "Fast-Skip: Skipped {} mail files already synchronized in Vault (0 MB RAM, 0 ms I/O).",
+                    skipped_count
+                ),
+            };
+            self.log("INFO", &skip_msg);
         }
 
         let new_files_count = files_to_decode.len();
         if new_files_count > 0 {
-            self.log(
-                "INFO",
-                &format!("Phát hiện {} file thư mới cần giải mã (xử lý theo batch 50 file).", new_files_count),
-            );
+            let new_msg = match lang {
+                AppLanguage::Vietnamese => format!("Phát hiện {} file thư mới cần giải mã (xử lý theo batch 50 file).", new_files_count),
+                AppLanguage::English => format!("Detected {} new mail files to decode (processing in batches of 50).", new_files_count),
+            };
+            self.log("INFO", &new_msg);
         }
 
         use rayon::prelude::*;
@@ -504,11 +595,7 @@ impl RoKMailWatcher {
                         return None;
                     }
                     let btype = classify_mail(&m)?;
-                    if btype == "gathering" {
-                        crate::classifier::extract_gathering_details(&m, &fname).ok()
-                    } else {
-                        extract_motte_details(&m, &fname, catalog, Some(btype)).ok()
-                    }
+                    extract_motte_details(&m, &fname, catalog, Some(btype)).ok()
                 })
                 .collect();
             scanned_records.extend(chunk_records);
@@ -532,21 +619,26 @@ impl RoKMailWatcher {
         // Thu hồi ngay Working Set RAM nhàn rỗi sau khi quét hoàn tất
         crate::tray::trim_memory_working_set();
 
-        self.log(
-            "SUCCESS",
-            &format!(
+        let sync_msg = match lang {
+            AppLanguage::Vietnamese => format!(
                 "Đồng bộ Vault hoàn tất: Tổng số {} thư trong kho lưu trữ (+{} thư mới). Đang lọc {} trận theo chế độ ({} trận khớp ngày).",
                 total_all, new_added, mode_cnt, active_cnt
             ),
-        );
+            AppLanguage::English => format!(
+                "Vault synchronization complete: {} total mails in archive (+{} new). Filtering {} records by mode ({} matching date).",
+                total_all, new_added, mode_cnt, active_cnt
+            ),
+        };
+        self.log("SUCCESS", &sync_msg);
 
         if !*self.is_watching.read().unwrap_or_else(|e| e.into_inner()) {
             self.start_observer();
         } else {
-            self.set_status(WatcherStatus::Running(format!(
-                "Đang theo dõi: {}",
-                mail_dir.display()
-            )));
+            let watch_msg = match lang {
+                AppLanguage::Vietnamese => format!("Đang theo dõi: {}", mail_dir.display()),
+                AppLanguage::English => format!("Watching: {}", mail_dir.display()),
+            };
+            self.set_status(WatcherStatus::Running(watch_msg));
         }
     }
 
@@ -561,26 +653,42 @@ impl RoKMailWatcher {
         thread::spawn(move || {
             let (tx_notify, rx_notify) = channel();
 
+            let lang = self_clone.get_language();
             let mut watcher = match RecommendedWatcher::new(tx_notify, Config::default()) {
                 Ok(w) => w,
                 Err(e) => {
-                    self_clone.log("ERROR", &format!("Lỗi khởi tạo RecommendedWatcher: {}", e));
+                    let err_msg = match lang {
+                        AppLanguage::Vietnamese => format!("Lỗi khởi tạo RecommendedWatcher: {}", e),
+                        AppLanguage::English => format!("Error initializing RecommendedWatcher: {}", e),
+                    };
+                    self_clone.log("ERROR", &err_msg);
                     return;
                 }
             };
 
             if let Err(e) = watcher.watch(&dir_to_watch, RecursiveMode::NonRecursive) {
-                self_clone.log("ERROR", &format!("Lỗi lắng nghe thư mục {}: {}", dir_to_watch.display(), e));
+                let err_msg = match lang {
+                    AppLanguage::Vietnamese => format!("Lỗi lắng nghe thư mục {}: {}", dir_to_watch.display(), e),
+                    AppLanguage::English => format!("Error watching directory {}: {}", dir_to_watch.display(), e),
+                };
+                self_clone.log("ERROR", &err_msg);
                 self_clone.set_status(WatcherStatus::Error(e.to_string()));
                 return;
             }
 
             *self_clone.is_watching.write().unwrap_or_else(|e| e.into_inner()) = true;
-            self_clone.set_status(WatcherStatus::Running(format!(
-                "Đang theo dõi: {}",
-                dir_to_watch.display()
-            )));
-            self_clone.log("INFO", &format!("Bắt đầu lắng nghe thay đổi thời gian thực tại: {}", dir_to_watch.display()));
+            let (status_text, log_text) = match lang {
+                AppLanguage::Vietnamese => (
+                    format!("Đang theo dõi: {}", dir_to_watch.display()),
+                    format!("Bắt đầu lắng nghe thay đổi thời gian thực tại: {}", dir_to_watch.display()),
+                ),
+                AppLanguage::English => (
+                    format!("Watching: {}", dir_to_watch.display()),
+                    format!("Started real-time listening for changes at: {}", dir_to_watch.display()),
+                ),
+            };
+            self_clone.set_status(WatcherStatus::Running(status_text));
+            self_clone.log("INFO", &log_text);
 
             let mut recent_events: HashMap<PathBuf, Instant> = HashMap::new();
 
@@ -636,7 +744,11 @@ impl RoKMailWatcher {
                             }
                         }
                         Err(e) => {
-                            self_clone.log("WARN", &format!("Lỗi watcher event: {}", e));
+                            let warn_msg = match self_clone.get_language() {
+                                AppLanguage::Vietnamese => format!("Lỗi watcher event: {}", e),
+                                AppLanguage::English => format!("Watcher event error: {}", e),
+                            };
+                            self_clone.log("WARN", &warn_msg);
                         }
                     }
                 }
@@ -700,16 +812,9 @@ impl RoKMailWatcher {
             None => return,
         };
 
-        let rec = if btype == "gathering" {
-            match crate::classifier::extract_gathering_details(&m, &fname) {
-                Ok(r) => r,
-                Err(_) => return,
-            }
-        } else {
-            match extract_motte_details(&m, &fname, &self.catalog, Some(btype)) {
-                Ok(r) => r,
-                Err(_) => return,
-            }
+        let rec = match extract_motte_details(&m, &fname, &self.catalog, Some(btype)) {
+            Ok(r) => r,
+            Err(_) => return,
         };
 
         // Lưu bản ghi vào Persistent Vault
@@ -731,29 +836,52 @@ impl RoKMailWatcher {
             .collect();
 
         let preview_str = loot_preview.join(", ");
+        let lang = self.get_language();
+        let is_new_str = match (is_new, lang) {
+            (true, AppLanguage::Vietnamese) => "mới",
+            (false, AppLanguage::Vietnamese) => "cập nhật",
+            (true, AppLanguage::English) => "new",
+            (false, AppLanguage::English) => "updated",
+        };
+        let target_display = rec.display_target(lang);
         if btype == "gathering" {
-            self.log(
-                "SUCCESS",
-                &format!(
+            let msg = match lang {
+                AppLanguage::Vietnamese => format!(
                     "Phát hiện thu thập {}: {} (Cấp {}) [Đã bảo vệ trong Vault] | Thu hoạch: {}",
-                    if is_new { "mới" } else { "cập nhật" },
-                    rec.target,
+                    is_new_str,
+                    target_display,
                     rec.target_level,
                     preview_str
                 ),
-            );
+                AppLanguage::English => format!(
+                    "Detected {} gathering: {} (Lvl {}) [Secured in Vault] | Harvest: {}",
+                    is_new_str,
+                    target_display,
+                    rec.target_level,
+                    preview_str
+                ),
+            };
+            self.log("SUCCESS", &msg);
         } else {
-            self.log(
-                "SUCCESS",
-                &format!(
+            let msg = match lang {
+                AppLanguage::Vietnamese => format!(
                     "Phát hiện {}: {} ({}% ST, Tier {}) [Đã bảo vệ trong Vault] | Quà: {}",
-                    if is_new { "mới" } else { "cập nhật" },
-                    rec.target,
+                    is_new_str,
+                    target_display,
                     rec.damage_pct,
                     rec.plunder_tier,
                     preview_str
                 ),
-            );
+                AppLanguage::English => format!(
+                    "Detected {} battle: {} ({}% DMG, Tier {}) [Secured in Vault] | Loot: {}",
+                    is_new_str,
+                    target_display,
+                    rec.damage_pct,
+                    rec.plunder_tier,
+                    preview_str
+                ),
+            };
+            self.log("SUCCESS", &msg);
         }
 
         self.auto_export();
@@ -789,6 +917,7 @@ impl RoKMailWatcher {
             mail_dir: Arc::clone(&self.mail_dir),
             out_dir: Arc::clone(&self.out_dir),
             mode: Arc::clone(&self.mode),
+            language: Arc::clone(&self.language),
             start_date: Arc::clone(&self.start_date),
             end_date: Arc::clone(&self.end_date),
             days: Arc::clone(&self.days),
@@ -812,8 +941,9 @@ mod tests {
 
     #[test]
     fn test_watcher_process_gathering_mail() {
-        let path = "mail_vault/Persistent.Mail.1002220217856803764";
-        let mail = decode_mail_file(path).expect("Decode mail");
+        let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let path = manifest_dir.join("mail_vault/Persistent.Mail.1002220217856803764");
+        let mail = decode_mail_file(&path).expect("Decode mail");
         let btype = classify_mail(&mail);
         assert_eq!(btype, Some("gathering"));
 
@@ -822,5 +952,67 @@ mod tests {
         assert_eq!(rec.battle_type, "gathering");
         assert_eq!(rec.target_level, "6");
         assert_eq!(rec.target, "Mỏ Đá Cấp 6");
+    }
+
+    #[test]
+    fn test_stop_flushes_dirty_vault_when_paused() {
+        let temp_dir = std::env::temp_dir().join(format!("rok_test_flush_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&temp_dir);
+
+        let (tx, _rx) = std::sync::mpsc::channel();
+        let watcher = RoKMailWatcher::new(
+            Some(temp_dir.clone()),
+            Some(temp_dir.clone()),
+            FilterMode::AllTargets,
+            LootCatalog::empty(),
+            tx,
+        );
+
+        // Ensure watching is false (paused)
+        assert!(!watcher.is_watching());
+
+        // Mark dirty
+        watcher.mark_vault_dirty();
+        assert!(watcher.vault_dirty.load(std::sync::atomic::Ordering::SeqCst));
+
+        // Calling stop while watching is false should still flush dirty state
+        watcher.stop();
+        assert!(!watcher.vault_dirty.load(std::sync::atomic::Ordering::SeqCst), "Dirty flag must be cleared by flush on stop");
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_watcher_date_range_label_bilingual() {
+        let (tx, _rx) = std::sync::mpsc::channel();
+        let watcher = RoKMailWatcher::new(
+            None,
+            None,
+            FilterMode::AllTargets,
+            LootCatalog::empty(),
+            tx,
+        );
+
+        // Default all time
+        watcher.set_language(AppLanguage::Vietnamese);
+        assert_eq!(watcher.get_date_range_label(), "Tất cả thời gian");
+        watcher.set_language(AppLanguage::English);
+        assert_eq!(watcher.get_date_range_label(), "All time");
+
+        // 7 days rolling
+        watcher.set_date_filter(None, None, Some(7));
+        watcher.set_language(AppLanguage::Vietnamese);
+        assert_eq!(watcher.get_date_range_label(), "7 ngày gần nhất");
+        watcher.set_language(AppLanguage::English);
+        assert_eq!(watcher.get_date_range_label(), "Last 7 days");
+
+        // Explicit dates
+        let d1 = NaiveDate::from_ymd_opt(2026, 10, 1).unwrap();
+        let d2 = NaiveDate::from_ymd_opt(2026, 10, 10).unwrap();
+        watcher.set_date_filter(Some(d1), Some(d2), None);
+        watcher.set_language(AppLanguage::Vietnamese);
+        assert_eq!(watcher.get_date_range_label(), "Từ 2026-10-01 đến 2026-10-10");
+        watcher.set_language(AppLanguage::English);
+        assert_eq!(watcher.get_date_range_label(), "From 2026-10-01 to 2026-10-10");
     }
 }

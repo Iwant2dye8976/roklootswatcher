@@ -103,6 +103,7 @@ pub struct MailVault {
     binary_dir: PathBuf,
     records: Vec<BattleRecord>,
     key_index: HashMap<String, usize>,
+    is_corrupted: bool,
 }
 
 impl MailVault {
@@ -115,6 +116,7 @@ impl MailVault {
             binary_dir,
             records: Vec::new(),
             key_index: HashMap::new(),
+            is_corrupted: false,
         };
 
         vault.init();
@@ -137,6 +139,11 @@ impl MailVault {
         self.records.len()
     }
 
+    #[allow(dead_code)]
+    pub fn is_corrupted(&self) -> bool {
+        self.is_corrupted
+    }
+
     /// Kiểm tra xem file hoặc ID thư này đã được lưu trong Vault hay chưa (O(1)).
     /// Giúp Fast-Skip bỏ qua lập tức mà không cần mở file nhị phân hay cấp phát bộ nhớ.
     pub fn contains_file_or_id(&self, fname: &str) -> bool {
@@ -155,7 +162,9 @@ impl MailVault {
         }
 
         // 1. Nạp từ file vault JSON nếu đã có
-        self.load_from_vault_file();
+        if let Err(e) = self.load_from_vault_file() {
+            eprintln!("[!] Cảnh báo Vault: {}", e);
+        }
 
         // 2. Khôi phục bổ sung từ thư mục filtered_mails_json nếu người dùng đã có
         self.restore_from_filtered_mails_json();
@@ -241,24 +250,50 @@ impl MailVault {
         }
     }
 
-    pub fn load_from_vault_file(&mut self) -> usize {
+    pub fn load_from_vault_file(&mut self) -> Result<usize, String> {
         if !self.vault_file.exists() {
-            return 0;
+            return Ok(0);
         }
 
-        if let Ok(file) = fs::File::open(&self.vault_file) {
-            let reader = std::io::BufReader::new(file);
-            if let Ok(storage) = serde_json::from_reader::<_, VaultStorageData>(reader) {
+        let file = match fs::File::open(&self.vault_file) {
+            Ok(f) => f,
+            Err(e) => {
+                self.is_corrupted = true;
+                let corrupt_path = self.vault_file.with_extension("corrupt");
+                let _ = fs::copy(&self.vault_file, &corrupt_path);
+                return Err(format!("Không thể mở file vault {:?}: {}", self.vault_file, e));
+            }
+        };
+
+        let reader = std::io::BufReader::new(file);
+        match serde_json::from_reader::<_, VaultStorageData>(reader) {
+            Ok(storage) => {
                 let cnt = storage.records.len();
                 self.records = storage.records;
                 self.rebuild_index();
-                return cnt;
+                Ok(cnt)
+            }
+            Err(e) => {
+                self.is_corrupted = true;
+                let corrupt_path = self.vault_file.with_extension("corrupt");
+                let _ = fs::copy(&self.vault_file, &corrupt_path);
+                let err_msg = format!(
+                    "File vault {:?} bị lỗi cấu trúc JSON: {}. Đã tạo bản sao lưu tại {:?}",
+                    self.vault_file, e, corrupt_path
+                );
+                Err(err_msg)
             }
         }
-        0
     }
 
     pub fn save_to_disk(&self) -> Result<(), String> {
+        if self.is_corrupted {
+            return Err(format!(
+                "Từ chối ghi đè file vault: file gốc {:?} bị hỏng hoặc lỗi phân tích. Vui lòng kiểm tra bản sao lưu .corrupt",
+                self.vault_file
+            ));
+        }
+
         let storage = VaultStorageDataRef {
             version: 1,
             last_updated: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
@@ -386,23 +421,39 @@ impl MailVault {
         let mut restored = 0;
         if let Ok(entries) = fs::read_dir(&json_dir) {
             for entry in entries.flatten() {
+                let is_file = entry.file_type().map(|ft| ft.is_file()).unwrap_or(false);
+                if !is_file {
+                    continue;
+                }
+
+                let fname_os = entry.file_name();
+                let fname_str = fname_os.to_string_lossy();
+                let stem = match fname_str.strip_suffix(".json") {
+                    Some(s) => s,
+                    None => continue,
+                };
+
+                // Bỏ qua ngay lập tức nếu bản ghi đã tồn tại trong Vault (O(1) lookup),
+                // tránh mở file I/O và deserialization JSON không cần thiết gây lag khi khởi động.
+                if self.contains_file_or_id(stem) {
+                    continue;
+                }
+
                 let p = entry.path();
-                if p.is_file() && p.extension().is_some_and(|ext| ext == "json") {
-                    if let Ok(file) = fs::File::open(&p) {
-                        let reader = std::io::BufReader::new(file);
-                        // Thử parse xem có metadata thống kê không
-                        if let Ok(val) = serde_json::from_reader::<_, serde_json::Value>(reader) {
-                            if let Some(box_val) = val.get("box").and_then(|v| v.as_str()) {
-                                if box_val == "Report" || box_val == "Archive" {
-                                    let fname = p.file_stem().unwrap_or_default().to_string_lossy().to_string();
-                                    // Parse BattleRecord từ cấu trúc json
-                                    if let Some(rec) = Self::parse_battle_record_from_exported_json(&val, &fname) {
-                                        let key = get_record_dedup_key(&rec);
-                                        // TUYỆT ĐỐI KHÔNG ghi đè bản ghi đã tồn tại trong Vault
-                                        // vì bản ghi trong Vault có dữ liệu đầy đủ và chính xác hơn!
-                                        if !self.key_index.contains_key(&key) && self.upsert(rec) {
-                                            restored += 1;
-                                        }
+                if let Ok(file) = fs::File::open(&p) {
+                    let reader = std::io::BufReader::new(file);
+                    // Thử parse xem có metadata thống kê không
+                    if let Ok(val) = serde_json::from_reader::<_, serde_json::Value>(reader) {
+                        if let Some(box_val) = val.get("box").and_then(|v| v.as_str()) {
+                            if box_val == "Report" || box_val == "Archive" {
+                                let fname_saved = stem.to_string();
+                                // Parse BattleRecord từ cấu trúc json
+                                if let Some(rec) = Self::parse_battle_record_from_exported_json(&val, &fname_saved) {
+                                    let key = get_record_dedup_key(&rec);
+                                    // TUYỆT ĐỐI KHÔNG ghi đè bản ghi đã tồn tại trong Vault
+                                    // vì bản ghi trong Vault có dữ liệu đầy đủ và chính xác hơn!
+                                    if !self.key_index.contains_key(&key) && self.upsert(rec) {
+                                        restored += 1;
                                     }
                                 }
                             }
@@ -410,6 +461,11 @@ impl MailVault {
                     }
                 }
             }
+        }
+        if restored > 0 {
+            self.records.sort_by_key(|r| r.time_raw);
+            self.rebuild_index();
+            let _ = self.save_to_disk();
         }
         restored
     }
@@ -884,6 +940,30 @@ mod tests {
         assert!(backup_path.exists());
         let saved_bytes = fs::read(&backup_path).unwrap();
         assert_eq!(saved_bytes, sample_content);
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_corrupted_vault_file_backup_and_refusal() {
+        let temp_dir = std::env::temp_dir().join(format!("rok_test_corrupt_{}", std::process::id()));
+        let _ = fs::create_dir_all(&temp_dir);
+
+        let vault_file = temp_dir.join("rok_history_vault.json");
+        let corrupt_content = b"{\"version\": 1, \"records\": [corrupted raw bytes ...";
+        fs::write(&vault_file, corrupt_content).unwrap();
+
+        let vault = MailVault::new(&temp_dir);
+        assert!(vault.is_corrupted(), "Vault must detect corrupted JSON file");
+
+        let corrupt_backup = temp_dir.join("rok_history_vault.corrupt");
+        assert!(corrupt_backup.exists(), "Must create .corrupt backup file");
+        assert_eq!(fs::read(&corrupt_backup).unwrap(), corrupt_content);
+
+        // Attempting to save to disk must refuse to overwrite
+        let save_res = vault.save_to_disk();
+        assert!(save_res.is_err(), "Must refuse to overwrite corrupted vault");
+        assert_eq!(fs::read(&vault_file).unwrap(), corrupt_content, "Original vault file must not be overwritten");
 
         let _ = fs::remove_dir_all(&temp_dir);
     }

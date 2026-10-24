@@ -7,9 +7,8 @@ use eframe::egui::{self, Color32, Margin, Rounding, Stroke};
 use crate::analyzer::parse_date_str;
 use crate::i18n::{category_name, date_preset_label, filter_mode_label, TrKey};
 use crate::model::{
-    format_in_millions_vietnamese, format_num, get_item_converted_display,
-    AppConfig, AppLanguage, AppTheme, BattleRecord, CloseBehavior, DateFilterPreset, FilterMode,
-    SpeedupUnit,
+    format_in_millions, format_num, get_item_converted_display_for_lang, AppConfig, AppLanguage,
+    AppTheme, BattleRecord, CloseBehavior, DateFilterPreset, FilterMode, SpeedupUnit,
 };
 use crate::tray::SystemTrayManager;
 use crate::watcher::{detect_default_mail_dir, RoKMailWatcher, WatcherStatus, WatcherUiEvent};
@@ -41,6 +40,14 @@ pub struct ThemeColors {
     pub barb_accent: Color32,
     pub crystal_cyan: Color32,
     pub speedup_purple: Color32,
+    pub train_orange: Color32,
+    pub heal_blue: Color32,
+    pub log_bg: Color32,
+    pub mat_iron: Color32,
+    pub mat_ebony: Color32,
+    pub mat_bone: Color32,
+    pub rank_silver: Color32,
+    pub rank_bronze: Color32,
 }
 
 impl ThemeColors {
@@ -68,6 +75,14 @@ impl ThemeColors {
             barb_accent: Color32::from_rgb(0x10, 0xb9, 0x81),      // Emerald-500 Barbarian
             crystal_cyan: Color32::from_rgb(0x06, 0xb6, 0xd4),     // Cyan Crystal
             speedup_purple: Color32::from_rgb(0xa8, 0x55, 0xf7),   // Purple Speedups
+            train_orange: Color32::from_rgb(0xfb, 0x92, 0x3c),     // Orange-400 Training Speedup
+            heal_blue: Color32::from_rgb(0x38, 0xbd, 0xf8),        // Sky-400 Healing Speedup
+            log_bg: Color32::from_rgb(0x0d, 0x0f, 0x14),           // Deep terminal black
+            mat_iron: Color32::from_rgb(0x94, 0xa3, 0xb8),         // Slate-400 Iron Ore
+            mat_ebony: Color32::from_rgb(0x34, 0xd3, 0x99),        // Emerald-400 Ebony
+            mat_bone: Color32::from_rgb(0xf4, 0x72, 0xb6),         // Pink-400 Bone
+            rank_silver: Color32::from_rgb(0xc0, 0xc0, 0xc0),      // Silver
+            rank_bronze: Color32::from_rgb(0xcd, 0x7f, 0x32),      // Bronze
         }
     }
 
@@ -76,25 +91,33 @@ impl ThemeColors {
             is_dark: false,
             ink: Color32::from_rgb(0xf8, 0xfa, 0xfc),              // Slate-50 clean light background
             ink_deep: Color32::from_rgb(0xff, 0xff, 0xff),         // Crisp pure white cards
-            card_surface: Color32::from_rgb(0xf1, 0xf5, 0xf9),     // Slate-100 card surface
+            card_surface: Color32::from_rgb(0xff, 0xff, 0xff),     // Pure white for elevated cards
             sidebar_bg: Color32::from_rgb(0xf1, 0xf5, 0xf9),       // Slate-100 sidebar
-            primary: Color32::from_rgb(0xe2, 0xe8, 0xf0),          // Light grey button fill
-            primary_pressed: Color32::from_rgb(0xcb, 0xd5, 0xe1),  // Hovered button
-            brand_mark: Color32::from_rgb(0xe1, 0x1d, 0x48),       // Rose-600
-            canvas_tint: Color32::from_rgb(0x0f, 0x17, 0x2a),      // Slate-900 dark text
-            hairline: Color32::from_rgb(0xe2, 0xe8, 0xf0),         // Clean slate border
-            field_border: Color32::from_rgb(0xcb, 0xd5, 0xe1),     // Input border
-            accent_gold: Color32::from_rgb(0xd9, 0x77, 0x06),      // Amber-600 gold
-            accent_gold_soft: Color32::from_rgb(0xb4, 0x53, 0x09), // Amber-700
-            focus_teal: Color32::from_rgb(0x08, 0x91, 0xb2),       // Cyan-600
-            status_green: Color32::from_rgb(0x05, 0x96, 0x69),     // Emerald-600
-            text_muted: Color32::from_rgb(0x64, 0x74, 0x8b),       // Slate-500
-            error: Color32::from_rgb(0xdc, 0x26, 0x26),            // Red-600
-            motte_accent: Color32::from_rgb(0xe1, 0x1d, 0x48),     // Rose Motte
-            fort_accent: Color32::from_rgb(0xd9, 0x77, 0x06),      // Amber Fort
-            barb_accent: Color32::from_rgb(0x05, 0x96, 0x69),      // Emerald Barbarian
-            crystal_cyan: Color32::from_rgb(0x08, 0x91, 0xb2),     // Cyan Crystal
-            speedup_purple: Color32::from_rgb(0x93, 0x33, 0xea),   // Purple Speedups
+            primary: Color32::from_rgb(0xf1, 0xf5, 0xf9),          // Slate-100 button background
+            primary_pressed: Color32::from_rgb(0xe2, 0xe8, 0xf0),  // Slate-200 active button
+            brand_mark: Color32::from_rgb(0xbe, 0x12, 0x3c),       // Rose-700 vibrant brand (>5.5:1)
+            canvas_tint: Color32::from_rgb(0x0f, 0x17, 0x2a),      // Slate-900 crisp high-contrast text (>16:1)
+            hairline: Color32::from_rgb(0xe2, 0xe8, 0xf0),         // Slate-200 clean border
+            field_border: Color32::from_rgb(0xcb, 0xd5, 0xe1),     // Slate-300 input border
+            accent_gold: Color32::from_rgb(0xb4, 0x53, 0x09),      // Amber-700 rich gold (>5.2:1)
+            accent_gold_soft: Color32::from_rgb(0x92, 0x40, 0x0e), // Amber-800 deep amber
+            focus_teal: Color32::from_rgb(0x03, 0x69, 0xa1),       // Sky-700 deep cyan/teal (>6.2:1)
+            status_green: Color32::from_rgb(0x04, 0x78, 0x57),     // Emerald-700 crisp status (>5.1:1)
+            text_muted: Color32::from_rgb(0x47, 0x55, 0x69),       // Slate-600 readable secondary text (>7.5:1)
+            error: Color32::from_rgb(0xb9, 0x1c, 0x1c),            // Red-700 authoritative error (>6.1:1)
+            motte_accent: Color32::from_rgb(0xbe, 0x12, 0x3c),     // Rose-700 Motte (>5.5:1)
+            fort_accent: Color32::from_rgb(0xb4, 0x53, 0x09),      // Amber-700 Fort (>5.2:1)
+            barb_accent: Color32::from_rgb(0x04, 0x78, 0x57),      // Emerald-700 Barbarian (>5.1:1)
+            crystal_cyan: Color32::from_rgb(0x0e, 0x74, 0x90),     // Cyan-700 Crystal (>5.2:1)
+            speedup_purple: Color32::from_rgb(0x7e, 0x22, 0xce),   // Purple-700 Speedups (>5.6:1)
+            train_orange: Color32::from_rgb(0xc2, 0x41, 0x0c),     // Orange-700 Training (>5.8:1)
+            heal_blue: Color32::from_rgb(0x03, 0x69, 0xa1),        // Sky-700 Healing (>6.2:1)
+            log_bg: Color32::from_rgb(0xff, 0xff, 0xff),           // Pure white terminal card
+            mat_iron: Color32::from_rgb(0x47, 0x55, 0x69),         // Slate-600 Iron Ore (>7.5:1)
+            mat_ebony: Color32::from_rgb(0x04, 0x78, 0x57),        // Emerald-700 Ebony (>5.1:1)
+            mat_bone: Color32::from_rgb(0xbe, 0x18, 0x5d),         // Pink-700 Bone (>5.5:1)
+            rank_silver: Color32::from_rgb(0x47, 0x55, 0x69),      // Slate-600 Silver rank (>7.5:1)
+            rank_bronze: Color32::from_rgb(0x9a, 0x34, 0x12),      // Amber-800 Bronze rank (>6.0:1)
         }
     }
 }
@@ -129,6 +152,9 @@ pub enum ItemSortColumn {
     TotalQty,
     Converted,
     Battles,
+    DropRate,
+    AvgPerBattle,
+    MaxInBattle,
 }
 
 pub struct RoKLootWatcherApp {
@@ -139,6 +165,7 @@ pub struct RoKLootWatcherApp {
 
     pub theme: AppTheme,
     pub language: AppLanguage,
+    watcher_status: WatcherStatus,
     status_badge_text: String,
     status_badge_color: Color32,
 
@@ -168,6 +195,7 @@ pub struct RoKLootWatcherApp {
     pub autostart_minimized: bool,
     pending_start_minimized_frames: u32,
     is_armored: bool,
+    pending_armor_check: Option<std::sync::mpsc::Receiver<bool>>,
     _single_instance: Option<crate::single_instance::windows::SingleInstanceGuard>,
 }
 
@@ -189,7 +217,7 @@ fn render_sort_header_cell(
     let is_hovered = resp.hovered();
 
     if is_hovered {
-        ui.painter().rect_filled(rect, egui::Rounding::same(3.0), Color32::from_white_alpha(15));
+        ui.painter().rect_filled(rect, egui::Rounding::same(3.0), active_color.linear_multiply(0.12));
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
 
@@ -203,7 +231,7 @@ fn render_sort_header_cell(
     };
 
     let text = format!("{}{}", label, arrow);
-    let text_color = if is_active { active_color } else if is_hovered { Color32::WHITE } else { color };
+    let text_color = if is_active || is_hovered { active_color } else { color };
 
     let text_pos = match align {
         egui::Align::LEFT => egui::pos2(rect.min.x + 2.0, rect.center().y),
@@ -260,7 +288,7 @@ fn render_item_sort_header_cell(
     let is_hovered = resp.hovered();
 
     if is_hovered {
-        ui.painter().rect_filled(rect, egui::Rounding::same(3.0), Color32::from_white_alpha(15));
+        ui.painter().rect_filled(rect, egui::Rounding::same(3.0), active_color.linear_multiply(0.12));
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
 
@@ -274,7 +302,7 @@ fn render_item_sort_header_cell(
     };
 
     let text = format!("{}{}", label, arrow);
-    let text_color = if is_active { active_color } else if is_hovered { Color32::WHITE } else { color };
+    let text_color = if is_active || is_hovered { active_color } else { color };
 
     let text_pos = match align {
         egui::Align::LEFT => egui::pos2(rect.min.x + 2.0, rect.center().y),
@@ -311,6 +339,63 @@ fn render_item_sort_header_cell(
     resp.on_hover_text(tooltip);
 
     clicked
+}
+
+fn category_badge_color(category: &str, c: &ThemeColors) -> Color32 {
+    let lower = category.to_lowercase();
+    if lower.contains("nguyên") || lower.contains("resource") {
+        c.accent_gold
+    } else if lower.contains("vật liệu") || lower.contains("material") {
+        c.heal_blue
+    } else if lower.contains("tốc") || lower.contains("speed") {
+        c.speedup_purple
+    } else if lower.contains("pha lê") || lower.contains("crystal") {
+        c.crystal_cyan
+    } else if lower.contains("sách") || lower.contains("tên") || lower.contains("book") || lower.contains("arrow") {
+        c.brand_mark
+    } else if lower.contains("kinh nghiệm") || lower.contains("exp") {
+        c.status_green
+    } else {
+        c.focus_teal
+    }
+}
+
+pub fn resolve_status_badge(
+    status: &WatcherStatus,
+    is_watching: bool,
+    language: AppLanguage,
+    c: &ThemeColors,
+) -> (String, Color32) {
+    match status {
+        WatcherStatus::Scanning(_) => (
+            match language {
+                AppLanguage::Vietnamese => "● Đang quét...".to_string(),
+                AppLanguage::English => "● Scanning...".to_string(),
+            },
+            c.accent_gold,
+        ),
+        WatcherStatus::Error(_) => (
+            format!("● {}", language.t(TrKey::StatusError)),
+            c.error,
+        ),
+        WatcherStatus::Stopped(_) => (
+            format!("● {}", language.t(TrKey::StatusPaused)),
+            c.text_muted,
+        ),
+        WatcherStatus::Running(_) => {
+            if !is_watching {
+                (
+                    format!("● {}", language.t(TrKey::StatusPaused)),
+                    c.text_muted,
+                )
+            } else {
+                (
+                    format!("● {}", language.t(TrKey::StatusWatching)),
+                    c.status_green,
+                )
+            }
+        }
+    }
 }
 
 impl RoKLootWatcherApp {
@@ -418,7 +503,16 @@ impl RoKLootWatcherApp {
         let initial_close_behavior = config.close_behavior;
         let initial_theme = config.theme;
         let initial_language = config.language;
-        let is_armored = crate::armor::is_mailcache_armored(&watcher.get_mail_dir());
+
+        // Kiểm tra quyền khóa ghi mailcache ở luồng nền để tránh block main thread (icacls) khi khởi động
+        let (armor_tx, armor_rx) = std::sync::mpsc::channel();
+        let mail_dir_clone = watcher.get_mail_dir();
+        let _ = std::thread::Builder::new()
+            .name("rok-armor-check".into())
+            .spawn(move || {
+                let armored = crate::armor::is_mailcache_armored(&mail_dir_clone);
+                let _ = armor_tx.send(armored);
+            });
 
         if let Some(ref tray_mgr) = tray {
             tray_mgr.setup_event_handlers(cc.egui_ctx.clone(), Arc::clone(&watcher));
@@ -445,12 +539,15 @@ impl RoKLootWatcherApp {
             let _ = crate::autostart::set_autostart(initial_autostart, initial_autostart_minimized);
         }
 
+        watcher.set_language(initial_language);
+
         if start_minimized {
             crate::tray::hide_main_window();
-            watcher.log(
-                "INFO",
-                "Ứng dụng đã tự động khởi chạy và thu nhỏ xuống Khay hệ thống (System Tray).",
-            );
+            let min_msg = match initial_language {
+                AppLanguage::Vietnamese => "Ứng dụng đã tự động khởi chạy và thu nhỏ xuống Khay hệ thống (System Tray).",
+                AppLanguage::English => "Application launched and minimized to System Tray.",
+            };
+            watcher.log("INFO", min_msg);
         }
 
         let theme_colors = match initial_theme {
@@ -465,7 +562,11 @@ impl RoKLootWatcherApp {
 
             theme: initial_theme,
             language: initial_language,
-            status_badge_text: "● Đang theo dõi".into(),
+            watcher_status: WatcherStatus::Running(String::new()),
+            status_badge_text: match initial_language {
+                AppLanguage::Vietnamese => "● Đang theo dõi".into(),
+                AppLanguage::English => "● Watching".into(),
+            },
             status_badge_color: theme_colors.status_green,
 
             mail_path_input: initial_path,
@@ -493,7 +594,8 @@ impl RoKLootWatcherApp {
             autostart: initial_autostart,
             autostart_minimized: initial_autostart_minimized,
             pending_start_minimized_frames: if start_minimized { 5 } else { 0 },
-            is_armored,
+            is_armored: false,
+            pending_armor_check: Some(armor_rx),
             _single_instance: single_instance,
         }
     }
@@ -513,6 +615,7 @@ impl RoKLootWatcherApp {
     }
 
     pub fn quit_app(&self) {
+        self.watcher.flush_vault_if_dirty();
         self.watcher.stop();
         if let Some(ref t) = self.tray {
             t.hide_icon();
@@ -523,10 +626,11 @@ impl RoKLootWatcherApp {
     fn hide_to_tray(&self, ctx: &egui::Context) {
         ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
         crate::tray::hide_main_window();
-        self.watcher.log(
-            "INFO",
-            "Ứng dụng đã thu nhỏ xuống Khay hệ thống (System Tray). Nhấp vào biểu tượng ở khay để mở lại bất cứ lúc nào.",
-        );
+        let msg = match self.language {
+            AppLanguage::Vietnamese => "Ứng dụng đã thu nhỏ xuống Khay hệ thống (System Tray). Nhấp vào biểu tượng ở khay để mở lại bất cứ lúc nào.",
+            AppLanguage::English => "Application minimized to System Tray. Click the tray icon to restore at any time.",
+        };
+        self.watcher.log("INFO", msg);
     }
 
     fn poll_watcher_events(&mut self, ctx: &egui::Context) -> bool {
@@ -541,28 +645,43 @@ impl RoKLootWatcherApp {
                         self.console_logs.pop_front();
                     }
                 }
-                WatcherUiEvent::StatusChanged(status) => match status {
-                    WatcherStatus::Running(_text) => {
-                        self.status_badge_text = "● Đang theo dõi".into();
-                        self.status_badge_color = c.status_green;
-                        ctx.request_repaint();
+                WatcherUiEvent::StatusChanged(status) => {
+                    self.watcher_status = status.clone();
+                    match status {
+                        WatcherStatus::Running(_text) => {
+                            self.status_badge_text = match self.language {
+                                AppLanguage::Vietnamese => "● Đang theo dõi".into(),
+                                AppLanguage::English => "● Watching".into(),
+                            };
+                            self.status_badge_color = c.status_green;
+                            ctx.request_repaint();
+                        }
+                        WatcherStatus::Scanning(_text) => {
+                            self.status_badge_text = match self.language {
+                                AppLanguage::Vietnamese => "● Đang quét...".into(),
+                                AppLanguage::English => "● Scanning...".into(),
+                            };
+                            self.status_badge_color = c.accent_gold;
+                            ctx.request_repaint();
+                        }
+                        WatcherStatus::Stopped(_text) => {
+                            self.status_badge_text = match self.language {
+                                AppLanguage::Vietnamese => "● Đã tạm dừng".into(),
+                                AppLanguage::English => "● Paused".into(),
+                            };
+                            self.status_badge_color = c.text_muted;
+                            ctx.request_repaint();
+                        }
+                        WatcherStatus::Error(_text) => {
+                            self.status_badge_text = match self.language {
+                                AppLanguage::Vietnamese => "● Lỗi watcher".into(),
+                                AppLanguage::English => "● Watcher error".into(),
+                            };
+                            self.status_badge_color = c.error;
+                            ctx.request_repaint();
+                        }
                     }
-                    WatcherStatus::Scanning(_text) => {
-                        self.status_badge_text = "● Đang quét...".into();
-                        self.status_badge_color = c.accent_gold;
-                        ctx.request_repaint();
-                    }
-                    WatcherStatus::Stopped(_text) => {
-                        self.status_badge_text = "● Đã tạm dừng".into();
-                        self.status_badge_color = c.text_muted;
-                        ctx.request_repaint();
-                    }
-                    WatcherStatus::Error(_text) => {
-                        self.status_badge_text = "● Lỗi watcher".into();
-                        self.status_badge_color = c.error;
-                        ctx.request_repaint();
-                    }
-                },
+                }
                 WatcherUiEvent::StatsUpdated { .. } => {
                     ctx.request_repaint();
                 }
@@ -590,27 +709,23 @@ impl RoKLootWatcherApp {
                 self.watcher.set_date_filter(None, None, None);
             }
             DateFilterPreset::Today => {
-                self.watcher.set_date_filter(Some(today_vn), Some(today_vn), None);
+                self.watcher.set_date_filter(None, None, Some(1));
             }
             DateFilterPreset::Yesterday => {
                 let yest_vn = today_vn - chrono::Duration::try_days(1).unwrap_or_else(|| chrono::Duration::days(1));
                 self.watcher.set_date_filter(Some(yest_vn), Some(yest_vn), None);
             }
             DateFilterPreset::Last3Days => {
-                let start = today_vn - chrono::Duration::try_days(2).unwrap_or_else(|| chrono::Duration::days(2));
-                self.watcher.set_date_filter(Some(start), Some(today_vn), None);
+                self.watcher.set_date_filter(None, None, Some(3));
             }
             DateFilterPreset::Last7Days => {
-                let start = today_vn - chrono::Duration::try_days(6).unwrap_or_else(|| chrono::Duration::days(6));
-                self.watcher.set_date_filter(Some(start), Some(today_vn), None);
+                self.watcher.set_date_filter(None, None, Some(7));
             }
             DateFilterPreset::Last14Days => {
-                let start = today_vn - chrono::Duration::try_days(13).unwrap_or_else(|| chrono::Duration::days(13));
-                self.watcher.set_date_filter(Some(start), Some(today_vn), None);
+                self.watcher.set_date_filter(None, None, Some(14));
             }
             DateFilterPreset::Last30Days => {
-                let start = today_vn - chrono::Duration::try_days(29).unwrap_or_else(|| chrono::Duration::days(29));
-                self.watcher.set_date_filter(Some(start), Some(today_vn), None);
+                self.watcher.set_date_filter(None, None, Some(30));
             }
             DateFilterPreset::Custom => {
                 if self.date_from_input.is_empty() {
@@ -633,7 +748,6 @@ impl RoKLootWatcherApp {
     }
 }
 
-
 impl RoKLootWatcherApp {
     fn export_active_csv(&self) {
         if let Some(path) = rfd::FileDialog::new()
@@ -644,9 +758,17 @@ impl RoKLootWatcherApp {
             let records = self.watcher.get_active_records();
             let w = crate::exporters::generate_csv(&records, self.language);
             if let Err(e) = std::fs::write(&path, w) {
-                self.watcher.log("ERROR", &format!("Không thể lưu file CSV: {}", e));
+                let err_msg = match self.language {
+                    AppLanguage::Vietnamese => format!("Không thể lưu file CSV: {}", e),
+                    AppLanguage::English => format!("Failed to save CSV file: {}", e),
+                };
+                self.watcher.log("ERROR", &err_msg);
             } else {
-                self.watcher.log("SUCCESS", &format!("Đã xuất {} trận đánh ra file CSV: {}", records.len(), path.display()));
+                let ok_msg = match self.language {
+                    AppLanguage::Vietnamese => format!("Đã xuất {} trận đánh ra file CSV: {}", records.len(), path.display()),
+                    AppLanguage::English => format!("Exported {} battle records to CSV: {}", records.len(), path.display()),
+                };
+                self.watcher.log("SUCCESS", &ok_msg);
             }
         }
     }
@@ -660,9 +782,17 @@ impl RoKLootWatcherApp {
             let records = self.watcher.get_active_records();
             let stats = self.watcher.get_stats();
             if let Err(e) = crate::exporters::export_json(&records, &stats, &path) {
-                self.watcher.log("ERROR", &format!("Không thể lưu file JSON: {}", e));
+                let err_msg = match self.language {
+                    AppLanguage::Vietnamese => format!("Không thể lưu file JSON: {}", e),
+                    AppLanguage::English => format!("Failed to save JSON file: {}", e),
+                };
+                self.watcher.log("ERROR", &err_msg);
             } else {
-                self.watcher.log("SUCCESS", &format!("Đã xuất {} trận đánh ra file JSON: {}", records.len(), path.display()));
+                let ok_msg = match self.language {
+                    AppLanguage::Vietnamese => format!("Đã xuất {} trận đánh ra file JSON: {}", records.len(), path.display()),
+                    AppLanguage::English => format!("Exported {} battle records to JSON: {}", records.len(), path.display()),
+                };
+                self.watcher.log("SUCCESS", &ok_msg);
             }
         }
     }
@@ -751,7 +881,7 @@ impl RoKLootWatcherApp {
                 egui::Align2::LEFT_CENTER,
                 desc,
                 egui::FontId::proportional(9.5),
-                c.text_muted.linear_multiply(0.85),
+                c.text_muted,
             );
 
             if resp.clicked() {
@@ -761,78 +891,166 @@ impl RoKLootWatcherApp {
             ui.add_space(4.0);
         }
 
-        // 3. Bottom Widget: Watcher Status & Utility Controls
+        // 3. Bottom Widget: Watcher Status & Unified Control Dock
         ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
             ui.add_space(4.0);
 
-            // Utility buttons row
-            ui.horizontal(|ui| {
-                let theme_label = if self.theme == AppTheme::Dark {
-                    self.language.t(TrKey::ThemeToggleLight)
-                } else {
-                    self.language.t(TrKey::ThemeToggleDark)
-                };
-                if ui.button(theme_label).on_hover_text(self.language.t(TrKey::ThemeToggleTooltip)).clicked() {
-                    self.theme = self.theme.toggle();
-                    self.save_config();
-                }
-
-                if ui.button(self.language.t(TrKey::TrayMinimize)).on_hover_text(self.language.t(TrKey::TrayMinimizeTooltip)).clicked() {
-                    self.hide_to_tray(ctx);
-                }
-            });
-
-            ui.add_space(8.0);
-
-            // Mini Watcher Status Card
+            // Elevated Control Dock Card
             egui::Frame::none()
-                .fill(c.ink)
-                .rounding(Rounding::same(6.0))
+                .fill(c.card_surface)
+                .rounding(Rounding::same(8.0))
                 .stroke(Stroke::new(1.0_f32, c.hairline))
-                .inner_margin(Margin::same(10.0))
+                .inner_margin(Margin::same(8.0))
                 .show(ui, |ui| {
-                    let badge_text = if self.status_badge_color == c.status_green {
-                        format!("● {}", self.language.t(TrKey::StatusWatching))
-                    } else if self.status_badge_color == c.error {
-                        format!("● {}", self.language.t(TrKey::StatusError))
-                    } else if self.status_badge_color == c.accent_gold {
-                        match self.language {
-                            AppLanguage::Vietnamese => "● Đang quét...".to_string(),
-                            AppLanguage::English => "● Scanning...".to_string(),
-                        }
-                    } else {
-                        format!("● {}", self.language.t(TrKey::StatusPaused))
-                    };
-                    ui.horizontal(|ui| {
-                        ui.label(
-                            egui::RichText::new(badge_text)
-                                .font(egui::FontId::proportional(11.5))
-                                .strong()
-                                .color(self.status_badge_color),
-                        );
-                    });
-
-                    ui.add_space(2.0);
-                    let vault_count = self.watcher.get_vault_total_count();
-                    let vault_txt = self.language.t(TrKey::StatusVaultCount).replace("{}", &format_num(vault_count));
-                    ui.label(
-                        egui::RichText::new(vault_txt)
-                            .font(egui::FontId::proportional(10.0))
-                            .color(c.text_muted),
+                    let (badge_text, badge_color) = resolve_status_badge(
+                        &self.watcher_status,
+                        self.watcher.is_watching(),
+                        self.language,
+                        &c,
                     );
 
-                    ui.add_space(6.0);
+                    let vault_count = self.watcher.get_vault_total_count();
+                    let vault_txt = self.language.t(TrKey::StatusVaultCount).replace("{}", &format_num(vault_count));
+
+                    // Header row: Live status badge (left) & Vault counter (right)
                     ui.horizontal(|ui| {
-                        if ui.button(self.language.t(TrKey::BtnScan)).on_hover_text(self.language.t(TrKey::BtnScanTooltip)).clicked() {
+                        ui.label(
+                            egui::RichText::new(&badge_text)
+                                .font(egui::FontId::proportional(10.5))
+                                .strong()
+                                .color(badge_color),
+                        );
+
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            egui::Frame::none()
+                                .fill(c.primary)
+                                .rounding(Rounding::same(4.0))
+                                .inner_margin(Margin::symmetric(5.0, 1.5))
+                                .show(ui, |ui| {
+                                    ui.label(
+                                        egui::RichText::new(format_num(vault_count))
+                                            .font(egui::FontId::proportional(10.0))
+                                            .strong()
+                                            .color(c.canvas_tint),
+                                    );
+                                })
+                                .response
+                                .on_hover_text(&vault_txt);
+                        });
+                    });
+
+                    ui.add_space(6.0);
+
+                    // 2x2 Control Grid
+                    let col_gap = 4.0;
+                    let btn_w = ((ui.available_width() - col_gap) / 2.0).max(40.0);
+                    let btn_h = 26.0;
+
+                    // Row 1: Scan & Pause/Resume
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = col_gap;
+
+                        let scan_btn = egui::Button::new(
+                            egui::RichText::new(format!("🔄 {}", self.language.t(TrKey::BtnScan)))
+                                .font(egui::FontId::proportional(11.0))
+                                .color(c.canvas_tint),
+                        )
+                        .fill(c.primary)
+                        .stroke(Stroke::new(1.0_f32, c.hairline))
+                        .rounding(Rounding::same(5.0));
+
+                        if ui.add_sized([btn_w, btn_h], scan_btn)
+                            .on_hover_text(self.language.t(TrKey::BtnScanTooltip))
+                            .clicked()
+                        {
                             self.watcher.rescan();
                         }
-                        let toggle_txt = if self.watcher.is_watching() {
-                            self.language.t(TrKey::BtnPause)
+
+                        let is_watching = self.watcher.is_watching();
+                        let (pause_icon, pause_text, pause_color) = if is_watching {
+                            ("⏸", self.language.t(TrKey::BtnPause), c.canvas_tint)
                         } else {
-                            self.language.t(TrKey::BtnResume)
+                            ("▶", self.language.t(TrKey::BtnResume), c.accent_gold)
                         };
-                        if ui.button(toggle_txt).clicked() {
+
+                        let pause_btn = egui::Button::new(
+                            egui::RichText::new(format!("{} {}", pause_icon, pause_text))
+                                .font(egui::FontId::proportional(11.0))
+                                .strong()
+                                .color(pause_color),
+                        )
+                        .fill(c.primary)
+                        .stroke(Stroke::new(1.0_f32, c.hairline))
+                        .rounding(Rounding::same(5.0));
+
+                        let pause_tooltip = if is_watching {
+                            match self.language {
+                                AppLanguage::Vietnamese => "Tạm dừng tự động quét mail",
+                                AppLanguage::English => "Pause automatic mail watching",
+                            }
+                        } else {
+                            match self.language {
+                                AppLanguage::Vietnamese => "Tiếp tục tự động quét mail",
+                                AppLanguage::English => "Resume automatic mail watching",
+                            }
+                        };
+
+                        if ui.add_sized([btn_w, btn_h], pause_btn)
+                            .on_hover_text(pause_tooltip)
+                            .clicked()
+                        {
                             self.toggle_watcher();
+                            if self.watcher.is_watching() {
+                                self.watcher_status = WatcherStatus::Running(String::new());
+                            } else {
+                                self.watcher_status = WatcherStatus::Stopped(String::new());
+                            }
+                        }
+                    });
+
+                    ui.add_space(4.0);
+
+                    // Row 2: Light/Dark Theme & Minimize to Tray
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = col_gap;
+
+                        let (theme_icon, theme_text) = if self.theme == AppTheme::Dark {
+                            ("☀", self.language.t(TrKey::ThemeToggleLight))
+                        } else {
+                            ("🌙", self.language.t(TrKey::ThemeToggleDark))
+                        };
+
+                        let theme_btn = egui::Button::new(
+                            egui::RichText::new(format!("{} {}", theme_icon, theme_text))
+                                .font(egui::FontId::proportional(11.0))
+                                .color(c.canvas_tint),
+                        )
+                        .fill(c.primary)
+                        .stroke(Stroke::new(1.0_f32, c.hairline))
+                        .rounding(Rounding::same(5.0));
+
+                        if ui.add_sized([btn_w, btn_h], theme_btn)
+                            .on_hover_text(self.language.t(TrKey::ThemeToggleTooltip))
+                            .clicked()
+                        {
+                            self.theme = self.theme.toggle();
+                            self.save_config();
+                        }
+
+                        let tray_btn = egui::Button::new(
+                            egui::RichText::new(format!("📥 {}", self.language.t(TrKey::TrayMinimize)))
+                                .font(egui::FontId::proportional(11.0))
+                                .color(c.canvas_tint),
+                        )
+                        .fill(c.primary)
+                        .stroke(Stroke::new(1.0_f32, c.hairline))
+                        .rounding(Rounding::same(5.0));
+
+                        if ui.add_sized([btn_w, btn_h], tray_btn)
+                            .on_hover_text(self.language.t(TrKey::TrayMinimizeTooltip))
+                            .clicked()
+                        {
+                            self.hide_to_tray(ctx);
                         }
                     });
                 });
@@ -1046,7 +1264,7 @@ impl RoKLootWatcherApp {
                 ),
                 (
                     self.language.t(TrKey::CardTotalResources),
-                    format_in_millions_vietnamese(res.total_rss_val()),
+                    format_in_millions(res.total_rss_val(), self.language),
                     self.language.t(TrKey::CardRssBreakdown).replace("{:.2}", &format!("{:.2}", res.total_rss_val() as f64 / 1_000_000.0)),
                     c.accent_gold,
                 ),
@@ -1180,37 +1398,160 @@ impl RoKLootWatcherApp {
                         let top_items: Vec<_> = sorted_items.into_iter().take(10).collect();
                         let max_qty = top_items.first().map(|it| it.total_quantity).unwrap_or(1).max(1);
 
-                        egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
+                        egui::ScrollArea::vertical().max_height(350.0).show(ui, |ui| {
                             if top_items.is_empty() {
                                 ui.label(egui::RichText::new(self.language.t(TrKey::NoItemsData)).color(c.text_muted));
                             } else {
                                 for (idx, it) in top_items.iter().enumerate() {
-                                    ui.horizontal(|ui| {
-                                        let rank_color = match idx {
-                                            0 => c.accent_gold,
-                                            1 => Color32::from_rgb(0xc0, 0xc0, 0xc0),
-                                            2 => Color32::from_rgb(0xcd, 0x7f, 0x32),
-                                            _ => c.text_muted,
-                                        };
-                                        ui.label(egui::RichText::new(format!("#{}", idx + 1)).strong().color(rank_color).monospace());
-                                        ui.label(egui::RichText::new(it.display_name(self.language)).strong().color(c.canvas_tint));
+                                    let mut type_breakdown: Vec<(&String, &i64)> = it.by_battle_type.iter().filter(|(_, q)| **q > 0).collect();
+                                    type_breakdown.sort_by(|a, b| b.1.cmp(a.1));
 
-                                        if let Some(conv_str) = get_item_converted_display(it.itype, it.sub_type, it.total_quantity) {
-                                            ui.label(egui::RichText::new(format!("({})", conv_str)).font(egui::FontId::proportional(10.5)).color(c.status_green));
+                                    let item_resp = ui.vertical(|ui| {
+                                        ui.horizontal(|ui| {
+                                            let rank_color = match idx {
+                                                0 => c.accent_gold,
+                                                1 => c.rank_silver,
+                                                2 => c.rank_bronze,
+                                                _ => c.text_muted,
+                                            };
+                                            ui.label(egui::RichText::new(format!("#{}", idx + 1)).strong().color(rank_color).monospace());
+                                            ui.label(egui::RichText::new(it.display_name(self.language)).strong().color(c.canvas_tint));
+
+                                            if let Some(conv_str) = get_item_converted_display_for_lang(it.itype, it.sub_type, it.total_quantity, self.language) {
+                                                ui.label(egui::RichText::new(format!("({})", conv_str)).font(egui::FontId::proportional(10.5)).color(c.status_green));
+                                            }
+
+                                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                                ui.label(egui::RichText::new(format_num(it.total_quantity)).monospace().strong().color(c.accent_gold));
+                                            });
+                                        });
+
+                                        ui.add_space(2.0);
+
+                                        // Segmented progress bar showing source distribution
+                                        let pct = (it.total_quantity as f32 / max_qty as f32).clamp(0.04, 1.0);
+                                        let bar_height = 6.0;
+                                        let (bar_rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), bar_height), egui::Sense::hover());
+                                        ui.painter().rect_filled(bar_rect, Rounding::same(3.0), c.primary);
+
+                                        let total_bar_w = (bar_rect.width() * pct).max(bar_height);
+
+                                        if type_breakdown.is_empty() {
+                                            let filled_r = egui::Rect::from_min_size(bar_rect.min, egui::vec2(total_bar_w, bar_height));
+                                            ui.painter().rect_filled(filled_r, Rounding::same(3.0), c.focus_teal);
+                                        } else if type_breakdown.len() == 1 {
+                                            let (btype, _) = type_breakdown[0];
+                                            let color = match btype.as_str() {
+                                                "motte" => c.motte_accent,
+                                                "fort" => c.fort_accent,
+                                                "barbarian" => c.barb_accent,
+                                                "gathering" => c.focus_teal,
+                                                _ => c.focus_teal,
+                                            };
+                                            let filled_r = egui::Rect::from_min_size(bar_rect.min, egui::vec2(total_bar_w, bar_height));
+                                            ui.painter().rect_filled(filled_r, Rounding::same(3.0), color);
+                                        } else {
+                                            let mut cur_x = bar_rect.min.x;
+                                            let total_val = it.total_quantity.max(1) as f32;
+                                            let count = type_breakdown.len();
+
+                                            for (i, (btype, qty)) in type_breakdown.iter().enumerate() {
+                                                let seg_ratio = (**qty as f32) / total_val;
+                                                let seg_w = (total_bar_w * seg_ratio).max(1.0);
+                                                let color = match btype.as_str() {
+                                                    "motte" => c.motte_accent,
+                                                    "fort" => c.fort_accent,
+                                                    "barbarian" => c.barb_accent,
+                                                    "gathering" => c.focus_teal,
+                                                    _ => c.focus_teal,
+                                                };
+
+                                                let seg_rect = egui::Rect::from_min_max(
+                                                    egui::pos2(cur_x, bar_rect.min.y),
+                                                    egui::pos2((cur_x + seg_w).min(bar_rect.min.x + total_bar_w), bar_rect.max.y),
+                                                );
+
+                                                let rounding = if i == 0 {
+                                                    Rounding { nw: 3.0, sw: 3.0, ne: 0.0, se: 0.0 }
+                                                } else if i == count - 1 {
+                                                    Rounding { nw: 0.0, sw: 0.0, ne: 3.0, se: 3.0 }
+                                                } else {
+                                                    Rounding::ZERO
+                                                };
+
+                                                ui.painter().rect_filled(seg_rect, rounding, color);
+                                                cur_x += seg_w;
+                                                if cur_x >= bar_rect.min.x + total_bar_w {
+                                                    break;
+                                                }
+                                            }
                                         }
 
-                                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                            ui.label(egui::RichText::new(format_num(it.total_quantity)).monospace().strong().color(c.accent_gold));
-                                        });
+                                        // Micro distribution breakdown badges under bar
+                                        if !type_breakdown.is_empty() {
+                                            ui.add_space(2.0);
+                                            ui.horizontal(|ui| {
+                                                ui.spacing_mut().item_spacing.x = 8.0;
+                                                let total_f = it.total_quantity.max(1) as f64;
+                                                for (btype, qty) in type_breakdown.iter().take(3) {
+                                                    let ratio = (**qty as f64 / total_f) * 100.0;
+                                                    let (type_name, color) = match (btype.as_str(), self.language) {
+                                                        ("motte", _) => ("Motte", c.motte_accent),
+                                                        ("barbarian", AppLanguage::Vietnamese) => ("Dã Man", c.barb_accent),
+                                                        ("barbarian", AppLanguage::English) => ("Barbarian", c.barb_accent),
+                                                        ("fort", AppLanguage::Vietnamese) => ("Pháo Đài", c.fort_accent),
+                                                        ("fort", AppLanguage::English) => ("Fort", c.fort_accent),
+                                                        ("gathering", AppLanguage::Vietnamese) => ("Thu Thập", c.focus_teal),
+                                                        ("gathering", AppLanguage::English) => ("Gathering", c.focus_teal),
+                                                        _ => (match self.language { AppLanguage::Vietnamese => "Khác", AppLanguage::English => "Other" }, c.text_muted),
+                                                    };
+
+                                                    ui.label(egui::RichText::new("●").font(egui::FontId::proportional(8.0)).color(color));
+                                                    ui.label(
+                                                        egui::RichText::new(format!("{}: {:.0}%", type_name, ratio))
+                                                            .font(egui::FontId::proportional(10.5))
+                                                            .color(c.text_muted),
+                                                    );
+                                                }
+                                            });
+                                        }
+
+                                        ui.add_space(6.0);
+                                    }).response;
+
+                                    item_resp.on_hover_ui(|ui| {
+                                        ui.set_max_width(280.0);
+                                        ui.label(egui::RichText::new(it.display_name(self.language)).strong().color(c.canvas_tint));
+                                        let total_lbl = match self.language {
+                                            AppLanguage::Vietnamese => format!("Tổng cộng: {} (100%)", format_num(it.total_quantity)),
+                                            AppLanguage::English => format!("Total: {} (100%)", format_num(it.total_quantity)),
+                                        };
+                                        ui.label(egui::RichText::new(total_lbl).font(egui::FontId::proportional(11.0)).color(c.accent_gold));
+                                        ui.separator();
+
+                                        let total_f = it.total_quantity.max(1) as f64;
+                                        for (btype, qty) in &type_breakdown {
+                                            let ratio = (**qty as f64 / total_f) * 100.0;
+                                            let (type_name, color) = match (btype.as_str(), self.language) {
+                                                ("motte", _) => ("Motte", c.motte_accent),
+                                                ("barbarian", AppLanguage::Vietnamese) => ("Dã Man", c.barb_accent),
+                                                ("barbarian", AppLanguage::English) => ("Barbarian", c.barb_accent),
+                                                ("fort", AppLanguage::Vietnamese) => ("Pháo Đài", c.fort_accent),
+                                                ("fort", AppLanguage::English) => ("Fort", c.fort_accent),
+                                                ("gathering", AppLanguage::Vietnamese) => ("Thu Thập", c.focus_teal),
+                                                ("gathering", AppLanguage::English) => ("Gathering", c.focus_teal),
+                                                _ => (match self.language { AppLanguage::Vietnamese => "Khác", AppLanguage::English => "Other" }, c.text_muted),
+                                            };
+
+                                            ui.horizontal(|ui| {
+                                                ui.label(egui::RichText::new("●").color(color));
+                                                ui.label(egui::RichText::new(type_name).strong().color(c.canvas_tint));
+                                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                                    ui.label(egui::RichText::new(format!("{} ({:.1}%)", format_num(**qty), ratio)).monospace().color(color));
+                                                });
+                                            });
+                                        }
                                     });
-
-                                    let pct = (it.total_quantity as f32 / max_qty as f32).clamp(0.02, 1.0);
-                                    let (r, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 4.0), egui::Sense::hover());
-                                    ui.painter().rect_filled(r, Rounding::same(2.0), c.primary);
-                                    let filled_r = egui::Rect::from_min_size(r.min, egui::vec2(r.width() * pct, 4.0));
-                                    ui.painter().rect_filled(filled_r, Rounding::same(2.0), c.focus_teal);
-
-                                    ui.add_space(4.0);
                                 }
                             }
                         });
@@ -1511,10 +1852,9 @@ impl RoKLootWatcherApp {
                     if render_sort_header_cell(ui, self.language.t(TrKey::ColTarget), BattleSortColumn::Target, self.battle_sort_col, self.battle_sort_dir, col_target, egui::Align::Center, c.text_muted, c.focus_teal, self.language) {
                         toggle_sort_col = Some(BattleSortColumn::Target);
                     }
-                    if !is_gathering {
-                        if render_sort_header_cell(ui, self.language.t(TrKey::ColDamage), BattleSortColumn::Damage, self.battle_sort_col, self.battle_sort_dir, COL_DMG + extra_per_column, egui::Align::Center, c.text_muted, c.focus_teal, self.language) {
-                            toggle_sort_col = Some(BattleSortColumn::Damage);
-                        }
+                    if !is_gathering
+                        && render_sort_header_cell(ui, self.language.t(TrKey::ColDamage), BattleSortColumn::Damage, self.battle_sort_col, self.battle_sort_dir, COL_DMG + extra_per_column, egui::Align::Center, c.text_muted, c.focus_teal, self.language) {
+                        toggle_sort_col = Some(BattleSortColumn::Damage);
                     }
 
                     if is_gathering {
@@ -1543,10 +1883,10 @@ impl RoKLootWatcherApp {
                         if render_sort_header_cell(ui, self.language.t(TrKey::ColUnivSpd), BattleSortColumn::UnivSpeedup, self.battle_sort_col, self.battle_sort_dir, COL_BARB_UNIV + extra_per_column, egui::Align::Center, c.status_green, c.focus_teal, self.language) {
                             toggle_sort_col = Some(BattleSortColumn::UnivSpeedup);
                         }
-                        if render_sort_header_cell(ui, self.language.t(TrKey::ColTrainSpd), BattleSortColumn::TrainSpeedup, self.battle_sort_col, self.battle_sort_dir, COL_BARB_TRAIN + extra_per_column, egui::Align::Center, Color32::from_rgb(0xfb, 0x92, 0x3c), c.focus_teal, self.language) {
+                        if render_sort_header_cell(ui, self.language.t(TrKey::ColTrainSpd), BattleSortColumn::TrainSpeedup, self.battle_sort_col, self.battle_sort_dir, COL_BARB_TRAIN + extra_per_column, egui::Align::Center, c.train_orange, c.focus_teal, self.language) {
                             toggle_sort_col = Some(BattleSortColumn::TrainSpeedup);
                         }
-                        if render_sort_header_cell(ui, self.language.t(TrKey::ColHealSpd), BattleSortColumn::HealSpeedup, self.battle_sort_col, self.battle_sort_dir, COL_BARB_HEAL + extra_per_column, egui::Align::Center, Color32::from_rgb(0x38, 0xbd, 0xf8), c.focus_teal, self.language) {
+                        if render_sort_header_cell(ui, self.language.t(TrKey::ColHealSpd), BattleSortColumn::HealSpeedup, self.battle_sort_col, self.battle_sort_dir, COL_BARB_HEAL + extra_per_column, egui::Align::Center, c.heal_blue, c.focus_teal, self.language) {
                             toggle_sort_col = Some(BattleSortColumn::HealSpeedup);
                         }
                         if render_sort_header_cell(ui, self.language.t(TrKey::ColArrow), BattleSortColumn::Arrow, self.battle_sort_col, self.battle_sort_dir, COL_BARB_ARROW + extra_per_column, egui::Align::Center, c.text_muted, c.focus_teal, self.language) {
@@ -1568,7 +1908,7 @@ impl RoKLootWatcherApp {
                         if render_sort_header_cell(ui, self.language.t(TrKey::ColUnivSpd), BattleSortColumn::UnivSpeedup, self.battle_sort_col, self.battle_sort_dir, COL_UNIV_SPD + extra_per_column, egui::Align::Center, c.status_green, c.focus_teal, self.language) {
                             toggle_sort_col = Some(BattleSortColumn::UnivSpeedup);
                         }
-                        if render_sort_header_cell(ui, self.language.t(TrKey::ColHealSpd), BattleSortColumn::HealSpeedup, self.battle_sort_col, self.battle_sort_dir, COL_HEAL_SPD + extra_per_column, egui::Align::Center, Color32::from_rgb(0x38, 0xbd, 0xf8), c.focus_teal, self.language) {
+                        if render_sort_header_cell(ui, self.language.t(TrKey::ColHealSpd), BattleSortColumn::HealSpeedup, self.battle_sort_col, self.battle_sort_dir, COL_HEAL_SPD + extra_per_column, egui::Align::Center, c.heal_blue, c.focus_teal, self.language) {
                             toggle_sort_col = Some(BattleSortColumn::HealSpeedup);
                         }
                     }
@@ -1645,8 +1985,10 @@ impl RoKLootWatcherApp {
                 if search_lower.is_empty() {
                     true
                 } else {
-                    let hay = format!("{} {} {} {}", r.target, r.display_target(cur_lang), r.time_vn, r.battle_type).to_lowercase();
-                    hay.contains(&search_lower)
+                    r.battle_type.contains(&search_lower)
+                        || r.time_vn.contains(&search_lower)
+                        || r.target.to_lowercase().contains(&search_lower)
+                        || r.display_target(cur_lang).to_lowercase().contains(&search_lower)
                 }
             })
             .collect();
@@ -1698,12 +2040,14 @@ impl RoKLootWatcherApp {
         }
 
         let mut clicked_record = None;
+        let row_height = 30.0;
 
         egui::ScrollArea::both()
             .auto_shrink([false, false])
-            .show(ui, |ui| {
+            .show_rows(ui, row_height, sorted_records.len(), |ui, row_range| {
                 ui.set_width(dimensions.table_width);
-                for r in sorted_records {
+                for idx in row_range {
+                    let r = sorted_records[idx];
                     let (row_rect, row_resp) = ui.allocate_exact_size(
                         egui::vec2(dimensions.table_width, 28.0),
                         egui::Sense::click(),
@@ -1789,23 +2133,23 @@ impl RoKLootWatcherApp {
 
                                 let res_breakdown = r.total_resources_breakdown();
                                 let res_val = res_breakdown.total_rss_val();
-                                let res_str = format_in_millions_vietnamese(res_val);
+                                let res_str = format_in_millions(res_val, self.language);
                                 ui.add_sized([COL_BARB_RES + extra_per_column, 24.0], egui::Label::new(egui::RichText::new(res_str).monospace().color(c.accent_gold).strong()).halign(egui::Align::Center));
 
                                 let exp_val = r.total_exp_value();
-                                ui.add_sized([COL_BARB_EXP + extra_per_column, 24.0], egui::Label::new(egui::RichText::new(format_in_millions_vietnamese(exp_val)).monospace()).halign(egui::Align::Center));
+                                ui.add_sized([COL_BARB_EXP + extra_per_column, 24.0], egui::Label::new(egui::RichText::new(format_in_millions(exp_val, self.language)).monospace()).halign(egui::Align::Center));
 
                                 let univ_spd_min = r.univ_speedup_minutes();
-                                let univ_spd_str = self.speedup_unit.format_duration(univ_spd_min as f64);
+                                let univ_spd_str = self.speedup_unit.format_duration_for_language(univ_spd_min as f64, self.language);
                                 ui.add_sized([COL_BARB_UNIV + extra_per_column, 24.0], egui::Label::new(egui::RichText::new(univ_spd_str).monospace().color(c.status_green)).halign(egui::Align::Center));
 
                                 let train_spd_min = r.training_speedup_minutes();
-                                let train_spd_str = self.speedup_unit.format_duration(train_spd_min as f64);
-                                ui.add_sized([COL_BARB_TRAIN + extra_per_column, 24.0], egui::Label::new(egui::RichText::new(train_spd_str).monospace().color(Color32::from_rgb(0xfb, 0x92, 0x3c))).halign(egui::Align::Center));
+                                let train_spd_str = self.speedup_unit.format_duration_for_language(train_spd_min as f64, self.language);
+                                ui.add_sized([COL_BARB_TRAIN + extra_per_column, 24.0], egui::Label::new(egui::RichText::new(train_spd_str).monospace().color(c.train_orange)).halign(egui::Align::Center));
 
                                 let heal_spd_min = r.heal_speedup_minutes();
-                                let heal_spd_str = self.speedup_unit.format_duration(heal_spd_min as f64);
-                                ui.add_sized([COL_BARB_HEAL + extra_per_column, 24.0], egui::Label::new(egui::RichText::new(heal_spd_str).monospace().color(Color32::from_rgb(0x38, 0xbd, 0xf8))).halign(egui::Align::Center));
+                                let heal_spd_str = self.speedup_unit.format_duration_for_language(heal_spd_min as f64, self.language);
+                                ui.add_sized([COL_BARB_HEAL + extra_per_column, 24.0], egui::Label::new(egui::RichText::new(heal_spd_str).monospace().color(c.heal_blue)).halign(egui::Align::Center));
 
                                 let arrows = r.item_quantity(2, 145);
                                 ui.add_sized([COL_BARB_ARROW + extra_per_column, 24.0], egui::Label::new(egui::RichText::new(format_num(arrows)).monospace()).halign(egui::Align::Center));
@@ -1840,12 +2184,12 @@ impl RoKLootWatcherApp {
                                 ui.add_sized([COL_TOME + extra_per_column, 24.0], egui::Label::new(egui::RichText::new(format_num(tome)).monospace()).halign(egui::Align::Center));
 
                                 let u_spd_min = r.univ_speedup_minutes();
-                                let u_spd_str = self.speedup_unit.format_duration(u_spd_min as f64);
+                                let u_spd_str = self.speedup_unit.format_duration_for_language(u_spd_min as f64, self.language);
                                 ui.add_sized([COL_UNIV_SPD + extra_per_column, 24.0], egui::Label::new(egui::RichText::new(u_spd_str).monospace().color(c.status_green)).halign(egui::Align::Center));
 
                                 let h_spd_min = r.heal_speedup_minutes();
-                                let h_spd_str = self.speedup_unit.format_duration(h_spd_min as f64);
-                                ui.add_sized([COL_HEAL_SPD + extra_per_column, 24.0], egui::Label::new(egui::RichText::new(h_spd_str).monospace().color(Color32::from_rgb(0x38, 0xbd, 0xf8))).halign(egui::Align::Center));
+                                let h_spd_str = self.speedup_unit.format_duration_for_language(h_spd_min as f64, self.language);
+                                ui.add_sized([COL_HEAL_SPD + extra_per_column, 24.0], egui::Label::new(egui::RichText::new(h_spd_str).monospace().color(c.heal_blue)).halign(egui::Align::Center));
                             }
 
                             let view_btn = egui::Button::new(
@@ -1962,22 +2306,50 @@ impl RoKLootWatcherApp {
                         cols[0].vertical(|ui| {
                             ui.label(egui::RichText::new(self.language.t(TrKey::InvFood)).strong().color(c.canvas_tint));
                             ui.label(egui::RichText::new(format!("{:.2}M", res.food_val as f64 / 1_000_000.0)).font(egui::FontId::proportional(15.0)).strong().color(c.accent_gold));
-                            ui.label(egui::RichText::new(format!("{} {} (x1.000)", format_num(res.food_packs), pack_mult)).font(egui::FontId::proportional(10.0)).color(c.text_muted));
+                            let pack_label = if res.food_packs * 1_000 == res.food_val {
+                                format!("{} {} (x1.000)", format_num(res.food_packs), pack_mult)
+                            } else if res.food_packs == res.food_val {
+                                format_num(res.food_val)
+                            } else {
+                                format!("{} {}", format_num(res.food_packs), pack_mult)
+                            };
+                            ui.label(egui::RichText::new(pack_label).font(egui::FontId::proportional(10.0)).color(c.text_muted));
                         });
                         cols[1].vertical(|ui| {
                             ui.label(egui::RichText::new(self.language.t(TrKey::InvWood)).strong().color(c.canvas_tint));
                             ui.label(egui::RichText::new(format!("{:.2}M", res.wood_val as f64 / 1_000_000.0)).font(egui::FontId::proportional(15.0)).strong().color(c.status_green));
-                            ui.label(egui::RichText::new(format!("{} {} (x1.000)", format_num(res.wood_packs), pack_mult)).font(egui::FontId::proportional(10.0)).color(c.text_muted));
+                            let pack_label = if res.wood_packs * 1_000 == res.wood_val {
+                                format!("{} {} (x1.000)", format_num(res.wood_packs), pack_mult)
+                            } else if res.wood_packs == res.wood_val {
+                                format_num(res.wood_val)
+                            } else {
+                                format!("{} {}", format_num(res.wood_packs), pack_mult)
+                            };
+                            ui.label(egui::RichText::new(pack_label).font(egui::FontId::proportional(10.0)).color(c.text_muted));
                         });
                         cols[2].vertical(|ui| {
                             ui.label(egui::RichText::new(self.language.t(TrKey::InvStone)).strong().color(c.canvas_tint));
-                            ui.label(egui::RichText::new(format!("{:.2}M", res.stone_val as f64 / 1_000_000.0)).font(egui::FontId::proportional(15.0)).strong().color(Color32::from_rgb(0x38, 0xbd, 0xf8)));
-                            ui.label(egui::RichText::new(format!("{} {} (x750)", format_num(res.stone_packs), pack_mult)).font(egui::FontId::proportional(10.0)).color(c.text_muted));
+                            ui.label(egui::RichText::new(format!("{:.2}M", res.stone_val as f64 / 1_000_000.0)).font(egui::FontId::proportional(15.0)).strong().color(c.heal_blue));
+                            let pack_label = if res.stone_packs * 750 == res.stone_val {
+                                format!("{} {} (x750)", format_num(res.stone_packs), pack_mult)
+                            } else if res.stone_packs == res.stone_val {
+                                format_num(res.stone_val)
+                            } else {
+                                format!("{} {}", format_num(res.stone_packs), pack_mult)
+                            };
+                            ui.label(egui::RichText::new(pack_label).font(egui::FontId::proportional(10.0)).color(c.text_muted));
                         });
                         cols[3].vertical(|ui| {
                             ui.label(egui::RichText::new(self.language.t(TrKey::InvGold)).strong().color(c.canvas_tint));
-                            ui.label(egui::RichText::new(format!("{:.2}M", res.gold_val as f64 / 1_000_000.0)).font(egui::FontId::proportional(15.0)).strong().color(Color32::from_rgb(0xf5, 0x9e, 0x0b)));
-                            ui.label(egui::RichText::new(format!("{} {} (x500)", format_num(res.gold_packs), pack_mult)).font(egui::FontId::proportional(10.0)).color(c.text_muted));
+                            ui.label(egui::RichText::new(format!("{:.2}M", res.gold_val as f64 / 1_000_000.0)).font(egui::FontId::proportional(15.0)).strong().color(c.accent_gold));
+                            let pack_label = if res.gold_packs * 500 == res.gold_val {
+                                format!("{} {} (x500)", format_num(res.gold_packs), pack_mult)
+                            } else if res.gold_packs == res.gold_val {
+                                format_num(res.gold_val)
+                            } else {
+                                format!("{} {}", format_num(res.gold_packs), pack_mult)
+                            };
+                            ui.label(egui::RichText::new(pack_label).font(egui::FontId::proportional(10.0)).color(c.text_muted));
                         });
                         cols[4].vertical(|ui| {
                             ui.label(egui::RichText::new(self.language.t(TrKey::InvChoicePacks)).strong().color(c.canvas_tint));
@@ -2058,22 +2430,22 @@ impl RoKLootWatcherApp {
                     ui.columns(5, |cols| {
                         cols[0].vertical(|ui| {
                             ui.label(egui::RichText::new(leather_lbl).strong().color(c.canvas_tint));
-                            ui.label(egui::RichText::new(format!("{} {}", format_num(mats.leather_total_converted()), conv_lbl)).font(egui::FontId::proportional(14.0)).strong().color(Color32::from_rgb(0xfb, 0x92, 0x3c)));
+                            ui.label(egui::RichText::new(format!("{} {}", format_num(mats.leather_total_converted()), conv_lbl)).font(egui::FontId::proportional(14.0)).strong().color(c.train_orange));
                             ui.label(egui::RichText::new(format!("{}: {} | {}: {}", norm_lbl, format_num(mats.leather_normal), adv_lbl, format_num(mats.leather_advanced))).font(egui::FontId::proportional(10.0)).color(c.text_muted));
                         });
                         cols[1].vertical(|ui| {
                             ui.label(egui::RichText::new(iron_lbl).strong().color(c.canvas_tint));
-                            ui.label(egui::RichText::new(format!("{} {}", format_num(mats.iron_total_converted()), conv_lbl)).font(egui::FontId::proportional(14.0)).strong().color(Color32::from_rgb(0x94, 0xa3, 0xb8)));
+                            ui.label(egui::RichText::new(format!("{} {}", format_num(mats.iron_total_converted()), conv_lbl)).font(egui::FontId::proportional(14.0)).strong().color(c.mat_iron));
                             ui.label(egui::RichText::new(format!("{}: {} | {}: {}", norm_lbl, format_num(mats.iron_normal), adv_lbl, format_num(mats.iron_advanced))).font(egui::FontId::proportional(10.0)).color(c.text_muted));
                         });
                         cols[2].vertical(|ui| {
                             ui.label(egui::RichText::new(ebony_lbl).strong().color(c.canvas_tint));
-                            ui.label(egui::RichText::new(format!("{} {}", format_num(mats.ebony_total_converted()), conv_lbl)).font(egui::FontId::proportional(14.0)).strong().color(Color32::from_rgb(0x34, 0xd3, 0x99)));
+                            ui.label(egui::RichText::new(format!("{} {}", format_num(mats.ebony_total_converted()), conv_lbl)).font(egui::FontId::proportional(14.0)).strong().color(c.mat_ebony));
                             ui.label(egui::RichText::new(format!("{}: {} | {}: {}", norm_lbl, format_num(mats.ebony_normal), adv_lbl, format_num(mats.ebony_advanced))).font(egui::FontId::proportional(10.0)).color(c.text_muted));
                         });
                         cols[3].vertical(|ui| {
                             ui.label(egui::RichText::new(bone_lbl).strong().color(c.canvas_tint));
-                            ui.label(egui::RichText::new(format!("{} {}", format_num(mats.bone_total_converted()), conv_lbl)).font(egui::FontId::proportional(14.0)).strong().color(Color32::from_rgb(0xf4, 0x72, 0xb6)));
+                            ui.label(egui::RichText::new(format!("{} {}", format_num(mats.bone_total_converted()), conv_lbl)).font(egui::FontId::proportional(14.0)).strong().color(c.mat_bone));
                             ui.label(egui::RichText::new(format!("{}: {} | {}: {}", norm_lbl, format_num(mats.bone_normal), adv_lbl, format_num(mats.bone_advanced))).font(egui::FontId::proportional(10.0)).color(c.text_muted));
                         });
                         cols[4].vertical(|ui| {
@@ -2161,11 +2533,14 @@ impl RoKLootWatcherApp {
                     ItemSortColumn::Category => a.category.cmp(&b.category),
                     ItemSortColumn::TotalQty => a.total_quantity.cmp(&b.total_quantity),
                     ItemSortColumn::Converted => {
-                        let conv_a = get_item_converted_display(a.itype, a.sub_type, a.total_quantity).unwrap_or_default();
-                        let conv_b = get_item_converted_display(b.itype, b.sub_type, b.total_quantity).unwrap_or_default();
+                        let conv_a = get_item_converted_display_for_lang(a.itype, a.sub_type, a.total_quantity, self.language).unwrap_or_default();
+                        let conv_b = get_item_converted_display_for_lang(b.itype, b.sub_type, b.total_quantity, self.language).unwrap_or_default();
                         conv_a.cmp(&conv_b)
                     }
                     ItemSortColumn::Battles => a.battle_count.cmp(&b.battle_count),
+                    ItemSortColumn::DropRate => a.battle_count.cmp(&b.battle_count),
+                    ItemSortColumn::AvgPerBattle => a.avg_per_battle.partial_cmp(&b.avg_per_battle).unwrap_or(std::cmp::Ordering::Equal),
+                    ItemSortColumn::MaxInBattle => a.max_in_battle.cmp(&b.max_in_battle),
                 };
                 match self.item_sort_dir {
                     SortDirection::Ascending => ordering,
@@ -2178,13 +2553,13 @@ impl RoKLootWatcherApp {
         const INV_PAD_X: f32 = 8.0;
         const INV_SPACING_X: f32 = 6.0;
 
-        const COL_CAT: f32 = 78.0;
-        const COL_TOTAL: f32 = 74.0;
-        const COL_CONV: f32 = 100.0;
-        const COL_BATTLES: f32 = 52.0;
-        const COL_RATE: f32 = 56.0;
-        const COL_AVG: f32 = 52.0;
-        const COL_MAX: f32 = 52.0;
+        const COL_CAT: f32 = 88.0;
+        const COL_TOTAL: f32 = 78.0;
+        const COL_CONV: f32 = 98.0;
+        const COL_BATTLES: f32 = 58.0;
+        const COL_RATE: f32 = 66.0;
+        const COL_AVG: f32 = 62.0;
+        const COL_MAX: f32 = 62.0;
 
         let avail_w = ui.available_width();
         // 8 items total, 7 gaps
@@ -2205,13 +2580,14 @@ impl RoKLootWatcherApp {
 
         egui::Frame::none()
             .fill(c.card_surface)
-            .rounding(Rounding::same(4.0))
-            .inner_margin(Margin::symmetric(INV_PAD_X, 4.0))
+            .stroke(Stroke::new(1.0_f32, c.hairline))
+            .rounding(Rounding::same(6.0))
+            .inner_margin(Margin::symmetric(INV_PAD_X, 5.0))
             .show(ui, |ui| {
                 ui.set_width(inv_table_width - (INV_PAD_X * 2.0));
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = INV_SPACING_X;
-                    ui.set_min_height(26.0);
+                    ui.set_min_height(24.0);
 
                     if render_item_sort_header_cell(
                         ui,
@@ -2220,7 +2596,7 @@ impl RoKLootWatcherApp {
                         self.item_sort_col,
                         self.item_sort_dir,
                         names_w,
-                        egui::Align::Center,
+                        egui::Align::LEFT,
                         c.text_muted,
                         c.focus_teal,
                         self.language,
@@ -2230,13 +2606,13 @@ impl RoKLootWatcherApp {
                     if render_item_sort_header_cell(ui, self.language.t(TrKey::InvColCategory), ItemSortColumn::Category, self.item_sort_col, self.item_sort_dir, COL_CAT, egui::Align::Center, c.text_muted, c.focus_teal, self.language) {
                         toggle_item_sort_col = Some(ItemSortColumn::Category);
                     }
-                    if render_item_sort_header_cell(ui, self.language.t(TrKey::InvColTotalQty), ItemSortColumn::TotalQty, self.item_sort_col, self.item_sort_dir, COL_TOTAL, egui::Align::Center, c.accent_gold, c.focus_teal, self.language) {
+                    if render_item_sort_header_cell(ui, self.language.t(TrKey::InvColTotalQty), ItemSortColumn::TotalQty, self.item_sort_col, self.item_sort_dir, COL_TOTAL, egui::Align::RIGHT, c.accent_gold, c.focus_teal, self.language) {
                         toggle_item_sort_col = Some(ItemSortColumn::TotalQty);
                     }
-                    if render_item_sort_header_cell(ui, self.language.t(TrKey::InvColConverted), ItemSortColumn::Converted, self.item_sort_col, self.item_sort_dir, COL_CONV, egui::Align::Center, c.status_green, c.focus_teal, self.language) {
+                    if render_item_sort_header_cell(ui, self.language.t(TrKey::InvColConverted), ItemSortColumn::Converted, self.item_sort_col, self.item_sort_dir, COL_CONV, egui::Align::RIGHT, c.status_green, c.focus_teal, self.language) {
                         toggle_item_sort_col = Some(ItemSortColumn::Converted);
                     }
-                    if render_item_sort_header_cell(ui, self.language.t(TrKey::InvColBattles), ItemSortColumn::Battles, self.item_sort_col, self.item_sort_dir, COL_BATTLES, egui::Align::Center, c.text_muted, c.focus_teal, self.language) {
+                    if render_item_sort_header_cell(ui, self.language.t(TrKey::InvColBattles), ItemSortColumn::Battles, self.item_sort_col, self.item_sort_dir, COL_BATTLES, egui::Align::RIGHT, c.text_muted, c.focus_teal, self.language) {
                         toggle_item_sort_col = Some(ItemSortColumn::Battles);
                     }
 
@@ -2244,9 +2620,15 @@ impl RoKLootWatcherApp {
                         AppLanguage::Vietnamese => ("Tỷ Lệ Rơi", "TB / Trận", "Max / Trận"),
                         AppLanguage::English => ("Drop Rate", "Avg / Battle", "Max / Battle"),
                     };
-                    ui.add_sized([COL_RATE, 20.0], egui::Label::new(egui::RichText::new(rate_hdr).strong().color(c.text_muted)).halign(egui::Align::Center));
-                    ui.add_sized([COL_AVG, 20.0], egui::Label::new(egui::RichText::new(avg_hdr).strong().color(c.text_muted)).halign(egui::Align::Center));
-                    ui.add_sized([COL_MAX, 20.0], egui::Label::new(egui::RichText::new(max_hdr).strong().color(c.text_muted)).halign(egui::Align::Center));
+                    if render_item_sort_header_cell(ui, rate_hdr, ItemSortColumn::DropRate, self.item_sort_col, self.item_sort_dir, COL_RATE, egui::Align::RIGHT, c.text_muted, c.focus_teal, self.language) {
+                        toggle_item_sort_col = Some(ItemSortColumn::DropRate);
+                    }
+                    if render_item_sort_header_cell(ui, avg_hdr, ItemSortColumn::AvgPerBattle, self.item_sort_col, self.item_sort_dir, COL_AVG, egui::Align::RIGHT, c.text_muted, c.focus_teal, self.language) {
+                        toggle_item_sort_col = Some(ItemSortColumn::AvgPerBattle);
+                    }
+                    if render_item_sort_header_cell(ui, max_hdr, ItemSortColumn::MaxInBattle, self.item_sort_col, self.item_sort_dir, COL_MAX, egui::Align::RIGHT, c.text_muted, c.focus_teal, self.language) {
+                        toggle_item_sort_col = Some(ItemSortColumn::MaxInBattle);
+                    }
                 });
             });
 
@@ -2264,23 +2646,84 @@ impl RoKLootWatcherApp {
 
         ui.add_space(4.0);
 
+        if filtered_items.is_empty() {
+            egui::Frame::none()
+                .fill(c.card_surface)
+                .stroke(Stroke::new(1.0_f32, c.hairline))
+                .rounding(Rounding::same(6.0))
+                .inner_margin(Margin::same(24.0))
+                .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    ui.vertical_centered(|ui| {
+                        ui.add_space(16.0);
+                        let empty_title = match self.language {
+                            AppLanguage::Vietnamese => "Không Tìm Thấy Vật Phẩm",
+                            AppLanguage::English => "No Items Found",
+                        };
+                        ui.label(
+                            egui::RichText::new(empty_title)
+                                .font(egui::FontId::proportional(14.0))
+                                .strong()
+                                .color(c.canvas_tint),
+                        );
+                        ui.add_space(4.0);
+                        let empty_desc = if !self.item_search.trim().is_empty() {
+                            match self.language {
+                                AppLanguage::Vietnamese => "Không có vật phẩm nào khớp với từ khóa tìm kiếm.",
+                                AppLanguage::English => "No items matched your search query.",
+                            }
+                        } else {
+                            match self.language {
+                                AppLanguage::Vietnamese => "Chưa có dữ liệu vật phẩm nào được ghi nhận trong phiên này.",
+                                AppLanguage::English => "No inventory items recorded yet.",
+                            }
+                        };
+                        ui.label(
+                            egui::RichText::new(empty_desc)
+                                .font(egui::FontId::proportional(11.5))
+                                .color(c.text_muted),
+                        );
+                        ui.add_space(16.0);
+                    });
+                });
+            return;
+        }
+
+        let row_height = 29.0_f32;
+
         egui::ScrollArea::both()
             .auto_shrink([false, false])
-            .show(ui, |ui| {
+            .show_rows(ui, row_height, filtered_items.len(), |ui, row_range| {
                 ui.set_width(inv_table_width);
-                for it in filtered_items {
+                for idx in row_range {
+                    let it = filtered_items[idx];
                     let (row_rect, row_resp) = ui.allocate_exact_size(
-                        egui::vec2(inv_table_width, 26.0),
+                        egui::vec2(inv_table_width, 27.0),
                         egui::Sense::hover(),
                     );
 
-                    if row_resp.hovered() {
+                    let is_hovered = row_resp.hovered();
+                    if is_hovered {
                         ui.painter().rect_filled(
                             row_rect,
                             Rounding::same(4.0),
-                            c.focus_teal.linear_multiply(0.10),
+                            c.focus_teal.linear_multiply(0.12),
+                        );
+                        ui.painter().rect_stroke(
+                            row_rect,
+                            Rounding::same(4.0),
+                            Stroke::new(1.0_f32, c.focus_teal.linear_multiply(0.40)),
+                        );
+                    } else if idx % 2 == 1 {
+                        // Subtle alternating row zebra stripe for scanning wide tables
+                        ui.painter().rect_filled(
+                            row_rect,
+                            Rounding::same(4.0),
+                            c.hairline.linear_multiply(0.12),
                         );
                     }
+
+                    row_resp.on_hover_text(it.display_name(self.language));
 
                     let inner_rect = egui::Rect::from_min_max(
                         egui::pos2(row_rect.min.x + INV_PAD_X, row_rect.min.y),
@@ -2299,28 +2742,97 @@ impl RoKLootWatcherApp {
                                         .color(c.canvas_tint),
                                 )
                                 .truncate()
-                                .halign(egui::Align::Center),
+                                .halign(egui::Align::LEFT),
                             );
 
+                            let cat_color = category_badge_color(&it.category, &c);
                             egui::Frame::none()
-                                .fill(c.primary)
+                                .fill(cat_color.linear_multiply(0.12))
+                                .stroke(Stroke::new(1.0_f32, cat_color.linear_multiply(0.35)))
                                 .rounding(Rounding::same(4.0))
                                 .inner_margin(Margin::symmetric(4.0, 1.0))
                                 .show(ui, |ui| {
-                                    ui.add_sized([COL_CAT - 10.0, 18.0], egui::Label::new(egui::RichText::new(category_name(&it.category, self.language)).font(egui::FontId::proportional(10.0)).color(c.focus_teal)).truncate().halign(egui::Align::Center));
+                                    ui.add_sized(
+                                        [COL_CAT - 8.0, 18.0],
+                                        egui::Label::new(
+                                            egui::RichText::new(category_name(&it.category, self.language))
+                                                .font(egui::FontId::proportional(10.5))
+                                                .strong()
+                                                .color(cat_color),
+                                        )
+                                        .truncate()
+                                        .halign(egui::Align::Center),
+                                    );
                                 });
 
-                            ui.add_sized([COL_TOTAL, 22.0], egui::Label::new(egui::RichText::new(format_num(it.total_quantity)).monospace().strong().color(c.accent_gold)).truncate().halign(egui::Align::Center));
+                            ui.add_sized(
+                                [COL_TOTAL, 22.0],
+                                egui::Label::new(
+                                    egui::RichText::new(format_num(it.total_quantity))
+                                        .monospace()
+                                        .strong()
+                                        .color(c.accent_gold),
+                                )
+                                .truncate()
+                                .halign(egui::Align::RIGHT),
+                            );
 
-                            let conv_str = get_item_converted_display(it.itype, it.sub_type, it.total_quantity).unwrap_or_else(|| "-".to_string());
+                            let conv_str = get_item_converted_display_for_lang(it.itype, it.sub_type, it.total_quantity, self.language).unwrap_or_else(|| "-".to_string());
                             let conv_color = if conv_str != "-" { c.status_green } else { c.text_muted };
-                            ui.add_sized([COL_CONV, 22.0], egui::Label::new(egui::RichText::new(conv_str).monospace().strong().color(conv_color)).truncate().halign(egui::Align::Center));
+                            ui.add_sized(
+                                [COL_CONV, 22.0],
+                                egui::Label::new(
+                                    egui::RichText::new(conv_str)
+                                        .monospace()
+                                        .strong()
+                                        .color(conv_color),
+                                )
+                                .truncate()
+                                .halign(egui::Align::RIGHT),
+                            );
 
                             let drop_rate = (it.battle_count as f64 / total_battles as f64) * 100.0;
-                            ui.add_sized([COL_BATTLES, 22.0], egui::Label::new(egui::RichText::new(format!("{}", it.battle_count)).monospace()).truncate().halign(egui::Align::Center));
-                            ui.add_sized([COL_RATE, 22.0], egui::Label::new(egui::RichText::new(format!("{:.1}%", drop_rate)).monospace().strong()).truncate().halign(egui::Align::Center));
-                            ui.add_sized([COL_AVG, 22.0], egui::Label::new(egui::RichText::new(format!("{:.1}", it.avg_per_battle)).monospace()).truncate().halign(egui::Align::Center));
-                            ui.add_sized([COL_MAX, 22.0], egui::Label::new(egui::RichText::new(format_num(it.max_in_battle)).monospace()).truncate().halign(egui::Align::Center));
+                            ui.add_sized(
+                                [COL_BATTLES, 22.0],
+                                egui::Label::new(
+                                    egui::RichText::new(format!("{}", it.battle_count))
+                                        .monospace()
+                                        .color(c.canvas_tint),
+                                )
+                                .truncate()
+                                .halign(egui::Align::RIGHT),
+                            );
+                            ui.add_sized(
+                                [COL_RATE, 22.0],
+                                egui::Label::new(
+                                    egui::RichText::new(format!("{:.1}%", drop_rate))
+                                        .monospace()
+                                        .strong()
+                                        .color(c.focus_teal),
+                                )
+                                .truncate()
+                                .halign(egui::Align::RIGHT),
+                            );
+                            ui.add_sized(
+                                [COL_AVG, 22.0],
+                                egui::Label::new(
+                                    egui::RichText::new(format!("{:.1}", it.avg_per_battle))
+                                        .monospace()
+                                        .color(c.text_muted),
+                                )
+                                .truncate()
+                                .halign(egui::Align::RIGHT),
+                            );
+                            ui.add_sized(
+                                [COL_MAX, 22.0],
+                                egui::Label::new(
+                                    egui::RichText::new(format_num(it.max_in_battle))
+                                        .monospace()
+                                        .color(c.canvas_tint),
+                                )
+                                .truncate()
+                                .halign(egui::Align::RIGHT),
+                            );
                         });
                     });
 
@@ -2420,9 +2932,21 @@ impl RoKLootWatcherApp {
                             ui.selectable_value(&mut self.language, AppLanguage::Vietnamese, "Tiếng Việt");
                             ui.selectable_value(&mut self.language, AppLanguage::English, "English");
                             if self.language != prev_lang {
+                                self.watcher.set_language(self.language);
                                 self.save_config();
                                 if let Some(tray) = &self.tray {
                                     tray.update_language(self.language);
+                                }
+                                if self.watcher.is_watching() {
+                                    self.status_badge_text = match self.language {
+                                        AppLanguage::Vietnamese => "● Đang theo dõi".into(),
+                                        AppLanguage::English => "● Watching".into(),
+                                    };
+                                } else {
+                                    self.status_badge_text = match self.language {
+                                        AppLanguage::Vietnamese => "● Đã tạm dừng".into(),
+                                        AppLanguage::English => "● Paused".into(),
+                                    };
                                 }
                             }
                         });
@@ -2454,12 +2978,22 @@ impl RoKLootWatcherApp {
                             {
                                 self.autostart = autostart;
                                 if let Err(e) = crate::autostart::set_autostart(self.autostart, self.autostart_minimized) {
-                                    self.watcher.log("ERROR", &format!("Lỗi cài đặt Autostart: {}", e));
+                                    let err_msg = match self.language {
+                                        AppLanguage::Vietnamese => format!("Lỗi cài đặt Autostart: {}", e),
+                                        AppLanguage::English => format!("Autostart setting error: {}", e),
+                                    };
+                                    self.watcher.log("ERROR", &err_msg);
                                 } else {
                                     let msg = if self.autostart {
-                                        format!("Đã BẬT tự khởi động cùng Windows (Thu nhỏ vào khay: {})", if self.autostart_minimized { "BẬT" } else { "TẮT" })
+                                        match self.language {
+                                            AppLanguage::Vietnamese => format!("Đã BẬT tự khởi động cùng Windows (Thu nhỏ vào khay: {})", if self.autostart_minimized { "BẬT" } else { "TẮT" }),
+                                            AppLanguage::English => format!("ENABLED Autostart with Windows (Start minimized: {})", if self.autostart_minimized { "YES" } else { "NO" }),
+                                        }
                                     } else {
-                                        "Đã TẮT tự khởi động cùng Windows".to_string()
+                                        match self.language {
+                                            AppLanguage::Vietnamese => "Đã TẮT tự khởi động cùng Windows".to_string(),
+                                            AppLanguage::English => "DISABLED Autostart with Windows".to_string(),
+                                        }
                                     };
                                     self.watcher.log("SUCCESS", &msg);
                                 }
@@ -2480,12 +3014,22 @@ impl RoKLootWatcherApp {
                                 {
                                     self.autostart_minimized = start_min;
                                     if let Err(e) = crate::autostart::set_autostart(self.autostart, self.autostart_minimized) {
-                                        self.watcher.log("ERROR", &format!("Lỗi cập nhật cấu hình Autostart: {}", e));
+                                        let err_msg = match self.language {
+                                            AppLanguage::Vietnamese => format!("Lỗi cập nhật cấu hình Autostart: {}", e),
+                                            AppLanguage::English => format!("Autostart config update error: {}", e),
+                                        };
+                                        self.watcher.log("ERROR", &err_msg);
                                     } else {
                                         let msg = if self.autostart_minimized {
-                                            "Đã BẬT tùy chọn: Thu nhỏ xuống khay icon khi khởi động cùng Windows"
+                                            match self.language {
+                                                AppLanguage::Vietnamese => "Đã BẬT tùy chọn: Thu nhỏ xuống khay icon khi khởi động cùng Windows",
+                                                AppLanguage::English => "ENABLED: Start minimized to system tray on Windows startup",
+                                            }
                                         } else {
-                                            "Đã TẮT tùy chọn: Thu nhỏ xuống khay icon khi khởi động cùng Windows (sẽ hiện cửa sổ)"
+                                            match self.language {
+                                                AppLanguage::Vietnamese => "Đã TẮT tùy chọn: Thu nhỏ xuống khay icon khi khởi động cùng Windows (sẽ hiện cửa sổ)",
+                                                AppLanguage::English => "DISABLED: Start minimized to system tray on Windows startup (will show window)",
+                                            }
                                         };
                                         self.watcher.log("INFO", msg);
                                     }
@@ -2512,7 +3056,7 @@ impl RoKLootWatcherApp {
                         {
                             let mail_dir = self.watcher.get_mail_dir();
                             if self.is_armored {
-                                match crate::armor::disable_mailcache_armor(&mail_dir) {
+                                match crate::armor::disable_mailcache_armor(&mail_dir, self.language) {
                                     Ok(msg) => {
                                         self.watcher.log("SUCCESS", &msg);
                                         self.is_armored = false;
@@ -2522,7 +3066,7 @@ impl RoKLootWatcherApp {
                                     }
                                 }
                             } else {
-                                match crate::armor::enable_mailcache_armor(&mail_dir) {
+                                match crate::armor::enable_mailcache_armor(&mail_dir, self.language) {
                                     Ok(msg) => {
                                         self.watcher.log("SUCCESS", &msg);
                                         self.is_armored = true;
@@ -2566,7 +3110,7 @@ impl RoKLootWatcherApp {
 
             // Right Column: Terminal Log Viewer
             egui::Frame::none()
-                .fill(Color32::from_rgb(0x0d, 0x0f, 0x14))
+                .fill(c.log_bg)
                 .stroke(Stroke::new(1.0_f32, c.hairline))
                 .rounding(Rounding::same(6.0))
                 .inner_margin(Margin::same(12.0))
@@ -2794,9 +3338,9 @@ impl RoKLootWatcherApp {
                             AppLanguage::English => ("Univ", "Training", "Healing"),
                         };
                         let mut spd_parts = Vec::new();
-                        if u_min > 0 { spd_parts.push(format!("{}: {}", lbl_univ, self.speedup_unit.format_duration(u_min as f64))); }
-                        if t_min > 0 { spd_parts.push(format!("{}: {}", lbl_train, self.speedup_unit.format_duration(t_min as f64))); }
-                        if h_min > 0 { spd_parts.push(format!("{}: {}", lbl_heal, self.speedup_unit.format_duration(h_min as f64))); }
+                        if u_min > 0 { spd_parts.push(format!("{}: {}", lbl_univ, self.speedup_unit.format_duration_for_language(u_min as f64, self.language))); }
+                        if t_min > 0 { spd_parts.push(format!("{}: {}", lbl_train, self.speedup_unit.format_duration_for_language(t_min as f64, self.language))); }
+                        if h_min > 0 { spd_parts.push(format!("{}: {}", lbl_heal, self.speedup_unit.format_duration_for_language(h_min as f64, self.language))); }
                         ui.label(egui::RichText::new(spd_parts.join("  |  ")).font(egui::FontId::proportional(11.0)).color(c.canvas_tint));
                     });
                 ui.add_space(8.0);
@@ -2862,7 +3406,7 @@ impl RoKLootWatcherApp {
                                     ui.label(egui::RichText::new(it.display_name(self.language)).strong().color(c.canvas_tint));
                                     ui.horizontal(|ui| {
                                         ui.label(egui::RichText::new(format!("[{}]", category_name(&it.category, self.language))).font(egui::FontId::proportional(10.0)).color(c.focus_teal));
-                                        if let Some(conv_str) = get_item_converted_display(it.itype, it.sub_type, it.value) {
+                                        if let Some(conv_str) = get_item_converted_display_for_lang(it.itype, it.sub_type, it.value, self.language) {
                                             ui.label(egui::RichText::new(format!("(= {})", conv_str)).font(egui::FontId::proportional(10.0)).color(c.status_green));
                                         }
                                     });
@@ -2885,6 +3429,14 @@ impl eframe::App for RoKLootWatcherApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Cache native HWND if not yet done
         let _ = crate::tray::get_or_find_main_hwnd();
+
+        // Nhận kết quả kiểm tra trạng thái armor từ luồng nền nếu có
+        if let Some(ref rx) = self.pending_armor_check {
+            if let Ok(armored) = rx.try_recv() {
+                self.is_armored = armored;
+                self.pending_armor_check = None;
+            }
+        }
 
         // Check if an external restore was requested (tray icon clicked, second instance opened, etc.)
         if crate::tray::check_and_clear_restore_request() {
@@ -3114,5 +3666,83 @@ mod tests {
         assert_eq!(report_non_target_column_count(true, false), 7);
         assert_eq!(report_non_target_column_count(false, true), 11);
         assert_eq!(report_non_target_column_count(false, false), 10);
+    }
+
+    #[test]
+    fn test_category_badge_color_and_sort_columns() {
+        let colors = ThemeColors::dark();
+        assert_eq!(category_badge_color("Tài nguyên", &colors), colors.accent_gold);
+        assert_eq!(category_badge_color("Tăng tốc", &colors), colors.speedup_purple);
+        assert_eq!(category_badge_color("Pha Lê", &colors), colors.crystal_cyan);
+
+        let cols = [
+            ItemSortColumn::Name,
+            ItemSortColumn::Category,
+            ItemSortColumn::TotalQty,
+            ItemSortColumn::Converted,
+            ItemSortColumn::Battles,
+            ItemSortColumn::DropRate,
+            ItemSortColumn::AvgPerBattle,
+            ItemSortColumn::MaxInBattle,
+        ];
+        assert_eq!(cols.len(), 8);
+    }
+
+    #[test]
+    fn test_theme_toggle_preserves_watcher_status_badge() {
+        let dark_colors = ThemeColors::dark();
+        let light_colors = ThemeColors::light();
+
+        let status = WatcherStatus::Running("running".into());
+
+        // In Dark theme, Watching status produces green badge and "● ĐANG THEO DÕI"
+        let (dark_text, dark_color) = resolve_status_badge(&status, true, AppLanguage::Vietnamese, &dark_colors);
+        assert_eq!(dark_text, format!("● {}", AppLanguage::Vietnamese.t(TrKey::StatusWatching)));
+        assert_eq!(dark_color, dark_colors.status_green);
+
+        // When toggling to Light theme, status text MUST stay the exact same (not flip to Paused!)
+        let (light_text, light_color) = resolve_status_badge(&status, true, AppLanguage::Vietnamese, &light_colors);
+        assert_eq!(light_text, dark_text);
+        assert_eq!(light_color, light_colors.status_green);
+
+        // Stopped status
+        let stopped_status = WatcherStatus::Stopped("paused".into());
+        let (stop_text, stop_color) = resolve_status_badge(&stopped_status, false, AppLanguage::English, &dark_colors);
+        assert_eq!(stop_text, format!("● {}", AppLanguage::English.t(TrKey::StatusPaused)));
+        assert_eq!(stop_color, dark_colors.text_muted);
+    }
+
+    #[test]
+    fn test_light_mode_contrast_and_palette() {
+        let light = ThemeColors::light();
+        let dark = ThemeColors::dark();
+
+        assert!(!light.is_dark);
+        assert!(dark.is_dark);
+
+        // Light mode card surface is pure white for elevation over Slate-50 background
+        assert_eq!(light.card_surface, Color32::from_rgb(0xff, 0xff, 0xff));
+        assert_eq!(light.ink, Color32::from_rgb(0xf8, 0xfa, 0xfc));
+
+        // Terminal Log viewer background in Light mode is pure white, not black
+        assert_eq!(light.log_bg, Color32::from_rgb(0xff, 0xff, 0xff));
+        assert_eq!(dark.log_bg, Color32::from_rgb(0x0d, 0x0f, 0x14));
+
+        // Text colors: canvas_tint is dark Slate-900 for >16:1 contrast ratio
+        assert_eq!(light.canvas_tint, Color32::from_rgb(0x0f, 0x17, 0x2a));
+        // text_muted is Slate-600 for >7.5:1 contrast ratio against white cards
+        assert_eq!(light.text_muted, Color32::from_rgb(0x47, 0x55, 0x69));
+
+        // Accent colors: light mode uses deepened shades (700-level) for WCAG AA compliance
+        assert_eq!(light.train_orange, Color32::from_rgb(0xc2, 0x41, 0x0c));
+        assert_eq!(light.heal_blue, Color32::from_rgb(0x03, 0x69, 0xa1));
+        assert_eq!(light.status_green, Color32::from_rgb(0x04, 0x78, 0x57));
+        assert_eq!(light.accent_gold, Color32::from_rgb(0xb4, 0x53, 0x09));
+        assert_eq!(light.speedup_purple, Color32::from_rgb(0x7e, 0x22, 0xce));
+        assert_eq!(light.crystal_cyan, Color32::from_rgb(0x0e, 0x74, 0x90));
+
+        // Material badges
+        assert_eq!(category_badge_color("Vật liệu", &light), light.heal_blue);
+        assert_eq!(category_badge_color("Vật liệu", &dark), dark.heal_blue);
     }
 }
