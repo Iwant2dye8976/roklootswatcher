@@ -631,11 +631,8 @@ fn run_gui_mode(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let mut viewport = egui::ViewportBuilder::default()
         .with_title("Rise of Kingdoms - Motte, Fort & Barbarian Loot Watcher")
         .with_inner_size(egui::vec2(1380.0, 860.0))
-        .with_min_inner_size(egui::vec2(1100.0, 700.0));
-
-    if start_minimized {
-        viewport = viewport.with_visible(false);
-    }
+        .with_min_inner_size(egui::vec2(1100.0, 700.0))
+        .with_transparent(true);
 
     if let Some(icon) = window_icon {
         viewport = viewport.with_icon(icon);

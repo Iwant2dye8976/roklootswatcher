@@ -116,6 +116,25 @@ pub fn get_latest_filtered_records(records: &[BattleRecord], filter: FilterMode,
     filtered
 }
 
+pub fn compute_overlay_card_style(
+    opacity: f32,
+    dim_factor: f32,
+) -> (Color32, Stroke, f32) {
+    let text_alpha = dim_factor.clamp(0.40, 1.0);
+    if opacity <= 0.01 {
+        return (Color32::TRANSPARENT, Stroke::NONE, text_alpha);
+    }
+
+    let bg_alpha = (opacity * dim_factor).clamp(0.0, 1.0);
+    let bg_color = Color32::from_rgba_unmultiplied(15, 23, 42, (bg_alpha * 240.0) as u8);
+    let card_stroke = Stroke::new(
+        1.0_f32,
+        Color32::from_rgba_unmultiplied(51, 65, 85, (bg_alpha * 255.0) as u8),
+    );
+
+    (bg_color, card_stroke, text_alpha)
+}
+
 pub fn render_overlay_viewport(
     ctx: &egui::Context,
     records: &[BattleRecord],
@@ -123,31 +142,18 @@ pub fn render_overlay_viewport(
     last_mail_time: std::time::Instant,
 ) {
     let dim_factor = compute_idle_dim_factor(last_mail_time);
-    let eff_opacity = (config.opacity * dim_factor).clamp(0.0, 1.0);
+    let (bg_color, card_stroke, text_alpha) = compute_overlay_card_style(config.opacity, dim_factor);
 
-    let (bg_color, card_stroke) = if config.opacity <= 0.01 {
-        (Color32::TRANSPARENT, Stroke::NONE)
-    } else {
-        (
-            Color32::from_rgba_unmultiplied(15, 23, 42, (220.0 * eff_opacity) as u8),
-            Stroke::new(1.0_f32, Color32::from_white_alpha((35.0 * eff_opacity) as u8)),
-        )
-    };
-
-    let base_text_color = parse_hex_color(&config.text_color_hex)
+    let raw_text_color = parse_hex_color(&config.text_color_hex)
         .unwrap_or_else(|| Color32::from_rgb(248, 250, 252));
-    let text_alpha = if config.opacity <= 0.01 {
-        dim_factor.max(0.70)
+    let base_text_color = if raw_text_color.r() == 0 && raw_text_color.g() == 0 && raw_text_color.b() == 0 {
+        Color32::from_rgb(24, 24, 24)
     } else {
-        eff_opacity.max(0.35)
+        raw_text_color
     };
     let text_color = base_text_color.linear_multiply(text_alpha);
     let muted_text = base_text_color.linear_multiply(0.70 * text_alpha);
-    let accent_alpha = if config.opacity <= 0.01 {
-        dim_factor.max(0.70)
-    } else {
-        eff_opacity.max(0.35)
-    };
+    let accent_alpha = text_alpha;
 
     let fs_title = config.font_size;
     let fs_sub = (config.font_size * 0.88).max(8.0);
@@ -156,7 +162,7 @@ pub fn render_overlay_viewport(
     let pad_h = (config.font_size * 0.7).clamp(6.0, 12.0);
 
     egui::CentralPanel::default()
-        .frame(Frame::none())
+        .frame(Frame::none().fill(Color32::TRANSPARENT))
         .show(ctx, |ui| {
             ui.spacing_mut().item_spacing = egui::vec2(0.0, 3.0);
 
@@ -198,11 +204,14 @@ pub fn render_overlay_viewport(
                                     .size(fs_sub)
                                     .strong(),
                             );
-                            ui.label(
-                                egui::RichText::new(&card.target_display)
-                                    .color(text_color)
-                                    .size(fs_title)
-                                    .strong(),
+                            ui.add(
+                                egui::Label::new(
+                                    egui::RichText::new(&card.target_display)
+                                        .color(text_color)
+                                        .size(fs_title)
+                                        .strong(),
+                                )
+                                .truncate(),
                             );
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                 ui.label(
@@ -229,10 +238,13 @@ pub fn render_overlay_viewport(
                                 );
                             }
                             if let Some(drop) = card.drops_summary.first() {
-                                ui.label(
-                                    egui::RichText::new(drop)
-                                        .color(text_color)
-                                        .size(fs_sub),
+                                ui.add(
+                                    egui::Label::new(
+                                        egui::RichText::new(drop)
+                                            .color(text_color)
+                                            .size(fs_sub),
+                                    )
+                                    .truncate(),
                                 );
                             }
                         });
@@ -367,17 +379,40 @@ mod tests {
 
     #[test]
     fn test_see_through_opacity_zero() {
-        let cfg = OverlayConfig {
-            enabled: true,
-            opacity: 0.0,
-            text_color_hex: "#F8FAFC".into(),
-            accent_color_hex: "#38BDF8".into(),
-            filter: FilterMode::AllRewards,
-            offset_x: 16.0,
-            offset_y: 60.0,
-            width: 240.0,
-            font_size: 10.5,
-        };
-        assert_eq!(cfg.opacity, 0.0);
+        let (bg, stroke, text_alpha) = compute_overlay_card_style(0.0, 1.0);
+        assert_eq!(bg, Color32::TRANSPARENT, "Background at opacity 0 must be 100% transparent");
+        assert_eq!(stroke, Stroke::NONE, "Stroke at opacity 0 must be None");
+        assert!(text_alpha >= 0.40, "Text must remain readable at opacity 0");
+    }
+
+    #[test]
+    fn test_compute_overlay_card_style_transparency_scaling() {
+        // Zero opacity is completely transparent
+        let (bg_0, _, _) = compute_overlay_card_style(0.0, 1.0);
+        assert_eq!(bg_0.a(), 0);
+
+        // 30% opacity has translucent alpha
+        let (bg_30, stroke_30, _) = compute_overlay_card_style(0.3, 1.0);
+        assert!(bg_30.a() > 50 && bg_30.a() < 100, "Alpha at 0.3 should be ~72, got {}", bg_30.a());
+        assert!(stroke_30.color.a() > 50 && stroke_30.color.a() < 100);
+
+        // 50% opacity has medium alpha
+        let (bg_50, stroke_50, _) = compute_overlay_card_style(0.5, 1.0);
+        assert!(bg_50.a() > 100 && bg_50.a() < 140, "Alpha at 0.5 should be ~120, got {}", bg_50.a());
+        assert!(stroke_50.color.a() > 100 && stroke_50.color.a() < 140);
+
+        // 100% opacity is solid dark card
+        let (bg_100, stroke_100, _) = compute_overlay_card_style(1.0, 1.0);
+        assert_eq!(bg_100.a(), 240);
+        assert_eq!(stroke_100.color.a(), 255);
+
+        // Monotonic scaling: 0.0 < 0.3 < 0.5 < 1.0
+        assert!(bg_0.a() < bg_30.a());
+        assert!(bg_30.a() < bg_50.a());
+        assert!(bg_50.a() < bg_100.a());
+
+        // Idle dimming scales alpha downward
+        let (bg_dimmed, _, _) = compute_overlay_card_style(1.0, 0.65);
+        assert!(bg_dimmed.a() < bg_100.a(), "Dimmed alpha {} should be less than active alpha {}", bg_dimmed.a(), bg_100.a());
     }
 }

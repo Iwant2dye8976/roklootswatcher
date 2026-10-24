@@ -25,21 +25,49 @@ pub struct OverlayGeometry {
     pub height: f32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OverlayVisibilityAction {
+    Show,
+    Hide,
+}
+
+pub fn determine_overlay_visibility_action(
+    overlay_enabled: bool,
+    rok_window_found: bool,
+    rok_is_active_and_visible: bool,
+) -> OverlayVisibilityAction {
+    if overlay_enabled && rok_window_found && rok_is_active_and_visible {
+        OverlayVisibilityAction::Show
+    } else {
+        OverlayVisibilityAction::Hide
+    }
+}
+
 pub fn calculate_overlay_geometry(
     bounds: &RoKWindowBounds,
     config: &crate::model::OverlayConfig,
     scale_factor: f32,
 ) -> OverlayGeometry {
     let scale = if scale_factor <= 0.0 { 1.0 } else { scale_factor };
-    let pos_x = (bounds.x as f32 + config.offset_x) / scale;
-    let pos_y = (bounds.y as f32 + config.offset_y) / scale;
     let width = config.width.clamp(180.0, 450.0);
     
-    // Dynamic height calculation based on font size (approx 3.3x font size per card + spacing)
-    let card_height = (config.font_size * 3.3).max(28.0);
-    let est_height = (card_height * 5.0 + 20.0).max(150.0);
-    let max_height = ((bounds.height as f32 - 40.0) / scale).max(150.0);
-    let height = est_height.min(max_height);
+    // Dynamic height calculation based on font size (each card has 2 lines of text + padding + card spacing)
+    let card_height = (config.font_size * 3.2 + 8.0).max(36.0);
+    let est_height = (card_height * 5.0 + 18.0).ceil();
+    let max_allowed_h = ((bounds.height as f32 - 20.0) / scale).max(100.0);
+    let height = est_height.min(max_allowed_h);
+
+    // Clamp horizontal position within game window bounds
+    let min_x = bounds.x as f32 / scale;
+    let max_x = ((bounds.x as f32 + bounds.width as f32) / scale - width - 8.0).max(min_x);
+    let raw_pos_x = (bounds.x as f32 + config.offset_x.max(0.0)) / scale;
+    let pos_x = raw_pos_x.clamp(min_x, max_x);
+
+    // Clamp vertical position so overlay never overflows past the bottom of the game window
+    let min_y = bounds.y as f32 / scale;
+    let max_y = ((bounds.y as f32 + bounds.height as f32) / scale - height - 8.0).max(min_y);
+    let raw_pos_y = (bounds.y as f32 + config.offset_y.max(0.0)) / scale;
+    let pos_y = raw_pos_y.clamp(min_y, max_y);
 
     OverlayGeometry {
         pos_x,
@@ -168,32 +196,113 @@ pub fn get_rok_window_bounds(hwnd: HWND) -> Option<RoKWindowBounds> {
     }
 }
 
-#[cfg(windows)]
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
-pub fn apply_click_through_styles(hwnd: HWND) {
-    unsafe {
+pub fn compute_window_extended_style(current_style: isize) -> isize {
+    #[cfg(windows)]
+    {
         use windows_sys::Win32::UI::WindowsAndMessaging::{
-            GetWindowLongPtrW, SetWindowLongPtrW, GWL_EXSTYLE,
-            WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT,
+            WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+            WS_EX_TOPMOST, WS_EX_TRANSPARENT,
         };
-        let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
-        let target_style = ex_style
+        current_style
             | WS_EX_TRANSPARENT as isize
+            | WS_EX_LAYERED as isize
             | WS_EX_TOOLWINDOW as isize
             | WS_EX_TOPMOST as isize
-            | WS_EX_NOACTIVATE as isize;
-        if ex_style != target_style {
-            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, target_style);
+            | WS_EX_NOACTIVATE as isize
+    }
+    #[cfg(not(windows))]
+    {
+        current_style
+            | 0x00000020 // WS_EX_TRANSPARENT
+            | 0x00080000 // WS_EX_LAYERED
+            | 0x00000080 // WS_EX_TOOLWINDOW
+            | 0x00000008 // WS_EX_TOPMOST
+            | 0x08000000 // WS_EX_NOACTIVATE
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LayeredWindowParams {
+    pub cr_key: u32,
+    pub b_alpha: u8,
+    pub flags: u32,
+}
+
+pub fn compute_layered_window_params(opacity: f32) -> LayeredWindowParams {
+    if opacity <= 0.01 {
+        LayeredWindowParams {
+            cr_key: 0x00000000,
+            b_alpha: 255,
+            flags: 1, // LWA_COLORKEY
+        }
+    } else {
+        let alpha = (160.0 + opacity.clamp(0.0, 1.0) * 95.0).round() as u8;
+        LayeredWindowParams {
+            cr_key: 0x00000000,
+            b_alpha: alpha,
+            flags: 1 | 2, // LWA_COLORKEY | LWA_ALPHA
         }
     }
 }
 
+#[cfg(windows)]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+pub fn apply_click_through_styles(hwnd: HWND, opacity: f32) {
+    unsafe {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            GetWindowLongPtrW, SetLayeredWindowAttributes, SetWindowLongPtrW, SetWindowPos,
+            GWL_EXSTYLE, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
+        };
+        let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+        let target_style = compute_window_extended_style(ex_style);
+        if ex_style != target_style {
+            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, target_style);
+            SetWindowPos(
+                hwnd,
+                std::ptr::null_mut(),
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+            );
+        }
+
+        let params = compute_layered_window_params(opacity);
+        SetLayeredWindowAttributes(hwnd, params.cr_key, params.b_alpha, params.flags);
+    }
+}
+
 #[cfg(not(windows))]
-pub fn apply_click_through_styles(_hwnd: HWND) {}
+pub fn apply_click_through_styles(_hwnd: HWND, _opacity: f32) {}
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_calculate_overlay_geometry_clamps_negative_coordinates_to_zero() {
+        let bounds = RoKWindowBounds {
+            x: 0,
+            y: 0,
+            width: 1920,
+            height: 1080,
+        };
+        let mut cfg = crate::model::OverlayConfig::default();
+        cfg.offset_x = -50.0;
+        cfg.offset_y = -100.0;
+        let geom = calculate_overlay_geometry(&bounds, &cfg, 1.0);
+        assert!(
+            geom.pos_x >= 0.0,
+            "Calculated pos_x {} must not be negative",
+            geom.pos_x
+        );
+        assert!(
+            geom.pos_y >= 0.0,
+            "Calculated pos_y {} must not be negative",
+            geom.pos_y
+        );
+    }
 
     #[test]
     fn test_calculate_overlay_geometry_with_custom_offsets() {
@@ -238,6 +347,63 @@ mod tests {
     }
 
     #[test]
+    fn test_calculate_overlay_geometry_height_fits_5_reports() {
+        let bounds = RoKWindowBounds {
+            x: 0,
+            y: 0,
+            width: 1920,
+            height: 1080,
+        };
+        let cfg = crate::model::OverlayConfig::default(); // font_size = 10.5
+        let geom = calculate_overlay_geometry(&bounds, &cfg, 1.0);
+        // Default height must provide at least 220.0 px to fit all 5 cards comfortably
+        assert!(
+            geom.height >= 220.0,
+            "Calculated overlay height {} is too small to fit 5 cards",
+            geom.height
+        );
+
+        // Also verify for max font size (15.0)
+        let mut cfg_max = cfg;
+        cfg_max.font_size = 15.0;
+        let geom_max = calculate_overlay_geometry(&bounds, &cfg_max, 1.0);
+        assert!(
+            geom_max.height >= 290.0,
+            "Max font size height {} is too small to fit 5 cards",
+            geom_max.height
+        );
+    }
+
+    #[test]
+    fn test_calculate_overlay_geometry_clamps_to_prevent_bottom_overflow() {
+        let bounds = RoKWindowBounds {
+            x: 0,
+            y: 0,
+            width: 1920,
+            height: 1080,
+        };
+        let mut cfg = crate::model::OverlayConfig::default();
+        cfg.offset_y = 1000.0; // User placed overlay near bottom
+        let geom = calculate_overlay_geometry(&bounds, &cfg, 1.0);
+        assert!(
+            geom.pos_y + geom.height <= bounds.height as f32,
+            "Overlay bottom {} must not overflow game window height {}",
+            geom.pos_y + geom.height,
+            bounds.height
+        );
+
+        // Test with max font size (15.0) as well
+        cfg.font_size = 15.0;
+        let geom_large = calculate_overlay_geometry(&bounds, &cfg, 1.0);
+        assert!(
+            geom_large.pos_y + geom_large.height <= bounds.height as f32,
+            "Large font overlay bottom {} must not overflow game window height {}",
+            geom_large.pos_y + geom_large.height,
+            bounds.height
+        );
+    }
+
+    #[test]
     fn test_calculate_overlay_geometry_small_window() {
         let bounds = RoKWindowBounds {
             x: 0,
@@ -261,5 +427,76 @@ mod tests {
         assert!(!is_rok_window_title("Rise of Kingdoms - Motte, Fort & Barbarian Loot Watcher"));
         assert!(!is_rok_window_title("C:\\Program Files\\Rise of Kingdoms - File Explorer"));
         assert!(!is_rok_window_title("Other Game"));
+    }
+
+    #[test]
+    fn test_compute_window_extended_style_preserves_hardware_transparency() {
+        let style = compute_window_extended_style(0);
+        // WS_EX_TRANSPARENT (0x00000020)
+        assert_ne!(style & 0x00000020, 0, "Missing WS_EX_TRANSPARENT");
+        // WS_EX_LAYERED (0x00080000)
+        assert_ne!(style & 0x00080000, 0, "Missing WS_EX_LAYERED");
+        // WS_EX_TOOLWINDOW (0x00000080)
+        assert_ne!(style & 0x00000080, 0, "Missing WS_EX_TOOLWINDOW");
+        // WS_EX_TOPMOST (0x00000008)
+        assert_ne!(style & 0x00000008, 0, "Missing WS_EX_TOPMOST");
+        // WS_EX_NOACTIVATE (0x08000000)
+        assert_ne!(style & 0x08000000, 0, "Missing WS_EX_NOACTIVATE");
+        // WS_EX_NOREDIRECTIONBITMAP (0x00200000) must NOT be present (breaks OpenGL DWM)
+        assert_eq!(style & 0x00200000, 0, "WS_EX_NOREDIRECTIONBITMAP must not be present");
+    }
+
+    #[test]
+    fn test_determine_overlay_visibility_action_hides_when_rok_not_visible() {
+        // Overlay enabled, RoK found, but RoK is minimized/not visible or in background
+        assert_eq!(
+            determine_overlay_visibility_action(true, true, false),
+            OverlayVisibilityAction::Hide,
+            "Overlay must hide when RoK is not visible"
+        );
+
+        // Overlay enabled, but RoK window closed/not found
+        assert_eq!(
+            determine_overlay_visibility_action(true, false, false),
+            OverlayVisibilityAction::Hide,
+            "Overlay must hide when RoK is not running"
+        );
+
+        // Overlay disabled in settings
+        assert_eq!(
+            determine_overlay_visibility_action(false, true, true),
+            OverlayVisibilityAction::Hide,
+            "Overlay must hide when disabled"
+        );
+    }
+
+    #[test]
+    fn test_determine_overlay_visibility_action_shows_only_when_rok_active_and_visible() {
+        assert_eq!(
+            determine_overlay_visibility_action(true, true, true),
+            OverlayVisibilityAction::Show,
+            "Overlay must show when enabled, RoK is found and RoK is active & visible"
+        );
+    }
+
+    #[test]
+    fn test_compute_layered_window_params_see_through() {
+        let params = compute_layered_window_params(0.0);
+        assert_eq!(params.cr_key, 0x00000000, "Color key must be pure black");
+        assert_eq!(params.b_alpha, 255, "Alpha must be 255 for full brightness text");
+        assert_eq!(params.flags, 1, "Must use LWA_COLORKEY");
+    }
+
+    #[test]
+    fn test_compute_layered_window_params_partial_and_solid() {
+        let p_mid = compute_layered_window_params(0.5);
+        assert_eq!(p_mid.cr_key, 0x00000000);
+        assert_eq!(p_mid.b_alpha, 208);
+        assert_eq!(p_mid.flags, 1 | 2, "Must combine LWA_COLORKEY and LWA_ALPHA");
+
+        let p_solid = compute_layered_window_params(1.0);
+        assert_eq!(p_solid.cr_key, 0x00000000);
+        assert_eq!(p_solid.b_alpha, 255);
+        assert_eq!(p_solid.flags, 1 | 2);
     }
 }

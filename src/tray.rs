@@ -138,8 +138,6 @@ impl SystemTrayManager {
                     ..
                 } => {
                     restore_main_window();
-                    ctx_tray.send_viewport_cmd(egui::ViewportCommand::Visible(true));
-                    ctx_tray.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
                     ctx_tray.send_viewport_cmd(egui::ViewportCommand::Focus);
                     ctx_tray.request_repaint();
                 }
@@ -153,8 +151,6 @@ impl SystemTrayManager {
         muda::MenuEvent::set_event_handler(Some(move |event: muda::MenuEvent| {
             if event.id == show_id {
                 restore_main_window();
-                ctx_menu.send_viewport_cmd(egui::ViewportCommand::Visible(true));
-                ctx_menu.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
                 ctx_menu.send_viewport_cmd(egui::ViewportCommand::Focus);
                 ctx_menu.request_repaint();
             } else if event.id == rescan_id {
@@ -238,6 +234,14 @@ use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 static MAIN_HWND: AtomicIsize = AtomicIsize::new(0);
 static SHOULD_QUIT: AtomicBool = AtomicBool::new(false);
 static RESTORE_REQUESTED: AtomicBool = AtomicBool::new(false);
+static IS_HIDDEN_TO_TRAY: AtomicBool = AtomicBool::new(false);
+
+#[cfg(windows)]
+static PREV_RECT: std::sync::Mutex<Option<windows_sys::Win32::Foundation::RECT>> = std::sync::Mutex::new(None);
+
+pub fn is_hidden_to_tray() -> bool {
+    IS_HIDDEN_TO_TRAY.load(Ordering::SeqCst)
+}
 
 pub fn request_quit() {
     SHOULD_QUIT.store(true, Ordering::SeqCst);
@@ -337,9 +341,45 @@ pub fn get_or_find_main_hwnd() -> Option<windows_sys::Win32::Foundation::HWND> {
 
 pub fn restore_main_window() {
     request_restore();
+    IS_HIDDEN_TO_TRAY.store(false, Ordering::SeqCst);
+    #[cfg(windows)]
     if let Some(hwnd) = get_or_find_main_hwnd() {
         unsafe {
             use windows_sys::Win32::UI::WindowsAndMessaging::*;
+            // Restore normal taskbar style
+            let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+            let normal_style = (ex_style & !(WS_EX_TOOLWINDOW as isize)) | (WS_EX_APPWINDOW as isize);
+            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, normal_style);
+
+            // Restore position
+            let saved = if let Ok(lock) = PREV_RECT.lock() {
+                *lock
+            } else {
+                None
+            };
+
+            if let Some(r) = saved {
+                SetWindowPos(
+                    hwnd,
+                    0 as _,
+                    r.left,
+                    r.top,
+                    r.right - r.left,
+                    r.bottom - r.top,
+                    SWP_NOZORDER | SWP_FRAMECHANGED,
+                );
+            } else {
+                SetWindowPos(
+                    hwnd,
+                    0 as _,
+                    100,
+                    100,
+                    1380,
+                    860,
+                    SWP_NOZORDER | SWP_FRAMECHANGED,
+                );
+            }
+
             ShowWindow(hwnd, SW_SHOW);
             ShowWindow(hwnd, SW_RESTORE);
             SetForegroundWindow(hwnd);
@@ -349,15 +389,38 @@ pub fn restore_main_window() {
 }
 
 pub fn hide_main_window() {
+    IS_HIDDEN_TO_TRAY.store(true, Ordering::SeqCst);
+    #[cfg(windows)]
     if let Some(hwnd) = get_or_find_main_hwnd() {
         unsafe {
             use windows_sys::Win32::UI::WindowsAndMessaging::*;
-            ShowWindow(hwnd, SW_HIDE);
+            let mut rect = windows_sys::Win32::Foundation::RECT { left: 0, top: 0, right: 0, bottom: 0 };
+            if GetWindowRect(hwnd, &mut rect) != 0 {
+                if rect.left > -10000 && rect.top > -10000 {
+                    if let Ok(mut lock) = PREV_RECT.lock() {
+                        *lock = Some(rect);
+                    }
+                }
+            }
+            // Remove from taskbar by switching to WS_EX_TOOLWINDOW
+            let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+            let tool_style = (ex_style & !(WS_EX_APPWINDOW as isize)) | (WS_EX_TOOLWINDOW as isize);
+            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, tool_style);
+
+            // Move off-screen while keeping WS_VISIBLE so Win32 message loop & overlay updates continue
+            SetWindowPos(
+                hwnd,
+                0 as _,
+                -32000,
+                -32000,
+                0,
+                0,
+                SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+            );
+            ShowWindow(hwnd, SW_SHOWNA);
         }
     }
-    // Thu hồi Working Set RAM và kích hoạt EcoQoS khi ẩn vào Tray
     trim_memory_working_set();
-    enable_eco_qos();
 }
 
 #[cfg(windows)]
@@ -378,53 +441,6 @@ pub fn trim_memory_working_set() {
 
 #[cfg(not(windows))]
 pub fn trim_memory_working_set() {}
-
-#[cfg(windows)]
-pub fn enable_eco_qos() {
-    unsafe {
-        #[link(name = "kernel32")]
-        extern "system" {
-            fn GetCurrentProcess() -> isize;
-            fn SetProcessInformation(
-                hProcess: isize,
-                ProcessInformationClass: i32,
-                ProcessInformation: *const std::ffi::c_void,
-                ProcessInformationSize: u32,
-            ) -> i32;
-            fn SetPriorityClass(hProcess: isize, dwPriorityClass: u32) -> i32;
-        }
-
-        const BELOW_NORMAL_PRIORITY_CLASS: u32 = 0x00004000;
-        const PROCESS_POWER_THROTTLING: i32 = 4;
-        const PROCESS_POWER_THROTTLING_EXECUTION_SPEED: u32 = 0x1;
-
-        #[allow(non_snake_case)]
-        #[repr(C)]
-        struct PROCESS_POWER_THROTTLING_STATE {
-            Version: u32,
-            ControlMask: u32,
-            StateMask: u32,
-        }
-
-        let _ = SetPriorityClass(GetCurrentProcess(), BELOW_NORMAL_PRIORITY_CLASS);
-
-        let throttling = PROCESS_POWER_THROTTLING_STATE {
-            Version: 1,
-            ControlMask: PROCESS_POWER_THROTTLING_EXECUTION_SPEED,
-            StateMask: PROCESS_POWER_THROTTLING_EXECUTION_SPEED,
-        };
-
-        let _ = SetProcessInformation(
-            GetCurrentProcess(),
-            PROCESS_POWER_THROTTLING,
-            &throttling as *const _ as *const std::ffi::c_void,
-            std::mem::size_of::<PROCESS_POWER_THROTTLING_STATE>() as u32,
-        );
-    }
-}
-
-#[cfg(not(windows))]
-pub fn enable_eco_qos() {}
 
 #[cfg(test)]
 mod tests {
@@ -460,5 +476,14 @@ mod tests {
             assert_eq!(tray.toggle_item.text(), "Dừng / Tiếp tục theo dõi");
             assert_eq!(tray.quit_item.text(), "Thoát ứng dụng hoàn toàn");
         }
+    }
+
+    #[test]
+    fn test_tray_hidden_state_toggle() {
+        assert!(!is_hidden_to_tray());
+        hide_main_window();
+        assert!(is_hidden_to_tray());
+        restore_main_window();
+        assert!(!is_hidden_to_tray());
     }
 }

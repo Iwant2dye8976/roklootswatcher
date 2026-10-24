@@ -194,6 +194,8 @@ pub struct RoKLootWatcherApp {
     pub overlay_config: crate::model::OverlayConfig,
     pub last_mail_arrival: std::time::Instant,
     overlay_styled_hwnd: Option<isize>,
+    overlay_last_opacity: Option<f32>,
+    pending_overlay_save: bool,
     pending_start_minimized_frames: u32,
     is_armored: bool,
     pending_armor_check: Option<std::sync::mpsc::Receiver<bool>>,
@@ -605,6 +607,8 @@ impl RoKLootWatcherApp {
             overlay_config: config.overlay.clone(),
             last_mail_arrival: std::time::Instant::now(),
             overlay_styled_hwnd: None,
+            overlay_last_opacity: None,
+            pending_overlay_save: false,
             pending_start_minimized_frames: if start_minimized { 5 } else { 0 },
             is_armored: false,
             pending_armor_check: Some(armor_rx),
@@ -636,8 +640,7 @@ impl RoKLootWatcherApp {
         std::process::exit(0);
     }
 
-    fn hide_to_tray(&self, ctx: &egui::Context) {
-        ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+    fn hide_to_tray(&self, _ctx: &egui::Context) {
         crate::tray::hide_main_window();
         let msg = match self.language {
             AppLanguage::Vietnamese => "Ứng dụng đã thu nhỏ xuống Khay hệ thống (System Tray). Nhấp vào biểu tượng ở khay để mở lại bất cứ lúc nào.",
@@ -2990,22 +2993,26 @@ impl RoKLootWatcherApp {
                             });
 
                             let mut pos_changed = false;
-                            let nudge_step = 2.5_f32;
+                            let nudge_step = 0.5_f32;
                             ui.horizontal(|ui| {
                                 // 3x3 D-Pad
-                                ui.vertical(|ui| {
-                                    ui.horizontal(|ui| {
-                                        ui.add_space(34.0);
-                                        let btn_up = ui.add_sized([30.0, 24.0], egui::Button::new("▲"));
-                                        if btn_up.is_pointer_button_down_on() {
-                                            self.overlay_config.offset_y -= nudge_step;
+                                egui::Grid::new("overlay_dpad_grid")
+                                    .spacing([4.0, 4.0])
+                                    .show(ui, |ui| {
+                                        // Row 1: [ empty ] [  ▲  ] [ empty ]
+                                        ui.allocate_space(egui::vec2(30.0, 24.0));
+                                        let btn_up = ui.add_sized([30.0, 24.0], egui::Button::new("▲").sense(egui::Sense::click_and_drag()));
+                                        if btn_up.is_pointer_button_down_on() || btn_up.dragged() || (btn_up.hovered() && ui.input(|i| i.pointer.primary_down())) {
+                                            self.overlay_config.offset_y = (self.overlay_config.offset_y - nudge_step).max(0.0);
                                             pos_changed = true;
                                         }
-                                    });
-                                    ui.horizontal(|ui| {
-                                        let btn_left = ui.add_sized([30.0, 24.0], egui::Button::new("◄"));
-                                        if btn_left.is_pointer_button_down_on() {
-                                            self.overlay_config.offset_x -= nudge_step;
+                                        ui.allocate_space(egui::vec2(30.0, 24.0));
+                                        ui.end_row();
+
+                                        // Row 2: [   ◄   ] [ RoK ] [   ►   ]
+                                        let btn_left = ui.add_sized([30.0, 24.0], egui::Button::new("◄").sense(egui::Sense::click_and_drag()));
+                                        if btn_left.is_pointer_button_down_on() || btn_left.dragged() || (btn_left.hovered() && ui.input(|i| i.pointer.primary_down())) {
+                                            self.overlay_config.offset_x = (self.overlay_config.offset_x - nudge_step).max(0.0);
                                             pos_changed = true;
                                         }
                                         let btn_reset = ui.add_sized([30.0, 24.0], egui::Button::new(egui::RichText::new("RoK").size(10.0)));
@@ -3014,21 +3021,23 @@ impl RoKLootWatcherApp {
                                             self.overlay_config.offset_y = 60.0;
                                             pos_changed = true;
                                         }
-                                        let btn_right = ui.add_sized([30.0, 24.0], egui::Button::new("►"));
-                                        if btn_right.is_pointer_button_down_on() {
+                                        let btn_right = ui.add_sized([30.0, 24.0], egui::Button::new("►").sense(egui::Sense::click_and_drag()));
+                                        if btn_right.is_pointer_button_down_on() || btn_right.dragged() || (btn_right.hovered() && ui.input(|i| i.pointer.primary_down())) {
                                             self.overlay_config.offset_x += nudge_step;
                                             pos_changed = true;
                                         }
-                                    });
-                                    ui.horizontal(|ui| {
-                                        ui.add_space(34.0);
-                                        let btn_down = ui.add_sized([30.0, 24.0], egui::Button::new("▼"));
-                                        if btn_down.is_pointer_button_down_on() {
+                                        ui.end_row();
+
+                                        // Row 3: [ empty ] [  ▼  ] [ empty ]
+                                        ui.allocate_space(egui::vec2(30.0, 24.0));
+                                        let btn_down = ui.add_sized([30.0, 24.0], egui::Button::new("▼").sense(egui::Sense::click_and_drag()));
+                                        if btn_down.is_pointer_button_down_on() || btn_down.dragged() || (btn_down.hovered() && ui.input(|i| i.pointer.primary_down())) {
                                             self.overlay_config.offset_y += nudge_step;
                                             pos_changed = true;
                                         }
+                                        ui.allocate_space(egui::vec2(30.0, 24.0));
+                                        ui.end_row();
                                     });
-                                });
 
                                 ui.add_space(16.0);
 
@@ -3037,15 +3046,17 @@ impl RoKLootWatcherApp {
                                     ui.horizontal(|ui| {
                                         ui.label("X:");
                                         let prev_x = self.overlay_config.offset_x;
-                                        ui.add(egui::DragValue::new(&mut self.overlay_config.offset_x).speed(1.0).range(-2000.0..=3000.0));
+                                        ui.add(egui::DragValue::new(&mut self.overlay_config.offset_x).speed(1.0).range(0.0..=3000.0));
                                         if (self.overlay_config.offset_x - prev_x).abs() > 0.1 {
+                                            self.overlay_config.offset_x = self.overlay_config.offset_x.max(0.0);
                                             pos_changed = true;
                                         }
                                         ui.add_space(8.0);
                                         ui.label("Y:");
                                         let prev_y = self.overlay_config.offset_y;
-                                        ui.add(egui::DragValue::new(&mut self.overlay_config.offset_y).speed(1.0).range(-2000.0..=3000.0));
+                                        ui.add(egui::DragValue::new(&mut self.overlay_config.offset_y).speed(1.0).range(0.0..=3000.0));
                                         if (self.overlay_config.offset_y - prev_y).abs() > 0.1 {
+                                            self.overlay_config.offset_y = self.overlay_config.offset_y.max(0.0);
                                             pos_changed = true;
                                         }
                                     });
@@ -3063,9 +3074,16 @@ impl RoKLootWatcherApp {
                             });
 
                             if pos_changed {
+                                self.overlay_config.offset_x = self.overlay_config.offset_x.max(0.0);
+                                self.overlay_config.offset_y = self.overlay_config.offset_y.max(0.0);
                                 self.last_mail_arrival = std::time::Instant::now();
-                                self.save_config();
+                                self.pending_overlay_save = true;
                                 ctx.request_repaint();
+                            }
+
+                            if self.pending_overlay_save && (!ui.input(|i| i.pointer.any_down()) || ui.input(|i| i.pointer.any_released())) {
+                                self.pending_overlay_save = false;
+                                self.save_config();
                             }
 
                             ui.add_space(8.0);
@@ -3667,6 +3685,10 @@ impl RoKLootWatcherApp {
 }
 
 impl eframe::App for RoKLootWatcherApp {
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        [0.0, 0.0, 0.0, 0.0]
+    }
+
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Cache native HWND if not yet done
         let _ = crate::tray::get_or_find_main_hwnd();
@@ -3682,7 +3704,6 @@ impl eframe::App for RoKLootWatcherApp {
         // Handle initial autostart minimization
         if self.pending_start_minimized_frames > 0 {
             self.pending_start_minimized_frames -= 1;
-            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
             crate::tray::hide_main_window();
         }
 
@@ -3771,54 +3792,71 @@ impl eframe::App for RoKLootWatcherApp {
             ctx.request_repaint_after(std::time::Duration::from_millis(500));
         }
 
-        // Left Sidebar Navigation
-        egui::SidePanel::left("left_sidebar_panel")
-            .exact_width(220.0)
-            .resizable(false)
-            .frame(egui::Frame::none().fill(c.sidebar_bg).stroke(Stroke::new(1.0_f32, c.hairline)).inner_margin(Margin::same(12.0)))
-            .show(ctx, |ui| {
-                self.render_sidebar(ui, ctx);
-            });
-
-        // Slide-over Side Inspector Panel (if battle detail is selected)
-        let mut close_inspector = false;
-        let inspector_record = self.selected_battle_detail.clone();
-        if let Some(ref record) = inspector_record {
-            egui::SidePanel::right("inspector_side_panel")
-                .exact_width(380.0)
+        if !crate::tray::is_hidden_to_tray() {
+            // Left Sidebar Navigation
+            egui::SidePanel::left("left_sidebar_panel")
+                .exact_width(220.0)
                 .resizable(false)
-                .frame(egui::Frame::none().fill(c.ink_deep).stroke(Stroke::new(1.0_f32, c.hairline)).inner_margin(Margin::same(16.0)))
+                .frame(egui::Frame::none().fill(c.sidebar_bg).stroke(Stroke::new(1.0_f32, c.hairline)).inner_margin(Margin::same(12.0)))
                 .show(ctx, |ui| {
-                    self.render_side_inspector(ui, record, &mut close_inspector);
+                    self.render_sidebar(ui, ctx);
                 });
-        }
-        if close_inspector {
-            self.selected_battle_detail = None;
-        }
 
-        // Central Content Area
-        egui::CentralPanel::default()
-            .frame(egui::Frame::none().fill(c.ink).inner_margin(Margin::same(16.0)))
-            .show(ctx, |ui| {
-                match self.current_tab {
-                    0 => self.render_view_dashboard(ui),
-                    1 => self.render_view_battles(ui),
-                    2 => self.render_view_inventory(ui),
-                    3 => self.render_view_settings(ui, ctx),
-                    _ => self.render_view_dashboard(ui),
-                }
-            });
+            // Slide-over Side Inspector Panel (if battle detail is selected)
+            let mut close_inspector = false;
+            let inspector_record = self.selected_battle_detail.clone();
+            if let Some(ref record) = inspector_record {
+                egui::SidePanel::right("inspector_side_panel")
+                    .exact_width(380.0)
+                    .resizable(false)
+                    .frame(egui::Frame::none().fill(c.ink_deep).stroke(Stroke::new(1.0_f32, c.hairline)).inner_margin(Margin::same(16.0)))
+                    .show(ctx, |ui| {
+                        self.render_side_inspector(ui, record, &mut close_inspector);
+                    });
+            }
+            if close_inspector {
+                self.selected_battle_detail = None;
+            }
+
+            // Central Content Area
+            egui::CentralPanel::default()
+                .frame(egui::Frame::none().fill(c.ink).inner_margin(Margin::same(16.0)))
+                .show(ctx, |ui| {
+                    match self.current_tab {
+                        0 => self.render_view_dashboard(ui),
+                        1 => self.render_view_battles(ui),
+                        2 => self.render_view_inventory(ui),
+                        3 => self.render_view_settings(ui, ctx),
+                        _ => self.render_view_dashboard(ui),
+                    }
+                });
+
+        }
 
         // In-game overlay multi-viewport handling
-        if self.overlay_config.enabled {
-            let mut is_active_rendered = false;
+        let overlay_id = egui::ViewportId::from_hash_of("rok_overlay_viewport");
+        let rok_hwnd = if self.overlay_config.enabled {
+            crate::overlay_tracker::find_rok_window()
+        } else {
+            None
+        };
+        let rok_found = rok_hwnd.is_some();
+        let is_active = rok_hwnd.map_or(false, crate::overlay_tracker::is_rok_active_and_visible);
+        let action = crate::overlay_tracker::determine_overlay_visibility_action(
+            self.overlay_config.enabled,
+            rok_found,
+            is_active,
+        );
 
-            if let Some(hwnd) = crate::overlay_tracker::find_rok_window() {
-                if crate::overlay_tracker::is_rok_active_and_visible(hwnd) {
+        match action {
+            crate::overlay_tracker::OverlayVisibilityAction::Show => {
+                if let Some(hwnd) = rok_hwnd {
                     if let Some(bounds) = crate::overlay_tracker::get_rok_window_bounds(hwnd) {
-                        is_active_rendered = true;
-                        let geom = crate::overlay_tracker::calculate_overlay_geometry(&bounds, &self.overlay_config, ctx.pixels_per_point());
-                        let overlay_id = egui::ViewportId::from_hash_of("rok_overlay_viewport");
+                        let geom = crate::overlay_tracker::calculate_overlay_geometry(
+                            &bounds,
+                            &self.overlay_config,
+                            ctx.pixels_per_point(),
+                        );
                         let builder = egui::ViewportBuilder::default()
                             .with_title("Rise of Kingdoms Loot Overlay")
                             .with_decorations(false)
@@ -3837,30 +3875,79 @@ impl eframe::App for RoKLootWatcherApp {
                         let overlay_cfg = self.overlay_config.clone();
                         let last_mail = self.last_mail_arrival;
 
-                        #[cfg(windows)]
-                        if self.overlay_styled_hwnd.is_none() {
-                            let title_wide: Vec<u16> = "Rise of Kingdoms Loot Overlay\0".encode_utf16().collect();
-                            unsafe {
-                                let vhwnd = windows_sys::Win32::UI::WindowsAndMessaging::FindWindowW(
-                                    std::ptr::null(),
-                                    title_wide.as_ptr(),
-                                );
-                                if vhwnd != 0 as _ {
-                                    crate::overlay_tracker::apply_click_through_styles(vhwnd);
-                                    self.overlay_styled_hwnd = Some(vhwnd as isize);
-                                }
-                            }
-                        }
-
                         ctx.show_viewport_immediate(overlay_id, builder, move |ctx, _class| {
                             crate::overlay_ui::render_overlay_viewport(ctx, &filtered, &overlay_cfg, last_mail);
                         });
+
+                        // Ensure viewport size & position update smoothly when sliders or D-pad are used
+                        ctx.send_viewport_cmd_to(
+                            overlay_id,
+                            egui::ViewportCommand::InnerSize(egui::vec2(geom.width.round(), geom.height.round())),
+                        );
+                        ctx.send_viewport_cmd_to(
+                            overlay_id,
+                            egui::ViewportCommand::OuterPosition(egui::pos2(geom.pos_x.round(), geom.pos_y.round())),
+                        );
+                        ctx.send_viewport_cmd_to(
+                            overlay_id,
+                            egui::ViewportCommand::Visible(true),
+                        );
+
+                        #[cfg(windows)]
+                        {
+                            let is_valid_hwnd = self.overlay_styled_hwnd.map_or(false, |h| unsafe {
+                                windows_sys::Win32::UI::WindowsAndMessaging::IsWindow(h as _) != 0
+                            });
+                            let needs_styling = !is_valid_hwnd
+                                || self.overlay_last_opacity != Some(self.overlay_config.opacity);
+                            if needs_styling {
+                                let title_wide: Vec<u16> = "Rise of Kingdoms Loot Overlay\0".encode_utf16().collect();
+                                unsafe {
+                                    let vhwnd = windows_sys::Win32::UI::WindowsAndMessaging::FindWindowW(
+                                        std::ptr::null(),
+                                        title_wide.as_ptr(),
+                                    );
+                                    if vhwnd != 0 as _ {
+                                        self.overlay_styled_hwnd = Some(vhwnd as isize);
+                                        self.overlay_last_opacity = Some(self.overlay_config.opacity);
+                                        windows_sys::Win32::UI::WindowsAndMessaging::ShowWindow(
+                                            vhwnd,
+                                            windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNOACTIVATE,
+                                        );
+                                        crate::overlay_tracker::apply_click_through_styles(vhwnd, self.overlay_config.opacity);
+                                    } else {
+                                        self.overlay_styled_hwnd = None;
+                                        self.overlay_last_opacity = None;
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
+                ctx.request_repaint_after(std::time::Duration::from_millis(100));
             }
-
-            let delay_ms = if is_active_rendered { 100 } else { 500 };
-            ctx.request_repaint_after(std::time::Duration::from_millis(delay_ms));
+            crate::overlay_tracker::OverlayVisibilityAction::Hide => {
+                ctx.send_viewport_cmd_to(overlay_id, egui::ViewportCommand::Visible(false));
+                self.overlay_styled_hwnd = None;
+                self.overlay_last_opacity = None;
+                #[cfg(windows)]
+                {
+                    let title_wide: Vec<u16> = "Rise of Kingdoms Loot Overlay\0".encode_utf16().collect();
+                    unsafe {
+                        let vhwnd = windows_sys::Win32::UI::WindowsAndMessaging::FindWindowW(
+                            std::ptr::null(),
+                            title_wide.as_ptr(),
+                        );
+                        if vhwnd != 0 as _ {
+                            windows_sys::Win32::UI::WindowsAndMessaging::ShowWindow(
+                                vhwnd,
+                                windows_sys::Win32::UI::WindowsAndMessaging::SW_HIDE,
+                            );
+                        }
+                    }
+                }
+                ctx.request_repaint_after(std::time::Duration::from_millis(500));
+            }
         }
     }
 }
