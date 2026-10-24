@@ -29,9 +29,9 @@ pub fn calculate_overlay_geometry(bounds: &RoKWindowBounds, scale_factor: f32) -
     let scale = if scale_factor <= 0.0 { 1.0 } else { scale_factor };
     let pos_x = (bounds.x as f32 + 16.0) / scale;
     let pos_y = (bounds.y as f32 + 60.0) / scale;
-    let width = 360.0;
-    let max_height = ((bounds.height as f32 - 80.0) / scale).max(200.0);
-    let height = 680.0_f32.min(max_height);
+    let width = 240.0;
+    let max_height = ((bounds.height as f32 - 80.0) / scale).max(150.0);
+    let height = 210.0_f32.min(max_height);
     OverlayGeometry {
         pos_x,
         pos_y,
@@ -109,7 +109,18 @@ pub fn is_rok_active_and_visible(hwnd: HWND) -> bool {
             return false;
         }
         let fg = GetForegroundWindow();
-        fg == hwnd
+        if fg == hwnd {
+            return true;
+        }
+        let mut rok_pid = 0;
+        GetWindowThreadProcessId(hwnd, &mut rok_pid);
+        let mut fg_pid = 0;
+        GetWindowThreadProcessId(fg, &mut fg_pid);
+        if rok_pid != 0 && fg_pid == rok_pid {
+            return true;
+        }
+        let own_pid = std::process::id();
+        fg_pid == own_pid
     }
     #[cfg(not(windows))]
     {
@@ -154,14 +165,14 @@ pub fn apply_click_through_styles(hwnd: HWND) {
     unsafe {
         use windows_sys::Win32::UI::WindowsAndMessaging::{
             GetWindowLongPtrW, SetWindowLongPtrW, GWL_EXSTYLE,
-            WS_EX_LAYERED, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT,
+            WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT,
         };
         let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
         let target_style = ex_style
             | WS_EX_TRANSPARENT as isize
-            | WS_EX_LAYERED as isize
             | WS_EX_TOOLWINDOW as isize
-            | WS_EX_TOPMOST as isize;
+            | WS_EX_TOPMOST as isize
+            | WS_EX_NOACTIVATE as isize;
         if ex_style != target_style {
             SetWindowLongPtrW(hwnd, GWL_EXSTYLE, target_style);
         }
@@ -186,8 +197,8 @@ mod tests {
         let geom = calculate_overlay_geometry(&bounds, 1.0);
         assert_eq!(geom.pos_x, 116.0); // 100 + 16 margin
         assert_eq!(geom.pos_y, 110.0); // 50 + 60 margin
-        assert_eq!(geom.width, 360.0);
-        assert_eq!(geom.height, 680.0); // min(680, 1080 - 80)
+        assert_eq!(geom.width, 240.0);
+        assert_eq!(geom.height, 210.0);
     }
 
     #[test]
@@ -201,8 +212,8 @@ mod tests {
         let geom = calculate_overlay_geometry(&bounds, 1.0);
         assert_eq!(geom.pos_x, 16.0);
         assert_eq!(geom.pos_y, 60.0);
-        assert_eq!(geom.width, 360.0);
-        assert_eq!(geom.height, 420.0); // 500 - 80
+        assert_eq!(geom.width, 240.0);
+        assert_eq!(geom.height, 210.0);
     }
 
     #[test]

@@ -38,10 +38,19 @@ pub fn format_card_data(rec: &BattleRecord) -> CardDisplayData {
         rec.target.clone()
     };
 
-    let time_display = if !rec.time_vn.is_empty() {
-        rec.time_vn.clone()
+    let raw_time = if !rec.time_vn.is_empty() {
+        &rec.time_vn
     } else if !rec.time_utc.is_empty() {
-        rec.time_utc.clone()
+        &rec.time_utc
+    } else {
+        ""
+    };
+    let time_display = if let Some((_, t)) = raw_time.split_once(' ') {
+        t.chars().take(5).collect()
+    } else if raw_time.len() > 5 && raw_time.contains(':') {
+        raw_time.chars().take(5).collect()
+    } else if !raw_time.is_empty() {
+        raw_time.to_string()
     } else {
         format!("{}", rec.time_raw)
     };
@@ -54,34 +63,22 @@ pub fn format_card_data(rec: &BattleRecord) -> CardDisplayData {
 
     let mut drops_summary = Vec::new();
     if !rec.item_totals.is_empty() {
-        // Collect and sort items for display
         let mut items: Vec<(&String, &i64)> = rec.item_totals.iter().collect();
         items.sort_by(|a, b| b.1.cmp(a.1));
 
-        let mut current_line = String::new();
-        for (idx, (name, count)) in items.iter().take(6).enumerate() {
-            let part = format!("{}: {}", name, crate::model::format_num(*count));
-            if current_line.is_empty() {
-                current_line = format!("• {}", part);
-            } else if current_line.len() + part.len() < 45 {
-                current_line.push_str(" | ");
-                current_line.push_str(&part);
-            } else {
-                drops_summary.push(current_line);
-                current_line = format!("• {}", part);
-            }
-            if idx == 5 && !current_line.is_empty() {
-                drops_summary.push(current_line.clone());
-                current_line.clear();
-            }
-        }
-        if !current_line.is_empty() && !drops_summary.contains(&current_line) {
-            drops_summary.push(current_line);
+        let top_parts: Vec<String> = items
+            .iter()
+            .take(2)
+            .map(|(name, count)| format!("{}: {}", name, crate::model::format_num(*count)))
+            .collect();
+
+        if !top_parts.is_empty() {
+            drops_summary.push(format!("• {}", top_parts.join(" • ")));
         }
     }
 
     if drops_summary.is_empty() {
-        drops_summary.push("• (No major items recorded)".to_string());
+        drops_summary.push("• (No items)".to_string());
     }
 
     CardDisplayData {
@@ -126,29 +123,29 @@ pub fn render_overlay_viewport(
     last_mail_time: std::time::Instant,
 ) {
     let dim_factor = compute_idle_dim_factor(last_mail_time);
-    let alpha_u8 = (255.0 * config.opacity * dim_factor).clamp(0.0, 255.0) as u8;
-    let bg_color = Color32::from_black_alpha(alpha_u8);
+    let eff_opacity = (config.opacity * dim_factor).clamp(0.15, 1.0);
+    let bg_color = Color32::from_rgba_unmultiplied(15, 23, 42, (220.0 * eff_opacity) as u8);
 
-    let text_color = parse_hex_color(&config.text_color_hex)
+    let base_text_color = parse_hex_color(&config.text_color_hex)
         .unwrap_or_else(|| Color32::from_rgb(248, 250, 252));
-    let muted_text = text_color.linear_multiply(0.7);
+    let text_color = base_text_color.linear_multiply(eff_opacity);
+    let muted_text = base_text_color.linear_multiply(0.65 * eff_opacity);
 
     egui::CentralPanel::default()
         .frame(Frame::none())
         .show(ctx, |ui| {
-            ui.spacing_mut().item_spacing = egui::vec2(0.0, 8.0);
+            ui.spacing_mut().item_spacing = egui::vec2(0.0, 3.0);
 
             if records.is_empty() {
                 Frame::none()
                     .fill(bg_color)
-                    .rounding(Rounding::same(6.0))
-                    .inner_margin(Margin::same(10.0))
+                    .rounding(Rounding::same(4.0))
+                    .inner_margin(Margin::symmetric(8.0, 6.0))
                     .show(ui, |ui| {
                         ui.label(
                             egui::RichText::new("[RoK Overlay - No matching reports]")
                                 .color(muted_text)
-                                .size(12.0)
-                                .strong(),
+                                .size(10.0),
                         );
                     });
                 return;
@@ -159,69 +156,79 @@ pub fn render_overlay_viewport(
 
                 let card_resp = Frame::none()
                     .fill(bg_color)
-                    .rounding(Rounding::same(6.0))
-                    .stroke(Stroke::new(1.0_f32, Color32::from_white_alpha((40.0 * dim_factor) as u8)))
+                    .rounding(Rounding::same(4.0))
+                    .stroke(Stroke::new(1.0_f32, Color32::from_white_alpha((35.0 * eff_opacity) as u8)))
                     .inner_margin(Margin {
-                        left: 14.0,
-                        right: 10.0,
-                        top: 8.0,
-                        bottom: 8.0,
+                        left: 8.0,
+                        right: 6.0,
+                        top: 3.0,
+                        bottom: 3.0,
                     })
                     .show(ui, |ui| {
+                        // Line 1: [TAG] Target (left) ... Time (right)
                         ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing = egui::vec2(4.0, 0.0);
                             ui.label(
                                 egui::RichText::new(&card.tag)
-                                    .color(card.accent_color)
-                                    .size(11.0)
+                                    .color(card.accent_color.linear_multiply(eff_opacity))
+                                    .size(10.0)
                                     .strong(),
                             );
                             ui.label(
                                 egui::RichText::new(&card.target_display)
                                     .color(text_color)
-                                    .size(12.0)
+                                    .size(10.5)
                                     .strong(),
                             );
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                 ui.label(
                                     egui::RichText::new(&card.time_display)
                                         .color(muted_text)
-                                        .size(10.0),
+                                        .size(9.0),
                                 );
                             });
                         });
 
-                        ui.add_space(2.0);
-                        ui.label(
-                            egui::RichText::new(&card.meta_display)
-                                .color(muted_text)
-                                .size(11.0),
-                        );
-
-                        ui.add_space(3.0);
-                        for line in &card.drops_summary {
+                        // Line 2: Coordinates, % Damage, and top loot
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing = egui::vec2(3.0, 0.0);
                             ui.label(
-                                egui::RichText::new(line)
-                                    .color(text_color)
-                                    .size(11.0),
+                                egui::RichText::new(format!("({}, {})", rec.pos_x, rec.pos_y))
+                                    .color(muted_text)
+                                    .size(9.0),
                             );
-                        }
+                            if rec.battle_type != "gathering" {
+                                ui.label(
+                                    egui::RichText::new(format!("{}%", rec.damage_pct))
+                                        .color(muted_text)
+                                        .size(9.0),
+                                );
+                            }
+                            if let Some(drop) = card.drops_summary.first() {
+                                ui.label(
+                                    egui::RichText::new(drop)
+                                        .color(text_color)
+                                        .size(9.0),
+                                );
+                            }
+                        });
                     });
 
-                // Option B: Vertical left accent border matching battle type
+                // Vertical 3px left accent bar matching battle type
                 let r = card_resp.response.rect;
                 let accent_rect = egui::Rect::from_min_max(
                     egui::pos2(r.min.x, r.min.y),
-                    egui::pos2(r.min.x + 4.0, r.max.y),
+                    egui::pos2(r.min.x + 3.0, r.max.y),
                 );
                 ui.painter().rect_filled(
                     accent_rect,
                     Rounding {
-                        nw: 6.0,
-                        sw: 6.0,
+                        nw: 4.0,
+                        sw: 4.0,
                         ne: 0.0,
                         se: 0.0,
                     },
-                    card.accent_color.linear_multiply(dim_factor),
+                    card.accent_color.linear_multiply(eff_opacity),
                 );
             }
         });

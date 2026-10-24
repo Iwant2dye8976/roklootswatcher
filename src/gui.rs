@@ -2977,8 +2977,8 @@ impl RoKLootWatcherApp {
 
                             // Opacity slider
                             let opacity_lbl = match self.language {
-                                AppLanguage::Vietnamese => "Độ mờ nền:",
-                                AppLanguage::English => "Background Opacity:",
+                                AppLanguage::Vietnamese => "Độ mờ lớp phủ:",
+                                AppLanguage::English => "Overlay Opacity:",
                             };
                             let prev_opacity = self.overlay_config.opacity;
                             ui.horizontal(|ui| {
@@ -2989,6 +2989,7 @@ impl RoKLootWatcherApp {
                                 );
                             });
                             if (self.overlay_config.opacity - prev_opacity).abs() > 0.005 {
+                                self.last_mail_arrival = std::time::Instant::now();
                                 self.save_config();
                             }
 
@@ -3015,6 +3016,7 @@ impl RoKLootWatcherApp {
                                     );
                                     if ui.add(btn).clicked() {
                                         self.overlay_config.text_color_hex = hex.to_string();
+                                        self.last_mail_arrival = std::time::Instant::now();
                                         self.save_config();
                                     }
                                 }
@@ -3681,8 +3683,10 @@ impl eframe::App for RoKLootWatcherApp {
                             .with_decorations(false)
                             .with_transparent(true)
                             .with_always_on_top()
-                            .with_position([geom.pos_x, geom.pos_y])
-                            .with_inner_size([geom.width, geom.height])
+                            .with_mouse_passthrough(true)
+                            .with_active(false)
+                            .with_position([geom.pos_x.round(), geom.pos_y.round()])
+                            .with_inner_size([geom.width.round(), geom.height.round()])
                             .with_visible(true);
 
                         let filtered = self.watcher.get_latest_vault_records(
