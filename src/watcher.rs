@@ -278,6 +278,11 @@ impl RoKMailWatcher {
         Arc::clone(&*self.active_records.read().unwrap_or_else(|e| e.into_inner()))
     }
 
+    pub fn get_all_vault_records(&self) -> Vec<BattleRecord> {
+        let v = self.vault.read().unwrap_or_else(|e| e.into_inner());
+        v.get_records().to_vec()
+    }
+
     pub fn get_active_count(&self) -> usize {
         self.active_records.read().unwrap_or_else(|e| e.into_inner()).len()
     }

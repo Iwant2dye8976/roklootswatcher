@@ -192,6 +192,7 @@ pub struct RoKLootWatcherApp {
     pub autostart: bool,
     pub autostart_minimized: bool,
     pub overlay_config: crate::model::OverlayConfig,
+    pub last_mail_arrival: std::time::Instant,
     pending_start_minimized_frames: u32,
     is_armored: bool,
     pending_armor_check: Option<std::sync::mpsc::Receiver<bool>>,
@@ -601,6 +602,7 @@ impl RoKLootWatcherApp {
             autostart: initial_autostart,
             autostart_minimized: initial_autostart_minimized,
             overlay_config: config.overlay.clone(),
+            last_mail_arrival: std::time::Instant::now(),
             pending_start_minimized_frames: if start_minimized { 5 } else { 0 },
             is_armored: false,
             pending_armor_check: Some(armor_rx),
@@ -661,6 +663,7 @@ impl RoKLootWatcherApp {
                     ctx.request_repaint();
                 }
                 WatcherUiEvent::MailDetected { .. } => {
+                    self.last_mail_arrival = std::time::Instant::now();
                     ctx.request_repaint();
                 }
             }
@@ -2891,6 +2894,134 @@ impl RoKLootWatcherApp {
 
                 ui.add_space(10.0);
 
+                // Card: In-Game Overlay (Rise of Kingdoms)
+                egui::Frame::none()
+                    .fill(c.card_surface)
+                    .stroke(Stroke::new(1.0_f32, c.hairline))
+                    .rounding(Rounding::same(6.0))
+                    .inner_margin(Margin::same(14.0))
+                    .show(ui, |ui| {
+                        let title = match self.language {
+                            AppLanguage::Vietnamese => "HIỂN THỊ ĐÈ TRONG GAME (RISE OF KINGDOMS OVERLAY)",
+                            AppLanguage::English => "IN-GAME OVERLAY (RISE OF KINGDOMS)",
+                        };
+                        ui.label(
+                            egui::RichText::new(title)
+                                .font(egui::FontId::proportional(12.0))
+                                .strong()
+                                .color(c.focus_teal),
+                        );
+                        ui.add_space(4.0);
+
+                        let desc = match self.language {
+                            AppLanguage::Vietnamese => "Tự động hiển thị 5 báo cáo mới nhất ghim vào góc trái cửa sổ game Rise of Kingdoms với tính năng xuyên chuột (click-through).",
+                            AppLanguage::English => "Automatically displays 5 latest reports pinned to the left edge of Rise of Kingdoms window with click-through safety.",
+                        };
+                        ui.label(egui::RichText::new(desc).font(egui::FontId::proportional(10.5)).color(c.text_muted));
+                        ui.add_space(8.0);
+
+                        // Toggle
+                        let prev_enabled = self.overlay_config.enabled;
+                        let toggle_lbl = match self.language {
+                            AppLanguage::Vietnamese => "Bật hiển thị đè (Enable Overlay)",
+                            AppLanguage::English => "Enable In-Game Overlay",
+                        };
+                        ui.checkbox(&mut self.overlay_config.enabled, egui::RichText::new(toggle_lbl).strong().color(c.canvas_tint));
+                        if self.overlay_config.enabled != prev_enabled {
+                            self.save_config();
+                        }
+
+                        if self.overlay_config.enabled {
+                            ui.add_space(8.0);
+                            ui.separator();
+                            ui.add_space(8.0);
+
+                            // Filter selection
+                            let filter_lbl = match self.language {
+                                AppLanguage::Vietnamese => "Loại báo cáo:",
+                                AppLanguage::English => "Report Filter:",
+                            };
+                            ui.horizontal(|ui| {
+                                ui.label(egui::RichText::new(filter_lbl).strong().color(c.canvas_tint));
+                                let prev_filter = self.overlay_config.filter;
+                                egui::ComboBox::from_id_salt("overlay_filter_select")
+                                    .selected_text(match self.overlay_config.filter {
+                                        FilterMode::AllRewards => if self.language == AppLanguage::Vietnamese { "Tất cả phần thưởng" } else { "All Rewards" },
+                                        FilterMode::AllTargets => if self.language == AppLanguage::Vietnamese { "Tất cả mục tiêu" } else { "All Targets" },
+                                        FilterMode::Motte => "Motte Only",
+                                        FilterMode::Fort => if self.language == AppLanguage::Vietnamese { "Pháo đài" } else { "Forts Only" },
+                                        FilterMode::Barbarian => if self.language == AppLanguage::Vietnamese { "Dã man" } else { "Barbarians Only" },
+                                        FilterMode::Gathering => if self.language == AppLanguage::Vietnamese { "Thu thập" } else { "Gathering Only" },
+                                        _ => "Filtered",
+                                    })
+                                    .show_ui(ui, |ui| {
+                                        let all_lbl = if self.language == AppLanguage::Vietnamese { "Tất cả phần thưởng" } else { "All Rewards" };
+                                        ui.selectable_value(&mut self.overlay_config.filter, FilterMode::AllRewards, all_lbl);
+                                        let motte_lbl = "Motte Only";
+                                        ui.selectable_value(&mut self.overlay_config.filter, FilterMode::Motte, motte_lbl);
+                                        let fort_lbl = if self.language == AppLanguage::Vietnamese { "Pháo đài" } else { "Forts Only" };
+                                        ui.selectable_value(&mut self.overlay_config.filter, FilterMode::Fort, fort_lbl);
+                                        let barb_lbl = if self.language == AppLanguage::Vietnamese { "Dã man" } else { "Barbarians Only" };
+                                        ui.selectable_value(&mut self.overlay_config.filter, FilterMode::Barbarian, barb_lbl);
+                                        let rss_lbl = if self.language == AppLanguage::Vietnamese { "Thu thập" } else { "Gathering Only" };
+                                        ui.selectable_value(&mut self.overlay_config.filter, FilterMode::Gathering, rss_lbl);
+                                    });
+                                if self.overlay_config.filter != prev_filter {
+                                    self.save_config();
+                                }
+                            });
+
+                            ui.add_space(8.0);
+
+                            // Opacity slider
+                            let opacity_lbl = match self.language {
+                                AppLanguage::Vietnamese => "Độ mờ nền:",
+                                AppLanguage::English => "Background Opacity:",
+                            };
+                            let prev_opacity = self.overlay_config.opacity;
+                            ui.horizontal(|ui| {
+                                ui.label(egui::RichText::new(opacity_lbl).strong().color(c.canvas_tint));
+                                ui.add(
+                                    egui::Slider::new(&mut self.overlay_config.opacity, 0.20_f32..=1.0_f32)
+                                        .custom_formatter(|n, _| format!("{:.0}%", n * 100.0)),
+                                );
+                            });
+                            if (self.overlay_config.opacity - prev_opacity).abs() > 0.005 {
+                                self.save_config();
+                            }
+
+                            ui.add_space(8.0);
+
+                            // Color theme swatches
+                            let color_lbl = match self.language {
+                                AppLanguage::Vietnamese => "Màu chữ:",
+                                AppLanguage::English => "Text Color:",
+                            };
+                            ui.horizontal(|ui| {
+                                ui.label(egui::RichText::new(color_lbl).strong().color(c.canvas_tint));
+                                let themes = [
+                                    ("#F8FAFC", "White", Color32::from_rgb(0xF8, 0xFA, 0xFC)),
+                                    ("#FDE047", "Gold", Color32::from_rgb(0xFD, 0xE0, 0x47)),
+                                    ("#38BDF8", "Cyan", Color32::from_rgb(0x38, 0xBD, 0xF8)),
+                                    ("#4ADE80", "Green", Color32::from_rgb(0x4A, 0xDE, 0x80)),
+                                ];
+                                for (hex, name, col) in themes {
+                                    let btn = egui::Button::new(
+                                        egui::RichText::new(format!("[ {} ]", name))
+                                            .color(col)
+                                            .strong(),
+                                    );
+                                    if ui.add(btn).clicked() {
+                                        self.overlay_config.text_color_hex = hex.to_string();
+                                        self.save_config();
+                                    }
+                                }
+                            });
+                        }
+                    });
+
+                ui.add_space(10.0);
+
                 // Card 3: App Behavior & Protection
                 egui::Frame::none()
                     .fill(c.card_surface)
@@ -3532,6 +3663,86 @@ impl eframe::App for RoKLootWatcherApp {
                     _ => self.render_view_dashboard(ui),
                 }
             });
+
+        // In-game overlay multi-viewport handling
+        if self.overlay_config.enabled {
+            // Keep event loop active (especially when minimized to tray)
+            ctx.request_repaint_after(std::time::Duration::from_millis(100));
+
+            if let Some(hwnd) = crate::overlay_tracker::find_rok_window() {
+                if crate::overlay_tracker::is_rok_active_and_visible(hwnd) {
+                    if let Some(bounds) = crate::overlay_tracker::get_rok_window_bounds(hwnd) {
+                        let geom = crate::overlay_tracker::calculate_overlay_geometry(&bounds, ctx.pixels_per_point());
+                        let overlay_id = egui::ViewportId::from_hash_of("rok_overlay_viewport");
+                        let builder = egui::ViewportBuilder::default()
+                            .with_title("Rise of Kingdoms Loot Overlay")
+                            .with_decorations(false)
+                            .with_transparent(true)
+                            .with_always_on_top()
+                            .with_position([geom.pos_x, geom.pos_y])
+                            .with_inner_size([geom.width, geom.height])
+                            .with_visible(true);
+
+                        let records = self.watcher.get_all_vault_records();
+                        let filtered = crate::overlay_ui::get_latest_filtered_records(
+                            &records,
+                            self.overlay_config.filter,
+                            5,
+                        );
+                        let overlay_cfg = self.overlay_config.clone();
+                        let last_mail = self.last_mail_arrival;
+
+                        ctx.show_viewport_immediate(overlay_id, builder, |ctx, _class| {
+                            #[cfg(windows)]
+                            {
+                                struct SearchData {
+                                    pid: u32,
+                                    found: Option<windows_sys::Win32::Foundation::HWND>,
+                                }
+                                unsafe extern "system" fn enum_vp(
+                                    h: windows_sys::Win32::Foundation::HWND,
+                                    lp: windows_sys::Win32::Foundation::LPARAM,
+                                ) -> windows_sys::Win32::Foundation::BOOL {
+                                    let d = &mut *(lp as *mut SearchData);
+                                    let mut p = 0;
+                                    windows_sys::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId(h, &mut p);
+                                    if p == d.pid {
+                                        let mut buf = [0u16; 512];
+                                        let len = windows_sys::Win32::UI::WindowsAndMessaging::GetWindowTextW(
+                                            h,
+                                            buf.as_mut_ptr(),
+                                            buf.len() as i32,
+                                        );
+                                        if len > 0 {
+                                            let title = String::from_utf16_lossy(&buf[..len as usize]);
+                                            if title == "Rise of Kingdoms Loot Overlay" {
+                                                d.found = Some(h);
+                                                return 0;
+                                            }
+                                        }
+                                    }
+                                    1
+                                }
+                                let mut sdata = SearchData {
+                                    pid: std::process::id(),
+                                    found: None,
+                                };
+                                unsafe {
+                                    windows_sys::Win32::UI::WindowsAndMessaging::EnumWindows(
+                                        Some(enum_vp),
+                                        &mut sdata as *mut _ as windows_sys::Win32::Foundation::LPARAM,
+                                    );
+                                    if let Some(vhwnd) = sdata.found {
+                                        crate::overlay_tracker::apply_click_through_styles(vhwnd);
+                                    }
+                                }
+                            }
+                            crate::overlay_ui::render_overlay_viewport(ctx, &filtered, &overlay_cfg, last_mail);
+                        });
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -3578,6 +3789,13 @@ fn report_non_target_column_count(is_gathering: bool, is_barb: bool) -> usize {
 mod tests {
     use super::*;
     use crate::model::AppLanguage;
+
+    #[test]
+    fn test_overlay_state_initialization() {
+        let config = AppConfig::default();
+        assert!(!config.overlay.enabled);
+        assert_eq!(config.overlay.filter, FilterMode::AllRewards);
+    }
 
     #[test]
     fn test_gui_language_state_default() {
