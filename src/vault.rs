@@ -147,12 +147,11 @@ impl MailVault {
     /// Kiểm tra xem file hoặc ID thư này đã được lưu trong Vault hay chưa (O(1)).
     /// Giúp Fast-Skip bỏ qua lập tức mà không cần mở file nhị phân hay cấp phát bộ nhớ.
     pub fn contains_file_or_id(&self, fname: &str) -> bool {
-        if let Some(id) = fname.strip_prefix("Persistent.Mail.") {
-            if self.key_index.contains_key(&format!("id:{}", id)) {
-                return true;
-            }
-        }
-        self.key_index.contains_key(&format!("file:{}", fname))
+        let id_part = fname.strip_prefix("Persistent.Mail.").unwrap_or(fname);
+        self.key_index.contains_key(fname)
+            || self.key_index.contains_key(&format!("file:{}", fname))
+            || self.key_index.contains_key(&format!("id:{}", id_part))
+            || self.key_index.contains_key(&format!("id:{}", fname))
     }
 
     fn init(&mut self) {
@@ -964,6 +963,62 @@ mod tests {
         let save_res = vault.save_to_disk();
         assert!(save_res.is_err(), "Must refuse to overwrite corrupted vault");
         assert_eq!(fs::read(&vault_file).unwrap(), corrupt_content, "Original vault file must not be overwritten");
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_contains_file_or_id_matching() {
+        let temp_dir = std::env::temp_dir().join(format!("rok_test_contains_{}", std::process::id()));
+        let _ = fs::create_dir_all(&temp_dir);
+
+        let mut vault = MailVault::new(&temp_dir);
+
+        let rec1 = BattleRecord {
+            filename: "Persistent.Mail.1002220217856803764".into(),
+            mail_id: "1002220217856803764".into(),
+            battle_type: "barbarian".into(),
+            time_raw: 1000,
+            time_utc: "".into(),
+            time_vn: "".into(),
+            target: "".into(),
+            target_level: "".into(),
+            talent_add: 0,
+            pos_x: 0,
+            pos_y: 0,
+            damage_pct: 0,
+            plunder_tier: 0,
+            items: vec![],
+            item_totals: HashMap::new(),
+            content: "".into(),
+        };
+        vault.upsert(rec1);
+
+        assert!(vault.contains_file_or_id("Persistent.Mail.1002220217856803764"));
+        assert!(vault.contains_file_or_id("1002220217856803764"));
+        assert!(!vault.contains_file_or_id("Persistent.Mail.nonexistent"));
+
+        let rec2 = BattleRecord {
+            filename: "backup_file.mail".into(),
+            mail_id: "".into(),
+            battle_type: "fort".into(),
+            time_raw: 2000,
+            time_utc: "".into(),
+            time_vn: "".into(),
+            target: "".into(),
+            target_level: "".into(),
+            talent_add: 0,
+            pos_x: 0,
+            pos_y: 0,
+            damage_pct: 0,
+            plunder_tier: 0,
+            items: vec![],
+            item_totals: HashMap::new(),
+            content: "".into(),
+        };
+        vault.upsert(rec2);
+
+        assert!(vault.contains_file_or_id("backup_file.mail"));
 
         let _ = fs::remove_dir_all(&temp_dir);
     }
