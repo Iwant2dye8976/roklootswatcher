@@ -1177,6 +1177,24 @@ impl ItemStat {
             AppLanguage::Vietnamese => &self.name_vi,
         }
     }
+
+    pub fn raw_converted_value(&self) -> i64 {
+        match get_item_conversion(self.itype, self.sub_type) {
+            ConvertedValue::Resource { kind, multiplier } => {
+                if kind == ResourceKind::ChoicePack {
+                    self.total_quantity
+                } else {
+                    self.total_quantity * multiplier
+                }
+            }
+            ConvertedValue::Exp(m) => self.total_quantity * m,
+            ConvertedValue::Speedup { minutes, .. } => self.total_quantity * minutes,
+            ConvertedValue::Gem(m) => self.total_quantity * m,
+            ConvertedValue::ApRecovery(p) => self.total_quantity * p,
+            ConvertedValue::EquipmentMaterial { tier_mult, .. } => self.total_quantity * tier_mult,
+            _ => self.total_quantity,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2347,5 +2365,48 @@ mod tests {
             get_item_converted_display_for_lang(2, 412, 10, AppLanguage::English),
             Some("10 Leather".to_string())
         );
+    }
+
+    #[test]
+    fn test_item_stat_raw_converted_value() {
+        let make_item = |itype: u32, sub_type: u32, total_quantity: i64| ItemStat {
+            itype,
+            sub_type,
+            name_vi: String::new(),
+            name_en: String::new(),
+            category: String::new(),
+            sprites: vec![],
+            pic: String::new(),
+            total_quantity,
+            battle_count: 1,
+            max_in_battle: total_quantity,
+            min_in_battle: total_quantity,
+            avg_per_battle: total_quantity as f64,
+            by_battle_type: HashMap::new(),
+        };
+
+        // Resource: Food pack 50k (multiplier 50_000)
+        assert_eq!(make_item(2, 2, 10).raw_converted_value(), 500_000);
+
+        // Resource: Choice Pack (returns total_quantity without multiplier)
+        assert_eq!(make_item(2, 7005, 12).raw_converted_value(), 12);
+
+        // Speedup: 5m speedup (sub 58)
+        assert_eq!(make_item(2, 58, 6).raw_converted_value(), 30);
+
+        // Gem: itype 1, sub 5
+        assert_eq!(make_item(1, 5, 20).raw_converted_value(), 20);
+
+        // AP recovery: 50 AP (sub 182)
+        assert_eq!(make_item(2, 182, 4).raw_converted_value(), 200);
+
+        // Equipment material: sub 412 (tier_mult 1)
+        assert_eq!(make_item(2, 412, 10).raw_converted_value(), 10);
+
+        // Exp Tome: Tome lvl 3 (1,000 exp) -> itype 2, sub 130
+        assert_eq!(make_item(2, 130, 5).raw_converted_value(), 5_000);
+
+        // Other / Crystal: raw quantity fallback
+        assert_eq!(make_item(1, 9, 75).raw_converted_value(), 75);
     }
 }

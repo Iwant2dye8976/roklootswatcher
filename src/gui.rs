@@ -2530,13 +2530,10 @@ impl RoKLootWatcherApp {
                     ItemSortColumn::Name => a
                         .display_name(self.language)
                         .cmp(b.display_name(self.language)),
-                    ItemSortColumn::Category => a.category.cmp(&b.category),
+                    ItemSortColumn::Category => category_name(&a.category, self.language)
+                        .cmp(category_name(&b.category, self.language)),
                     ItemSortColumn::TotalQty => a.total_quantity.cmp(&b.total_quantity),
-                    ItemSortColumn::Converted => {
-                        let conv_a = get_item_converted_display_for_lang(a.itype, a.sub_type, a.total_quantity, self.language).unwrap_or_default();
-                        let conv_b = get_item_converted_display_for_lang(b.itype, b.sub_type, b.total_quantity, self.language).unwrap_or_default();
-                        conv_a.cmp(&conv_b)
-                    }
+                    ItemSortColumn::Converted => a.raw_converted_value().cmp(&b.raw_converted_value()),
                     ItemSortColumn::Battles => a.battle_count.cmp(&b.battle_count),
                     ItemSortColumn::DropRate => a.battle_count.cmp(&b.battle_count),
                     ItemSortColumn::AvgPerBattle => a.avg_per_battle.partial_cmp(&b.avg_per_battle).unwrap_or(std::cmp::Ordering::Equal),
@@ -3744,5 +3741,87 @@ mod tests {
         // Material badges
         assert_eq!(category_badge_color("Vật liệu", &light), light.heal_blue);
         assert_eq!(category_badge_color("Vật liệu", &dark), dark.heal_blue);
+    }
+
+    #[test]
+    fn test_inventory_sorting_category_localized_and_converted_numerical() {
+        use crate::model::ItemStat;
+        use std::collections::HashMap;
+
+        let make_item = |itype: u32, sub_type: u32, total_quantity: i64, category: &str| ItemStat {
+            itype,
+            sub_type,
+            name_vi: String::new(),
+            name_en: String::new(),
+            category: category.to_string(),
+            sprites: vec![],
+            pic: String::new(),
+            total_quantity,
+            battle_count: 1,
+            max_in_battle: total_quantity,
+            min_in_battle: total_quantity,
+            avg_per_battle: total_quantity as f64,
+            by_battle_type: HashMap::new(),
+        };
+
+        // Item 1: Crystals (itype 1, sub 9, category "Pha Lê")
+        let item_crystals = make_item(1, 9, 100, "Pha Lê");
+        // Item 2: Resources - 150k Food (itype 2, sub 2, qty 3 -> 3 * 50k = 150k, category "Tài nguyên")
+        let item_resources_150k = make_item(2, 2, 3, "Tài nguyên");
+        // Item 3: Resources - 2.00M Food (itype 2, sub 2, qty 40 -> 40 * 50k = 2,000,000, category "Tài nguyên")
+        let item_resources_2m = make_item(2, 2, 40, "Tài nguyên");
+        // Item 4: Resources - 50k Food (itype 2, sub 2, qty 1 -> 50,000, category "Tài nguyên")
+        let item_resources_50k = make_item(2, 2, 1, "Tài nguyên");
+        // Item 5: Speedups (itype 2, sub 58, qty 10 -> 10 * 5m = 50m, category "Tăng tốc")
+        let item_speedups = make_item(2, 58, 10, "Tăng tốc");
+
+        // Verify category translations in English:
+        // "Pha Lê" -> "Crystals"
+        // "Tài nguyên" -> "Resources"
+        // "Tăng tốc" -> "Speedups"
+        let lang = AppLanguage::English;
+        assert_eq!(category_name(&item_crystals.category, lang), "Crystals");
+        assert_eq!(category_name(&item_resources_150k.category, lang), "Resources");
+        assert_eq!(category_name(&item_speedups.category, lang), "Speedups");
+
+        // Verify English category sorting orders "Crystals" before "Resources" and "Speedups"
+        let mut items = vec![&item_speedups, &item_resources_150k, &item_crystals];
+        items.sort_by(|a, b| {
+            category_name(&a.category, lang).cmp(category_name(&b.category, lang))
+        });
+        assert_eq!(category_name(&items[0].category, lang), "Crystals");
+        assert_eq!(category_name(&items[1].category, lang), "Resources");
+        assert_eq!(category_name(&items[2].category, lang), "Speedups");
+
+        // Verify converted numerical sorting: 2,000,000 Food sorts above 150,000 Food (descending)
+        assert_eq!(item_resources_50k.raw_converted_value(), 50_000);
+        assert_eq!(item_resources_150k.raw_converted_value(), 150_000);
+        assert_eq!(item_resources_2m.raw_converted_value(), 2_000_000);
+
+        let mut converted_items = vec![&item_resources_150k, &item_resources_2m];
+        // Descending sort by raw_converted_value: 2,000,000 Food sorts above 150,000 Food
+        converted_items.sort_by(|a, b| {
+            b.raw_converted_value().cmp(&a.raw_converted_value())
+        });
+        assert_eq!(converted_items[0].raw_converted_value(), 2_000_000);
+        assert_eq!(converted_items[1].raw_converted_value(), 150_000);
+        assert_eq!(converted_items[0].total_quantity, 40);
+        assert_eq!(converted_items[1].total_quantity, 3);
+
+        // All 3 items descending: 2,000,000 > 150,000 > 50,000
+        let mut all_res = vec![&item_resources_150k, &item_resources_50k, &item_resources_2m];
+        all_res.sort_by(|a, b| {
+            b.raw_converted_value().cmp(&a.raw_converted_value())
+        });
+        assert_eq!(all_res[0].raw_converted_value(), 2_000_000);
+        assert_eq!(all_res[1].raw_converted_value(), 150_000);
+        assert_eq!(all_res[2].raw_converted_value(), 50_000);
+
+        // Ascending sort by raw_converted_value
+        converted_items.sort_by(|a, b| {
+            a.raw_converted_value().cmp(&b.raw_converted_value())
+        });
+        assert_eq!(converted_items[0].raw_converted_value(), 150_000);
+        assert_eq!(converted_items[1].raw_converted_value(), 2_000_000);
     }
 }
