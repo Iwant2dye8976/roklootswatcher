@@ -123,13 +123,37 @@ pub fn render_overlay_viewport(
     last_mail_time: std::time::Instant,
 ) {
     let dim_factor = compute_idle_dim_factor(last_mail_time);
-    let eff_opacity = (config.opacity * dim_factor).clamp(0.15, 1.0);
-    let bg_color = Color32::from_rgba_unmultiplied(15, 23, 42, (220.0 * eff_opacity) as u8);
+    let eff_opacity = (config.opacity * dim_factor).clamp(0.0, 1.0);
+
+    let (bg_color, card_stroke) = if config.opacity <= 0.01 {
+        (Color32::TRANSPARENT, Stroke::NONE)
+    } else {
+        (
+            Color32::from_rgba_unmultiplied(15, 23, 42, (220.0 * eff_opacity) as u8),
+            Stroke::new(1.0_f32, Color32::from_white_alpha((35.0 * eff_opacity) as u8)),
+        )
+    };
 
     let base_text_color = parse_hex_color(&config.text_color_hex)
         .unwrap_or_else(|| Color32::from_rgb(248, 250, 252));
-    let text_color = base_text_color.linear_multiply(eff_opacity);
-    let muted_text = base_text_color.linear_multiply(0.65 * eff_opacity);
+    let text_alpha = if config.opacity <= 0.01 {
+        dim_factor.max(0.70)
+    } else {
+        eff_opacity.max(0.35)
+    };
+    let text_color = base_text_color.linear_multiply(text_alpha);
+    let muted_text = base_text_color.linear_multiply(0.70 * text_alpha);
+    let accent_alpha = if config.opacity <= 0.01 {
+        dim_factor.max(0.70)
+    } else {
+        eff_opacity.max(0.35)
+    };
+
+    let fs_title = config.font_size;
+    let fs_sub = (config.font_size * 0.88).max(8.0);
+    let fs_time = (config.font_size * 0.82).max(7.5);
+    let pad_v = (config.font_size * 0.3).clamp(2.0, 6.0);
+    let pad_h = (config.font_size * 0.7).clamp(6.0, 12.0);
 
     egui::CentralPanel::default()
         .frame(Frame::none())
@@ -145,7 +169,7 @@ pub fn render_overlay_viewport(
                         ui.label(
                             egui::RichText::new("[RoK Overlay - No matching reports]")
                                 .color(muted_text)
-                                .size(10.0),
+                                .size(fs_sub),
                         );
                     });
                 return;
@@ -157,12 +181,12 @@ pub fn render_overlay_viewport(
                 let card_resp = Frame::none()
                     .fill(bg_color)
                     .rounding(Rounding::same(4.0))
-                    .stroke(Stroke::new(1.0_f32, Color32::from_white_alpha((35.0 * eff_opacity) as u8)))
+                    .stroke(card_stroke)
                     .inner_margin(Margin {
-                        left: 8.0,
+                        left: pad_h,
                         right: 6.0,
-                        top: 3.0,
-                        bottom: 3.0,
+                        top: pad_v,
+                        bottom: pad_v,
                     })
                     .show(ui, |ui| {
                         // Line 1: [TAG] Target (left) ... Time (right)
@@ -170,21 +194,21 @@ pub fn render_overlay_viewport(
                             ui.spacing_mut().item_spacing = egui::vec2(4.0, 0.0);
                             ui.label(
                                 egui::RichText::new(&card.tag)
-                                    .color(card.accent_color.linear_multiply(eff_opacity))
-                                    .size(10.0)
+                                    .color(card.accent_color.linear_multiply(accent_alpha))
+                                    .size(fs_sub)
                                     .strong(),
                             );
                             ui.label(
                                 egui::RichText::new(&card.target_display)
                                     .color(text_color)
-                                    .size(10.5)
+                                    .size(fs_title)
                                     .strong(),
                             );
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                 ui.label(
                                     egui::RichText::new(&card.time_display)
                                         .color(muted_text)
-                                        .size(9.0),
+                                        .size(fs_time),
                                 );
                             });
                         });
@@ -195,20 +219,20 @@ pub fn render_overlay_viewport(
                             ui.label(
                                 egui::RichText::new(format!("({}, {})", rec.pos_x, rec.pos_y))
                                     .color(muted_text)
-                                    .size(9.0),
+                                    .size(fs_sub),
                             );
                             if rec.battle_type != "gathering" {
                                 ui.label(
                                     egui::RichText::new(format!("{}%", rec.damage_pct))
                                         .color(muted_text)
-                                        .size(9.0),
+                                        .size(fs_sub),
                                 );
                             }
                             if let Some(drop) = card.drops_summary.first() {
                                 ui.label(
                                     egui::RichText::new(drop)
                                         .color(text_color)
-                                        .size(9.0),
+                                        .size(fs_sub),
                                 );
                             }
                         });
@@ -228,7 +252,7 @@ pub fn render_overlay_viewport(
                         ne: 0.0,
                         se: 0.0,
                     },
-                    card.accent_color.linear_multiply(eff_opacity),
+                    card.accent_color.linear_multiply(accent_alpha),
                 );
             }
         });
@@ -339,5 +363,21 @@ mod tests {
         assert_eq!(accent_color_for_battle_type("motte"), egui::Color32::from_rgb(239, 68, 68));
         assert_eq!(accent_color_for_battle_type("barbarian"), egui::Color32::from_rgb(59, 130, 246));
         assert_eq!(accent_color_for_battle_type("gathering"), egui::Color32::from_rgb(16, 185, 129));
+    }
+
+    #[test]
+    fn test_see_through_opacity_zero() {
+        let cfg = OverlayConfig {
+            enabled: true,
+            opacity: 0.0,
+            text_color_hex: "#F8FAFC".into(),
+            accent_color_hex: "#38BDF8".into(),
+            filter: FilterMode::AllRewards,
+            offset_x: 16.0,
+            offset_y: 60.0,
+            width: 240.0,
+            font_size: 10.5,
+        };
+        assert_eq!(cfg.opacity, 0.0);
     }
 }
