@@ -2822,7 +2822,7 @@ impl RoKLootWatcherApp {
             });
     }
 
-    fn render_view_settings(&mut self, ui: &mut egui::Ui, _ctx: &egui::Context) {
+    fn render_view_settings(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         let c = self.colors();
 
         ui.columns(2, |cols| {
@@ -2975,17 +2975,158 @@ impl RoKLootWatcherApp {
 
                             ui.add_space(8.0);
 
-                            // Opacity slider
+                            // D-Pad and Position Controls
+                            let pos_lbl = match self.language {
+                                AppLanguage::Vietnamese => "Vị trí & Di chuyển:",
+                                AppLanguage::English => "Position & Movement:",
+                            };
+                            let hold_hint = match self.language {
+                                AppLanguage::Vietnamese => "(Nhấn giữ mũi tên để di chuyển)",
+                                AppLanguage::English => "(Hold arrows to nudge)",
+                            };
+                            ui.horizontal(|ui| {
+                                ui.label(egui::RichText::new(pos_lbl).strong().color(c.canvas_tint));
+                                ui.label(egui::RichText::new(hold_hint).size(11.0).color(Color32::from_gray(140)));
+                            });
+
+                            let mut pos_changed = false;
+                            let nudge_step = 2.5_f32;
+                            ui.horizontal(|ui| {
+                                // 3x3 D-Pad
+                                ui.vertical(|ui| {
+                                    ui.horizontal(|ui| {
+                                        ui.add_space(34.0);
+                                        let btn_up = ui.add_sized([30.0, 24.0], egui::Button::new("▲"));
+                                        if btn_up.is_pointer_button_down_on() {
+                                            self.overlay_config.offset_y -= nudge_step;
+                                            pos_changed = true;
+                                        }
+                                    });
+                                    ui.horizontal(|ui| {
+                                        let btn_left = ui.add_sized([30.0, 24.0], egui::Button::new("◄"));
+                                        if btn_left.is_pointer_button_down_on() {
+                                            self.overlay_config.offset_x -= nudge_step;
+                                            pos_changed = true;
+                                        }
+                                        let btn_reset = ui.add_sized([30.0, 24.0], egui::Button::new(egui::RichText::new("RoK").size(10.0)));
+                                        if btn_reset.clicked() {
+                                            self.overlay_config.offset_x = 16.0;
+                                            self.overlay_config.offset_y = 60.0;
+                                            pos_changed = true;
+                                        }
+                                        let btn_right = ui.add_sized([30.0, 24.0], egui::Button::new("►"));
+                                        if btn_right.is_pointer_button_down_on() {
+                                            self.overlay_config.offset_x += nudge_step;
+                                            pos_changed = true;
+                                        }
+                                    });
+                                    ui.horizontal(|ui| {
+                                        ui.add_space(34.0);
+                                        let btn_down = ui.add_sized([30.0, 24.0], egui::Button::new("▼"));
+                                        if btn_down.is_pointer_button_down_on() {
+                                            self.overlay_config.offset_y += nudge_step;
+                                            pos_changed = true;
+                                        }
+                                    });
+                                });
+
+                                ui.add_space(16.0);
+
+                                // Numeric DragValues and Reset
+                                ui.vertical(|ui| {
+                                    ui.horizontal(|ui| {
+                                        ui.label("X:");
+                                        let prev_x = self.overlay_config.offset_x;
+                                        ui.add(egui::DragValue::new(&mut self.overlay_config.offset_x).speed(1.0).range(-2000.0..=3000.0));
+                                        if (self.overlay_config.offset_x - prev_x).abs() > 0.1 {
+                                            pos_changed = true;
+                                        }
+                                        ui.add_space(8.0);
+                                        ui.label("Y:");
+                                        let prev_y = self.overlay_config.offset_y;
+                                        ui.add(egui::DragValue::new(&mut self.overlay_config.offset_y).speed(1.0).range(-2000.0..=3000.0));
+                                        if (self.overlay_config.offset_y - prev_y).abs() > 0.1 {
+                                            pos_changed = true;
+                                        }
+                                    });
+
+                                    let reset_lbl = match self.language {
+                                        AppLanguage::Vietnamese => "Đặt lại tọa độ",
+                                        AppLanguage::English => "Reset Coordinates",
+                                    };
+                                    if ui.button(reset_lbl).clicked() {
+                                        self.overlay_config.offset_x = 16.0;
+                                        self.overlay_config.offset_y = 60.0;
+                                        pos_changed = true;
+                                    }
+                                });
+                            });
+
+                            if pos_changed {
+                                self.last_mail_arrival = std::time::Instant::now();
+                                self.save_config();
+                                ctx.request_repaint();
+                            }
+
+                            ui.add_space(8.0);
+
+                            // Width slider
+                            let width_lbl = match self.language {
+                                AppLanguage::Vietnamese => "Chiều rộng lớp phủ:",
+                                AppLanguage::English => "Overlay Width:",
+                            };
+                            let prev_width = self.overlay_config.width;
+                            ui.horizontal(|ui| {
+                                ui.label(egui::RichText::new(width_lbl).strong().color(c.canvas_tint));
+                                ui.add(
+                                    egui::Slider::new(&mut self.overlay_config.width, 180.0_f32..=380.0_f32)
+                                        .custom_formatter(|n, _| format!("{:.0} px", n)),
+                                );
+                            });
+                            if (self.overlay_config.width - prev_width).abs() > 0.5 {
+                                self.last_mail_arrival = std::time::Instant::now();
+                                self.save_config();
+                            }
+
+                            ui.add_space(8.0);
+
+                            // Font size slider
+                            let font_lbl = match self.language {
+                                AppLanguage::Vietnamese => "Cỡ chữ:",
+                                AppLanguage::English => "Font Size:",
+                            };
+                            let prev_fs = self.overlay_config.font_size;
+                            ui.horizontal(|ui| {
+                                ui.label(egui::RichText::new(font_lbl).strong().color(c.canvas_tint));
+                                ui.add(
+                                    egui::Slider::new(&mut self.overlay_config.font_size, 8.5_f32..=15.0_f32)
+                                        .custom_formatter(|n, _| format!("{:.1} pt", n)),
+                                );
+                            });
+                            if (self.overlay_config.font_size - prev_fs).abs() > 0.1 {
+                                self.last_mail_arrival = std::time::Instant::now();
+                                self.save_config();
+                            }
+
+                            ui.add_space(8.0);
+
+                            // Opacity slider (0.0 to 1.0)
                             let opacity_lbl = match self.language {
-                                AppLanguage::Vietnamese => "Độ mờ lớp phủ:",
-                                AppLanguage::English => "Overlay Opacity:",
+                                AppLanguage::Vietnamese => "Độ mờ nền:",
+                                AppLanguage::English => "Background Opacity:",
                             };
                             let prev_opacity = self.overlay_config.opacity;
                             ui.horizontal(|ui| {
                                 ui.label(egui::RichText::new(opacity_lbl).strong().color(c.canvas_tint));
                                 ui.add(
-                                    egui::Slider::new(&mut self.overlay_config.opacity, 0.20_f32..=1.0_f32)
-                                        .custom_formatter(|n, _| format!("{:.0}%", n * 100.0)),
+                                    egui::Slider::new(&mut self.overlay_config.opacity, 0.0_f32..=1.0_f32)
+                                        .custom_formatter(|n, _| {
+                                            if n <= 0.01 {
+                                                "0% (See-Through)".to_string()
+                                            } else {
+                                                format!("{:.0}%", n * 100.0)
+                                            }
+                                        }),
                                 );
                             });
                             if (self.overlay_config.opacity - prev_opacity).abs() > 0.005 {
@@ -3773,6 +3914,19 @@ mod tests {
         let config = AppConfig::default();
         assert!(!config.overlay.enabled);
         assert_eq!(config.overlay.filter, FilterMode::AllRewards);
+    }
+
+    #[test]
+    fn test_overlay_state_with_position_and_size() {
+        let mut config = AppConfig::default();
+        config.overlay.offset_x = 45.0;
+        config.overlay.offset_y = 120.0;
+        config.overlay.width = 280.0;
+        config.overlay.font_size = 12.5;
+        assert_eq!(config.overlay.offset_x, 45.0);
+        assert_eq!(config.overlay.offset_y, 120.0);
+        assert_eq!(config.overlay.width, 280.0);
+        assert_eq!(config.overlay.font_size, 12.5);
     }
 
     #[test]
