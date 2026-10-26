@@ -135,6 +135,9 @@ pub enum TrKey {
     SettingsBtnBrowse,
     SettingsBtnDefault,
     SettingsBtnOpenExplorer,
+    SettingsBtnAutoScan,
+    SettingsScanFound,
+    SettingsScanNotFound,
     SettingsCardScanTitle,
     SettingsCardScanDesc,
     SettingsBtnScanNew,
@@ -288,6 +291,9 @@ pub static ALL_KEYS: &[TrKey] = &[
     TrKey::SettingsBtnBrowse,
     TrKey::SettingsBtnDefault,
     TrKey::SettingsBtnOpenExplorer,
+    TrKey::SettingsBtnAutoScan,
+    TrKey::SettingsScanFound,
+    TrKey::SettingsScanNotFound,
     TrKey::SettingsCardScanTitle,
     TrKey::SettingsCardScanDesc,
     TrKey::SettingsBtnScanNew,
@@ -578,6 +584,12 @@ pub fn tr(key: TrKey, lang: AppLanguage) -> &'static str {
         (TrKey::SettingsBtnDefault, AppLanguage::English) => "Default",
         (TrKey::SettingsBtnOpenExplorer, AppLanguage::Vietnamese) => "Mở trong Explorer",
         (TrKey::SettingsBtnOpenExplorer, AppLanguage::English) => "Open in Explorer",
+        (TrKey::SettingsBtnAutoScan, AppLanguage::Vietnamese) => "Tự động quét",
+        (TrKey::SettingsBtnAutoScan, AppLanguage::English) => "Auto Scan",
+        (TrKey::SettingsScanFound, AppLanguage::Vietnamese) => "Đã tìm thấy thư mục mailcache",
+        (TrKey::SettingsScanFound, AppLanguage::English) => "Found mailcache directory",
+        (TrKey::SettingsScanNotFound, AppLanguage::Vietnamese) => "Không tìm thấy thư mục mailcache tự động. Vui lòng duyệt thủ công.",
+        (TrKey::SettingsScanNotFound, AppLanguage::English) => "Could not find mailcache directory automatically. Please browse manually.",
         (TrKey::SettingsCardScanTitle, AppLanguage::Vietnamese) => "THAO TÁC QUÉT DỮ LIỆU",
         (TrKey::SettingsCardScanTitle, AppLanguage::English) => "DATA SCAN ACTIONS",
         (TrKey::SettingsCardScanDesc, AppLanguage::Vietnamese) => "Quét các file mail mới phát sinh hoặc tái phân tích toàn bộ kho lịch sử.",
@@ -821,5 +833,15 @@ mod tests {
         let en = AppLanguage::English;
         assert_eq!(vi.t(TrKey::NavDashboardTitle), "Tổng quan");
         assert_eq!(en.t(TrKey::NavDashboardTitle), "Dashboard");
+    }
+
+    #[test]
+    fn test_auto_scan_localization_keys() {
+        assert_eq!(AppLanguage::English.t(TrKey::SettingsBtnAutoScan), "Auto Scan");
+        assert_eq!(AppLanguage::Vietnamese.t(TrKey::SettingsBtnAutoScan), "Tự động quét");
+        assert!(!AppLanguage::English.t(TrKey::SettingsScanFound).is_empty());
+        assert!(!AppLanguage::Vietnamese.t(TrKey::SettingsScanFound).is_empty());
+        assert!(!AppLanguage::English.t(TrKey::SettingsScanNotFound).is_empty());
+        assert!(!AppLanguage::Vietnamese.t(TrKey::SettingsScanNotFound).is_empty());
     }
 }
