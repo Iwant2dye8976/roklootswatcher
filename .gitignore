@@ -8,7 +8,8 @@ analytics.md
 *.json
 loot.yaml
 .superpowers/
-/docs/
+docs/
+examples/
 .agents/
 AGENT.md
 AUDIT.md
