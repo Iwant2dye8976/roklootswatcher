@@ -3855,7 +3855,7 @@ impl eframe::App for RoKLootWatcherApp {
             None
         };
         let rok_found = rok_hwnd.is_some();
-        let is_active = rok_hwnd.map_or(false, crate::overlay_tracker::is_rok_active_and_visible);
+        let is_active = rok_hwnd.is_some_and(crate::overlay_tracker::is_rok_active_and_visible);
         let action = crate::overlay_tracker::determine_overlay_visibility_action(
             self.overlay_config.enabled,
             rok_found,
@@ -3909,7 +3909,7 @@ impl eframe::App for RoKLootWatcherApp {
 
                         #[cfg(windows)]
                         {
-                            let is_valid_hwnd = self.overlay_styled_hwnd.map_or(false, |h| unsafe {
+                            let is_valid_hwnd = self.overlay_styled_hwnd.is_some_and(|h| unsafe {
                                 windows_sys::Win32::UI::WindowsAndMessaging::IsWindow(h as _) != 0
                             });
                             let needs_styling = !is_valid_hwnd

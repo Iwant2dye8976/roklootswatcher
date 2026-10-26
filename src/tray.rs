@@ -395,11 +395,11 @@ pub fn hide_main_window() {
         unsafe {
             use windows_sys::Win32::UI::WindowsAndMessaging::*;
             let mut rect = windows_sys::Win32::Foundation::RECT { left: 0, top: 0, right: 0, bottom: 0 };
-            if GetWindowRect(hwnd, &mut rect) != 0 {
-                if rect.left > -10000 && rect.top > -10000 {
-                    if let Ok(mut lock) = PREV_RECT.lock() {
-                        *lock = Some(rect);
-                    }
+            if GetWindowRect(hwnd, &mut rect) != 0
+                && rect.left > -10000 && rect.top > -10000
+            {
+                if let Ok(mut lock) = PREV_RECT.lock() {
+                    *lock = Some(rect);
                 }
             }
             // Remove from taskbar by switching to WS_EX_TOOLWINDOW
