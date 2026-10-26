@@ -268,8 +268,8 @@ pub fn generate_statistics(records: &[BattleRecord]) -> Statistics {
         entry.sum_crystals += r.item_quantity(1, 9);
         entry.sum_res_packs += r.total_resources_breakdown().choice_packs;
         entry.sum_tomes += r.item_quantity(2, 130);
-        entry.sum_heal_spd += r.item_quantity(2, 92);
-        entry.sum_univ_spd += r.item_quantity(2, 58);
+        entry.sum_heal_spd += r.heal_speedup_minutes();
+        entry.sum_univ_spd += r.univ_speedup_minutes();
         entry.starlight += r.item_quantity(2, 9998);
     }
 
@@ -749,8 +749,8 @@ mod tests {
         assert_eq!(t1.avg_crystal, 150);
         assert_eq!(t1.avg_res_packs, 5);
         assert_eq!(t1.avg_tomes, 15);
-        assert_eq!(t1.avg_heal_spd, 10);
-        assert_eq!(t1.avg_univ_spd, 20);
+        assert_eq!(t1.avg_heal_spd, 50);
+        assert_eq!(t1.avg_univ_spd, 100);
         assert_eq!(t1.starlight, 5);
 
         let t2 = stats.plunder_breakdown.get(&2).expect("Tier 2 must exist");
@@ -762,8 +762,8 @@ mod tests {
         assert_eq!(t2.avg_crystal, 500);
         assert_eq!(t2.avg_res_packs, 10);
         assert_eq!(t2.avg_tomes, 50);
-        assert_eq!(t2.avg_heal_spd, 30);
-        assert_eq!(t2.avg_univ_spd, 40);
+        assert_eq!(t2.avg_heal_spd, 150);
+        assert_eq!(t2.avg_univ_spd, 200);
         assert_eq!(t2.starlight, 10);
 
         let crystal_stat = stats.item_stats.get("1_9").expect("Crystals stat must exist");

@@ -13,14 +13,14 @@ pub struct ItemInfo {
 }
 
 #[derive(Debug, Deserialize)]
-struct YamlItemEntry {
+struct JsonItemEntry {
     name: Option<HashMap<String, String>>,
     sprite: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
-struct YamlLootRoot {
-    loot: Option<HashMap<u32, HashMap<u32, YamlItemEntry>>>,
+struct JsonLootRoot {
+    loot: Option<HashMap<u32, HashMap<u32, JsonItemEntry>>>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -28,7 +28,7 @@ pub struct LootCatalog {
     entries: HashMap<(u32, u32), ItemInfo>,
 }
 
-const EMBEDDED_LOOT_YAML: &str = include_str!("../loot.yaml");
+const EMBEDDED_LOOT_JSON: &str = include_str!("../loot.json");
 
 impl LootCatalog {
     pub fn empty() -> Self {
@@ -43,20 +43,24 @@ impl LootCatalog {
             candidates.push(p.to_path_buf());
         }
 
+        if let Ok(env_path) = std::env::var("ROK_LOOT_JSON") {
+            candidates.push(PathBuf::from(env_path));
+        }
+
         if let Ok(env_path) = std::env::var("ROK_LOOT_YAML") {
             candidates.push(PathBuf::from(env_path));
         }
 
         if let Ok(cur_dir) = std::env::current_dir() {
-            candidates.push(cur_dir.join("loot.yaml"));
+            candidates.push(cur_dir.join("loot.json"));
         }
-        candidates.push(PathBuf::from("loot.yaml"));
+        candidates.push(PathBuf::from("loot.json"));
 
         if let Ok(exe) = std::env::current_exe() {
             if let Some(parent) = exe.parent() {
-                candidates.push(parent.join("loot.yaml"));
+                candidates.push(parent.join("loot.json"));
                 if let Some(grandparent) = parent.parent() {
-                    candidates.push(grandparent.join("loot.yaml"));
+                    candidates.push(grandparent.join("loot.json"));
                 }
             }
         }
@@ -71,17 +75,17 @@ impl LootCatalog {
         }
 
         // Tự động nạp dữ liệu loot table nhúng sẵn trong file thực thi EXE (hoàn toàn portable độc lập)
-        if let Ok(catalog) = Self::load_from_str(EMBEDDED_LOOT_YAML) {
+        if let Ok(catalog) = Self::load_from_str(EMBEDDED_LOOT_JSON) {
             println!("[+] Đã nạp thành công bảng loot table tích hợp sẵn trong EXE (Embedded)!");
             return catalog;
         }
 
-        eprintln!("[!] Cảnh báo: Không tìm thấy loot.yaml. Sử dụng bảng dịch mặc định.");
+        eprintln!("[!] Cảnh báo: Không tìm thấy loot.json. Sử dụng bảng dịch mặc định.");
         Self::empty()
     }
 
     pub fn load_from_str(text: &str) -> Result<Self, Box<dyn std::error::Error>> {
-        let parsed: YamlLootRoot = serde_yaml::from_str(text)?;
+        let parsed: JsonLootRoot = serde_json::from_str(text)?;
         let mut entries = HashMap::new();
 
         if let Some(type_map) = parsed.loot {
@@ -172,10 +176,7 @@ impl LootCatalog {
 
     pub fn get_item_info(&self, itype: u32, isub: u32, pic: Option<&str>) -> ItemInfo {
         if let Some(entry) = self.entries.get(&(itype, isub)) {
-            let mut res = entry.clone();
-            // Re-normalize category to ensure user-defined precision
-            res.category = Self::determine_category(itype, isub).to_string();
-            return res;
+            return entry.clone();
         }
 
         let cat = Self::determine_category(itype, isub);
@@ -212,7 +213,7 @@ mod tests {
 
     #[test]
     fn test_embedded_loot_catalog() {
-        let catalog = LootCatalog::load_from_str(EMBEDDED_LOOT_YAML).expect("Embedded loot.yaml must be valid YAML");
+        let catalog = LootCatalog::load_from_str(EMBEDDED_LOOT_JSON).expect("Embedded loot.json must be valid JSON");
         assert!(catalog.entries.len() > 100);
         // Verify Motte items exist
         let crystal = catalog.get_item_info(1, 9, None);
@@ -222,7 +223,7 @@ mod tests {
 
     #[test]
     fn test_item_categories() {
-        let catalog = LootCatalog::load_from_str(EMBEDDED_LOOT_YAML).expect("Embedded loot.yaml must be valid YAML");
+        let catalog = LootCatalog::load_from_str(EMBEDDED_LOOT_JSON).expect("Embedded loot.json must be valid JSON");
 
         // Gói tài nguyên, Đá, Vàng, Gỗ, Ngô, Đá quý -> Tài nguyên
         assert_eq!(catalog.get_item_info(1, 1, None).category, "Tài nguyên");

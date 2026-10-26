@@ -1,5 +1,5 @@
 use eframe::egui::{self, Color32, Frame, Margin, Rounding, Stroke};
-use crate::model::{parse_hex_color, BattleRecord, FilterMode, OverlayConfig};
+use crate::model::{parse_hex_color, BattleRecord, OverlayConfig};
 
 #[derive(Debug, Clone)]
 pub struct CardDisplayData {
@@ -104,17 +104,6 @@ pub fn compute_idle_dim_factor(last_arrival: std::time::Instant) -> f32 {
     }
 }
 
-pub fn get_latest_filtered_records(records: &[BattleRecord], filter: FilterMode, limit: usize) -> Vec<BattleRecord> {
-    let mut filtered: Vec<BattleRecord> = records
-        .iter()
-        .filter(|r| filter.matches(&r.battle_type))
-        .cloned()
-        .collect();
-
-    filtered.sort_by_key(|a| std::cmp::Reverse(a.time_raw));
-    filtered.truncate(limit);
-    filtered
-}
 
 pub fn compute_overlay_card_style(
     opacity: f32,
@@ -337,37 +326,6 @@ mod tests {
         assert!((compute_idle_dim_factor(past) - 0.65).abs() < 0.01);
     }
 
-    #[test]
-    fn test_get_latest_filtered_records_limit_5() {
-        let mut records = Vec::new();
-        for i in 1..=10 {
-            records.push(BattleRecord {
-                filename: format!("mail_{}", i),
-                mail_id: i.to_string(),
-                battle_type: if i % 2 == 0 { "fort".into() } else { "motte".into() },
-                time_raw: i * 100,
-                time_utc: "".into(),
-                time_vn: "".into(),
-                target: format!("Target {}", i),
-                target_level: "1".into(),
-                talent_add: 0,
-                pos_x: 0,
-                pos_y: 0,
-                damage_pct: 100,
-                plunder_tier: 0,
-                items: vec![],
-                item_totals: std::collections::HashMap::new(),
-                content: String::new(),
-            });
-        }
-
-        let forts = get_latest_filtered_records(&records, FilterMode::Fort, 5);
-        assert_eq!(forts.len(), 5);
-        for f in &forts {
-            assert_eq!(f.battle_type, "fort");
-        }
-        assert_eq!(forts[0].time_raw, 1000);
-    }
 
     #[test]
     fn test_card_accent_color_mapping() {
