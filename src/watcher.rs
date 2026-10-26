@@ -25,11 +25,11 @@ pub fn probe_candidate_is_mailcache(path: &Path) -> bool {
     }
     let is_mailcache = path
         .file_name()
-        .map_or(false, |n| n.to_string_lossy().eq_ignore_ascii_case("mailcache"));
+        .is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case("mailcache"));
     let parent_is_save = path
         .parent()
         .and_then(|p| p.file_name())
-        .map_or(false, |n| n.to_string_lossy().eq_ignore_ascii_case("save"));
+        .is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case("save"));
     is_mailcache && parent_is_save
 }
 
@@ -189,7 +189,8 @@ pub fn scan_drive_candidates() -> Option<PathBuf> {
 
 pub fn scan_for_mailcache() -> Option<PathBuf> {
     if let Ok(env_val) = std::env::var("ROK_MAIL_DIR") {
-        let p = PathBuf::from(env_val);
+        let clean_val = env_val.trim().trim_matches('"');
+        let p = PathBuf::from(clean_val);
         if p.is_dir() {
             return Some(p);
         }
