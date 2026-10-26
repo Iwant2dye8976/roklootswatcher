@@ -948,7 +948,7 @@ mod tests {
     #[test]
     fn test_watcher_process_gathering_mail() {
         let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-        let path = manifest_dir.join("mail_vault/Persistent.Mail.1002220217856803764");
+        let path = manifest_dir.join("tests/fixtures/Persistent.Mail.1002220217856803764");
         let mail = decode_mail_file(&path).expect("Decode mail");
         let btype = classify_mail(&mail);
         assert_eq!(btype, Some("gathering"));
