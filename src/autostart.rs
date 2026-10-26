@@ -195,6 +195,9 @@ pub mod windows {
     /// Xóa toàn bộ subkey của Autostart khỏi Windows Registry (dùng cho cleanup và test)
     #[allow(dead_code)]
     pub fn delete_autostart_key(subkey: &str) -> Result<(), String> {
+        if subkey == DEFAULT_RUN_KEY || subkey.ends_with(r"\Run") || subkey.ends_with(r"\run") {
+            return Err("Refusing to delete system Run key".to_string());
+        }
         unsafe {
             let subkey_wide = to_wide_null(subkey);
             let status = RegDeleteKeyW(HKEY_CURRENT_USER, subkey_wide.as_ptr());
@@ -271,7 +274,10 @@ pub mod windows {
     }
 
     #[allow(dead_code)]
-    pub fn delete_autostart_key(_subkey: &str) -> Result<(), String> {
+    pub fn delete_autostart_key(subkey: &str) -> Result<(), String> {
+        if subkey == DEFAULT_RUN_KEY || subkey.ends_with(r"\Run") || subkey.ends_with(r"\run") {
+            return Err("Refusing to delete system Run key".to_string());
+        }
         Ok(())
     }
 
@@ -326,6 +332,16 @@ mod tests {
         let p = path.unwrap();
         assert!(!p.starts_with(r"\\?\"), "Đường dẫn không được có tiền tố verbatim");
         assert!(p.ends_with(".exe") || p.contains("rok_watcher") || p.contains("deps"));
+    }
+
+    #[test]
+    fn test_delete_autostart_key_refuses_system_run_key() {
+        let res = delete_autostart_key(DEFAULT_RUN_KEY);
+        assert!(res.is_err(), "Must refuse to delete DEFAULT_RUN_KEY");
+        let res_run = delete_autostart_key(r"Software\Something\Run");
+        assert!(res_run.is_err(), "Must refuse to delete key ending with \\Run");
+        let res_lower = delete_autostart_key(r"Software\Something\run");
+        assert!(res_lower.is_err(), "Must refuse to delete key ending with \\run");
     }
 
     #[test]

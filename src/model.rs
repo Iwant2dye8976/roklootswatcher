@@ -1606,13 +1606,13 @@ impl Default for AppConfig {
 impl AppConfig {
     pub fn config_path() -> PathBuf {
         let cur = PathBuf::from("rok_config.json");
-        if cur.exists() {
+        if cur.exists() || cur.with_extension("tmp").exists() {
             return cur;
         }
         if let Ok(exe) = std::env::current_exe() {
             if let Some(parent) = exe.parent() {
                 let candidate = parent.join("rok_config.json");
-                if candidate.exists() {
+                if candidate.exists() || candidate.with_extension("tmp").exists() {
                     return candidate;
                 }
                 if let Ok(m) = std::fs::metadata(parent) {
@@ -1630,6 +1630,14 @@ impl AppConfig {
         if let Ok(data) = std::fs::read_to_string(&p) {
             if let Ok(cfg) = serde_json::from_str(&data) {
                 return cfg;
+            }
+        }
+        let tmp = p.with_extension("tmp");
+        if tmp.exists() {
+            if let Ok(data) = std::fs::read_to_string(&tmp) {
+                if let Ok(cfg) = serde_json::from_str(&data) {
+                    return cfg;
+                }
             }
         }
         Self::default()
@@ -2569,8 +2577,11 @@ mod tests {
         assert_eq!(parse_hex_color("invalid"), None);
     }
 
+    static CONFIG_TEST_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn test_app_config_atomic_save() {
+        let _lock = CONFIG_TEST_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         let path = AppConfig::config_path();
         let tmp_path = path.with_extension("tmp");
 
@@ -2615,5 +2626,48 @@ mod tests {
         assert!(!tmp_path.exists(), "Temporary file .tmp must not linger after atomic overwrite");
         let loaded2 = AppConfig::load();
         assert_eq!(loaded2.overlay.width, 1448.0);
+    }
+
+    #[test]
+    fn test_app_config_load_tmp_fallback() {
+        let _lock = CONFIG_TEST_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+        let path = AppConfig::config_path();
+        let tmp_path = path.with_extension("tmp");
+
+        struct ConfigCleanupGuard {
+            path: PathBuf,
+            tmp: PathBuf,
+            original: Option<Vec<u8>>,
+        }
+        impl Drop for ConfigCleanupGuard {
+            fn drop(&mut self) {
+                if let Some(ref d) = self.original {
+                    let _ = std::fs::write(&self.path, d);
+                } else {
+                    let _ = std::fs::remove_file(&self.path);
+                }
+                let _ = std::fs::remove_file(&self.tmp);
+            }
+        }
+
+        let orig = std::fs::read(&path).ok();
+        let _guard = ConfigCleanupGuard {
+            path: path.clone(),
+            tmp: tmp_path.clone(),
+            original: orig,
+        };
+
+        // Remove the primary config file so it doesn't exist
+        let _ = std::fs::remove_file(&path);
+
+        // Write a valid config into .tmp file
+        let mut tmp_cfg = AppConfig::default();
+        tmp_cfg.overlay.width = 9999.0;
+        let serialized = serde_json::to_string_pretty(&tmp_cfg).unwrap();
+        std::fs::write(&tmp_path, serialized.as_bytes()).unwrap();
+
+        // Load should fallback to the .tmp file
+        let loaded = AppConfig::load();
+        assert_eq!(loaded.overlay.width, 9999.0, "AppConfig::load must fallback to .tmp if main config missing");
     }
 }

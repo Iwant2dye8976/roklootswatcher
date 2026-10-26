@@ -288,9 +288,11 @@ mod tests {
             width: 1920,
             height: 1080,
         };
-        let mut cfg = crate::model::OverlayConfig::default();
-        cfg.offset_x = -50.0;
-        cfg.offset_y = -100.0;
+        let cfg = crate::model::OverlayConfig {
+            offset_x: -50.0,
+            offset_y: -100.0,
+            ..Default::default()
+        };
         let geom = calculate_overlay_geometry(&bounds, &cfg, 1.0);
         assert!(
             geom.pos_x >= 0.0,
@@ -382,8 +384,10 @@ mod tests {
             width: 1920,
             height: 1080,
         };
-        let mut cfg = crate::model::OverlayConfig::default();
-        cfg.offset_y = 1000.0; // User placed overlay near bottom
+        let mut cfg = crate::model::OverlayConfig {
+            offset_y: 1000.0, // User placed overlay near bottom
+            ..Default::default()
+        };
         let geom = calculate_overlay_geometry(&bounds, &cfg, 1.0);
         assert!(
             geom.pos_y + geom.height <= bounds.height as f32,

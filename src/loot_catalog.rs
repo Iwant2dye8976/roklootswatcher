@@ -211,6 +211,67 @@ impl LootCatalog {
 mod tests {
     use super::*;
 
+    static CATALOG_ENV_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    fn test_catalog_env_var_priority() {
+        let _lock = CATALOG_ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+
+        struct EnvGuard;
+        impl Drop for EnvGuard {
+            fn drop(&mut self) {
+                std::env::remove_var("ROK_LOOT_JSON");
+                std::env::remove_var("ROK_LOOT_YAML");
+            }
+        }
+
+        let temp_dir = std::env::temp_dir().join(format!("rok_test_catalog_priority_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&temp_dir);
+
+        let json_path = temp_dir.join("priority_test.json");
+        let yaml_path = temp_dir.join("priority_test.yaml");
+
+        let json_content = r#"{
+            "loot": {
+                "1": {
+                    "999": {
+                        "name": {
+                            "vi": "From JSON",
+                            "en": "From JSON"
+                        }
+                    }
+                }
+            }
+        }"#;
+
+        let yaml_content = r#"{
+            "loot": {
+                "1": {
+                    "999": {
+                        "name": {
+                            "vi": "From YAML",
+                            "en": "From YAML"
+                        }
+                    }
+                }
+            }
+        }"#;
+
+        std::fs::write(&json_path, json_content).unwrap();
+        std::fs::write(&yaml_path, yaml_content).unwrap();
+
+        let _guard = EnvGuard;
+        std::env::set_var("ROK_LOOT_JSON", &json_path);
+        std::env::set_var("ROK_LOOT_YAML", &yaml_path);
+
+        let catalog = LootCatalog::load_from_candidates(None);
+
+        let item = catalog.get_item_info(1, 999, None);
+        assert_eq!(item.name_vi, "From JSON", "ROK_LOOT_JSON must take priority over ROK_LOOT_YAML");
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
     #[test]
     fn test_embedded_loot_catalog() {
         let catalog = LootCatalog::load_from_str(EMBEDDED_LOOT_JSON).expect("Embedded loot.json must be valid JSON");

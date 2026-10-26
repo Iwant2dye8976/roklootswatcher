@@ -4287,7 +4287,7 @@ mod tests {
         assert_eq!(category_name(&item_speedups.category, lang), "Speedups");
 
         // Verify English category sorting orders "Crystals" before "Resources" and "Speedups"
-        let mut items = vec![&item_speedups, &item_resources_150k, &item_crystals];
+        let mut items = [&item_speedups, &item_resources_150k, &item_crystals];
         items.sort_by(|a, b| {
             category_name(&a.category, lang).cmp(category_name(&b.category, lang))
         });
@@ -4300,7 +4300,7 @@ mod tests {
         assert_eq!(item_resources_150k.raw_converted_value(), 150_000);
         assert_eq!(item_resources_2m.raw_converted_value(), 2_000_000);
 
-        let mut converted_items = vec![&item_resources_150k, &item_resources_2m];
+        let mut converted_items = [&item_resources_150k, &item_resources_2m];
         // Descending sort by raw_converted_value: 2,000,000 Food sorts above 150,000 Food
         converted_items.sort_by(|a, b| {
             b.raw_converted_value().cmp(&a.raw_converted_value())
@@ -4311,7 +4311,7 @@ mod tests {
         assert_eq!(converted_items[1].total_quantity, 3);
 
         // All 3 items descending: 2,000,000 > 150,000 > 50,000
-        let mut all_res = vec![&item_resources_150k, &item_resources_50k, &item_resources_2m];
+        let mut all_res = [&item_resources_150k, &item_resources_50k, &item_resources_2m];
         all_res.sort_by(|a, b| {
             b.raw_converted_value().cmp(&a.raw_converted_value())
         });
@@ -4410,7 +4410,7 @@ mod tests {
         let last_battle_sort_dir = SortDirection::Descending;
         let last_battle_mode = FilterMode::AllTargets;
         let last_battle_lang = AppLanguage::Vietnamese;
-        let cached_indices = vec![0, 1, 2];
+        let cached_indices = &[0, 1, 2];
 
         // 1. Static frame: nothing changed
         let is_dirty = reports_sort_dirty
@@ -4452,7 +4452,7 @@ mod tests {
         assert!(reports_sort_dirty);
 
         // 9. Out-of-bounds cached index -> dirty
-        let invalid_indices = vec![0, 1, 15];
+        let invalid_indices = &[0, 1, 15];
         assert!(invalid_indices.iter().any(|&i| i >= 10));
     }
 
