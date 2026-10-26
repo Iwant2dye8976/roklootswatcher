@@ -3363,6 +3363,20 @@ impl RoKLootWatcherApp {
                                 let f = self.watcher.get_vault_file_path();
                                 let _ = open::that(&f);
                             }
+                            if ui.button(self.language.t(TrKey::SettingsBtnCleanVault)).clicked() {
+                                match self.watcher.clean_binary_vault() {
+                                    Ok((cnt, bytes)) => {
+                                        let mb = format!("{:.2}", bytes as f64 / (1024.0 * 1024.0));
+                                        let msg = self.language.t(TrKey::SettingsCleanVaultSuccess)
+                                            .replace("{files}", &cnt.to_string())
+                                            .replace("{mb}", &mb);
+                                        self.watcher.log("SUCCESS", &msg);
+                                    }
+                                    Err(err) => {
+                                        self.watcher.log("ERROR", &err);
+                                    }
+                                }
+                            }
                         });
                     });
             });

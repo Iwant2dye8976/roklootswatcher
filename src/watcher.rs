@@ -156,6 +156,11 @@ impl RoKMailWatcher {
         self.vault.read().unwrap_or_else(|e| e.into_inner()).get_vault_file().to_path_buf()
     }
 
+
+    pub fn clean_binary_vault(&self) -> Result<(usize, u64), String> {
+        self.vault.read().unwrap_or_else(|e| e.into_inner()).clean_binary_vault()
+    }
+
     pub fn get_vault_binary_dir(&self) -> PathBuf {
         self.vault.read().unwrap_or_else(|e| e.into_inner()).get_binary_dir().to_path_buf()
     }

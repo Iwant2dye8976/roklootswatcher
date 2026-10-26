@@ -418,6 +418,35 @@ impl MailVault {
         Ok(dst_path)
     }
 
+
+    /// Dọn dẹp toàn bộ file nhị phân trong thư mục mail_vault để giải phóng dung lượng đĩa.
+    /// Trả về (số lượng file đã xóa, tổng dung lượng bytes giải phóng).
+    pub fn clean_binary_vault(&self) -> Result<(usize, u64), String> {
+        if !self.binary_dir.exists() {
+            return Ok((0, 0));
+        }
+
+        let mut deleted_count = 0;
+        let mut bytes_freed = 0;
+
+        let entries = fs::read_dir(&self.binary_dir)
+            .map_err(|e| format!("Không thể đọc thư mục mail_vault: {}", e))?;
+
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file() {
+                if let Ok(meta) = entry.metadata() {
+                    bytes_freed += meta.len();
+                }
+                if fs::remove_file(&path).is_ok() {
+                    deleted_count += 1;
+                }
+            }
+        }
+
+        Ok((deleted_count, bytes_freed))
+    }
+
     fn restore_from_filtered_mails_json(&mut self) -> usize {
         let parent = match self.vault_file.parent() {
             Some(p) => p,
@@ -1068,4 +1097,34 @@ mod tests {
 
         let _ = fs::remove_dir_all(&temp_dir);
     }
+
+    #[test]
+    fn test_clean_binary_vault() {
+        let temp_dir = std::env::temp_dir().join(format!("rok_test_clean_vault_{}", std::process::id()));
+        let _ = fs::create_dir_all(&temp_dir);
+
+        let vault = MailVault::new(&temp_dir);
+        let bin_dir = vault.get_binary_dir();
+
+        // Create 3 dummy files
+        fs::write(bin_dir.join("file1.bin"), b"12345").unwrap();
+        fs::write(bin_dir.join("file2.bin"), b"67890").unwrap();
+        fs::write(bin_dir.join("file3.bin"), b"abc").unwrap();
+
+        let (count, bytes) = vault.clean_binary_vault().expect("clean binary vault");
+        assert_eq!(count, 3);
+        assert_eq!(bytes, 13);
+        assert!(!bin_dir.join("file1.bin").exists());
+        assert!(!bin_dir.join("file2.bin").exists());
+        assert!(!bin_dir.join("file3.bin").exists());
+
+        // Calling it again on empty dir returns (0, 0)
+        let (count2, bytes2) = vault.clean_binary_vault().expect("clean empty vault");
+        assert_eq!(count2, 0);
+        assert_eq!(bytes2, 0);
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+
 }
