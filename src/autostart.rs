@@ -43,6 +43,7 @@ pub mod windows {
             lpValueName: *const u16,
         ) -> i32;
 
+        #[allow(dead_code)]
         fn RegDeleteKeyW(
             hKey: isize,
             lpSubKey: *const u16,
@@ -192,6 +193,7 @@ pub mod windows {
     }
 
     /// Xóa toàn bộ subkey của Autostart khỏi Windows Registry (dùng cho cleanup và test)
+    #[allow(dead_code)]
     pub fn delete_autostart_key(subkey: &str) -> Result<(), String> {
         unsafe {
             let subkey_wide = to_wide_null(subkey);
@@ -268,6 +270,7 @@ pub mod windows {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub fn delete_autostart_key(_subkey: &str) -> Result<(), String> {
         Ok(())
     }
