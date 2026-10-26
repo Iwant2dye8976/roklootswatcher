@@ -470,7 +470,10 @@ impl RoKMailWatcher {
     pub fn flush_vault_if_dirty(&self) {
         if self.vault_dirty.swap(false, Ordering::SeqCst) {
             let v = self.vault.read().unwrap_or_else(|e| e.into_inner());
-            if let Err(e) = v.save_to_disk() {
+            let save_res = v.save_to_disk();
+            drop(v);
+
+            if let Err(e) = save_res {
                 self.vault_dirty.store(true, Ordering::SeqCst);
                 let err_msg = match self.get_language() {
                     AppLanguage::Vietnamese => format!("Lỗi lưu vault vào đĩa: {}", e),
