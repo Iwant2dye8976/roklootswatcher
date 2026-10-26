@@ -1637,8 +1637,23 @@ impl AppConfig {
 
     pub fn save(&self) {
         let p = Self::config_path();
+        let tmp = p.with_extension("tmp");
         if let Ok(data) = serde_json::to_string_pretty(self) {
-            let _ = std::fs::write(&p, data);
+            let write_ok = (|| -> std::io::Result<()> {
+                use std::io::Write;
+                let mut file = std::fs::File::create(&tmp)?;
+                file.write_all(data.as_bytes())?;
+                file.sync_all()?;
+                Ok(())
+            })()
+            .is_ok();
+
+            if write_ok {
+                if std::fs::rename(&tmp, &p).is_err() {
+                    let _ = std::fs::remove_file(&p);
+                    let _ = std::fs::rename(&tmp, &p);
+                }
+            }
         }
     }
 }
@@ -2550,5 +2565,53 @@ mod tests {
         assert_eq!(parse_hex_color("#000000"), Some(eframe::egui::Color32::from_rgb(0, 0, 0)));
         assert_eq!(parse_hex_color("#38BDF8"), Some(eframe::egui::Color32::from_rgb(0x38, 0xBD, 0xF8)));
         assert_eq!(parse_hex_color("invalid"), None);
+    }
+
+    #[test]
+    fn test_app_config_atomic_save() {
+        let path = AppConfig::config_path();
+        let tmp_path = path.with_extension("tmp");
+
+        struct ConfigCleanupGuard {
+            path: PathBuf,
+            tmp: PathBuf,
+            original: Option<Vec<u8>>,
+        }
+        impl Drop for ConfigCleanupGuard {
+            fn drop(&mut self) {
+                if let Some(ref d) = self.original {
+                    let _ = std::fs::write(&self.path, d);
+                } else {
+                    let _ = std::fs::remove_file(&self.path);
+                }
+                let _ = std::fs::remove_file(&self.tmp);
+            }
+        }
+
+        let orig = std::fs::read(&path).ok();
+        let _guard = ConfigCleanupGuard {
+            path: path.clone(),
+            tmp: tmp_path.clone(),
+            original: orig,
+        };
+
+        let mut cfg = AppConfig::default();
+        cfg.overlay.width = 1337.0;
+        cfg.save();
+
+        assert!(!tmp_path.exists(), "Temporary file .tmp must not linger after atomic save");
+        assert!(path.exists(), "Target config file must exist after save");
+
+        let loaded = AppConfig::load();
+        assert_eq!(loaded.overlay.width, 1337.0);
+
+        // Atomic replace onto existing destination
+        let mut cfg2 = loaded;
+        cfg2.overlay.width = 1448.0;
+        cfg2.save();
+
+        assert!(!tmp_path.exists(), "Temporary file .tmp must not linger after atomic overwrite");
+        let loaded2 = AppConfig::load();
+        assert_eq!(loaded2.overlay.width, 1448.0);
     }
 }

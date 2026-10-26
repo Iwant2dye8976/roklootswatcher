@@ -238,6 +238,9 @@ fn run_cli_mode(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             .par_iter()
             .filter_map(|p| {
                 let fname = p.file_name()?.to_string_lossy();
+                if vault.contains_file_or_id(&fname) {
+                    return None;
+                }
                 let m = decode_mail_file(p).ok()?;
                 let box_name = m.get("box").and_then(|v| v.as_str()).unwrap_or("");
                 if box_name != "Report" && box_name != "Archive" {
@@ -664,6 +667,7 @@ fn run_gui_mode(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::BattleRecord;
 
     #[test]
     fn test_vault_init_performance() {
@@ -677,5 +681,39 @@ mod tests {
         // Warm vault init should complete in well under 1000ms even in debug mode (was >670ms prior to optimization)
         assert!(elapsed.as_millis() < 1000, "MailVault::init took too long: {:?}", elapsed);
         assert!(vault.total_count() > 0);
+    }
+
+    #[test]
+    fn test_cli_dedup_check_with_vault() {
+        let temp_dir = std::env::temp_dir().join(format!("rok_test_cli_dedup_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let _ = std::fs::create_dir_all(&temp_dir);
+        let mut vault = crate::vault::MailVault::new(&temp_dir);
+        
+        let rec = BattleRecord {
+            filename: "Persistent.Mail.123456".into(),
+            mail_id: "123456".into(),
+            battle_type: "motte".into(),
+            time_raw: 100,
+            time_utc: "".into(),
+            time_vn: "".into(),
+            target: "Motte 12".into(),
+            target_level: "12".into(),
+            talent_add: 0,
+            pos_x: 0,
+            pos_y: 0,
+            damage_pct: 100,
+            plunder_tier: 0,
+            items: vec![],
+            item_totals: std::collections::HashMap::new(),
+            content: "".into(),
+        };
+        vault.upsert_batch(vec![rec]);
+
+        let fname1 = "Persistent.Mail.123456";
+        let fname2 = "Persistent.Mail.999999";
+        assert!(vault.contains_file_or_id(fname1));
+        assert!(!vault.contains_file_or_id(fname2));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }
