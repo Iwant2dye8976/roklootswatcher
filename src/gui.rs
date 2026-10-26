@@ -722,6 +722,7 @@ impl RoKLootWatcherApp {
     }
 
     fn apply_date_preset(&mut self, preset: DateFilterPreset) {
+        self.reports_sort_dirty = true;
         self.selected_date_preset = preset.clone();
         let today_vn = crate::analyzer::current_date_vn();
         match preset {
@@ -761,6 +762,7 @@ impl RoKLootWatcherApp {
     }
 
     fn apply_custom_date_filter(&mut self) {
+        self.reports_sort_dirty = true;
         let s = parse_date_str(&self.date_from_input);
         let e = parse_date_str(&self.date_to_input);
         self.selected_date_preset = DateFilterPreset::Custom;
