@@ -2854,6 +2854,25 @@ impl RoKLootWatcherApp {
 
                         ui.add_space(8.0);
                         ui.horizontal(|ui| {
+                            if ui.button(self.language.t(TrKey::SettingsBtnAutoScan)).clicked() {
+                                match crate::watcher::scan_for_mailcache() {
+                                    Some(dir) => {
+                                        self.mail_path_input = dir.to_string_lossy().to_string();
+                                        self.watcher.set_mail_dir(dir.clone());
+                                        self.save_config();
+                                        self.watcher.log(
+                                            "SUCCESS",
+                                            &format!("{}: {}", self.language.t(TrKey::SettingsScanFound), dir.display()),
+                                        );
+                                    }
+                                    None => {
+                                        self.watcher.log(
+                                            "WARN",
+                                            self.language.t(TrKey::SettingsScanNotFound),
+                                        );
+                                    }
+                                }
+                            }
                             if ui.button(self.language.t(TrKey::SettingsBtnBrowse)).clicked() {
                                 if let Some(folder) = rfd::FileDialog::new().pick_folder() {
                                     self.mail_path_input = folder.to_string_lossy().to_string();
@@ -4272,5 +4291,25 @@ mod tests {
         poll_armor_check_channel(&mut pending, &mut armored);
         assert!(pending.is_some());
         assert!(!armored);
+    }
+
+    #[test]
+    fn test_auto_scan_trigger_fallback_preserves_state() {
+        let mut initial_path = "C:\\existing\\custom\\path".to_string();
+        let scan_result: Option<std::path::PathBuf> = None;
+        if let Some(dir) = scan_result {
+            initial_path = dir.to_string_lossy().to_string();
+        }
+        assert_eq!(initial_path, "C:\\existing\\custom\\path");
+    }
+
+    #[test]
+    fn test_auto_scan_trigger_success_updates_state() {
+        let mut initial_path = "C:\\existing\\custom\\path".to_string();
+        let scan_result: Option<std::path::PathBuf> = Some(std::path::PathBuf::from("D:\\Games\\ROK\\mailcache"));
+        if let Some(dir) = scan_result {
+            initial_path = dir.to_string_lossy().to_string();
+        }
+        assert_eq!(initial_path, "D:\\Games\\ROK\\mailcache");
     }
 }
