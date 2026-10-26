@@ -13,3 +13,4 @@ examples/
 .agents/
 AGENT.md
 AUDIT.md
+tests/
