@@ -1653,6 +1653,8 @@ impl AppConfig {
                     let _ = std::fs::remove_file(&p);
                     let _ = std::fs::rename(&tmp, &p);
                 }
+            } else {
+                let _ = std::fs::remove_file(&tmp);
             }
         }
     }
