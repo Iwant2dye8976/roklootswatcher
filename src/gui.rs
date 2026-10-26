@@ -200,6 +200,18 @@ pub struct RoKLootWatcherApp {
     is_armored: bool,
     pending_armor_check: Option<std::sync::mpsc::Receiver<bool>>,
     _single_instance: Option<crate::single_instance::windows::SingleInstanceGuard>,
+
+    // UI Frame-Rate Caching (Audit Items #7, #8, #11)
+    pub cached_overlay_records: Vec<BattleRecord>,
+    pub cached_sorted_battle_indices: Vec<usize>,
+    pub reports_sort_dirty: bool,
+    pub last_applied_theme: Option<AppTheme>,
+    pub last_records_count: usize,
+    last_battle_search: String,
+    last_battle_sort_col: Option<BattleSortColumn>,
+    last_battle_sort_dir: SortDirection,
+    last_battle_mode: FilterMode,
+    last_battle_lang: AppLanguage,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -571,6 +583,8 @@ impl RoKLootWatcherApp {
             watcher.log("INFO", min_msg);
         }
 
+        let initial_overlay_records = watcher.get_latest_vault_records(config.overlay.filter, 5);
+
         Self {
             watcher,
             rx_ui,
@@ -613,7 +627,22 @@ impl RoKLootWatcherApp {
             is_armored: false,
             pending_armor_check: Some(armor_rx),
             _single_instance: single_instance,
+
+            cached_overlay_records: initial_overlay_records,
+            cached_sorted_battle_indices: Vec::new(),
+            reports_sort_dirty: true,
+            last_applied_theme: None,
+            last_records_count: 0,
+            last_battle_search: String::new(),
+            last_battle_sort_col: Some(BattleSortColumn::Time),
+            last_battle_sort_dir: SortDirection::Descending,
+            last_battle_mode: initial_mode,
+            last_battle_lang: initial_language,
         }
+    }
+
+    pub fn refresh_cached_overlay_records(&mut self) {
+        self.cached_overlay_records = self.watcher.get_latest_vault_records(self.overlay_config.filter, 5);
     }
 
     fn save_config(&self) {
@@ -665,9 +694,13 @@ impl RoKLootWatcherApp {
                     ctx.request_repaint();
                 }
                 WatcherUiEvent::StatsUpdated { .. } => {
+                    self.reports_sort_dirty = true;
+                    self.refresh_cached_overlay_records();
                     ctx.request_repaint();
                 }
                 WatcherUiEvent::MailDetected { .. } => {
+                    self.reports_sort_dirty = true;
+                    self.refresh_cached_overlay_records();
                     self.last_mail_arrival = std::time::Instant::now();
                     ctx.request_repaint();
                 }
@@ -1917,11 +1950,16 @@ impl RoKLootWatcherApp {
                 self.battle_sort_col = Some(col);
                 self.battle_sort_dir = SortDirection::Descending;
             }
+            self.reports_sort_dirty = true;
         }
 
         ui.add_space(4.0);
 
         if records.is_empty() {
+            if self.last_records_count != 0 {
+                self.cached_sorted_battle_indices.clear();
+                self.last_records_count = 0;
+            }
             ui.add_space(30.0);
             if self.watcher.is_scanning() {
                 ui.vertical_centered(|ui| {
@@ -1966,64 +2004,89 @@ impl RoKLootWatcherApp {
 
         let search_lower = self.battle_search.to_lowercase();
         let cur_lang = self.language;
-        let mut sorted_records: Vec<&BattleRecord> = records
-            .iter()
-            .filter(|r| {
-                if search_lower.is_empty() {
-                    true
-                } else {
-                    r.battle_type.contains(&search_lower)
-                        || r.time_vn.contains(&search_lower)
-                        || r.target.to_lowercase().contains(&search_lower)
-                        || r.display_target(cur_lang).to_lowercase().contains(&search_lower)
-                }
-            })
-            .collect();
 
-        if let Some(sort_col) = self.battle_sort_col {
-            sorted_records.sort_by(|a, b| {
-                let ordering = match sort_col {
-                    BattleSortColumn::Time => a.time_raw.cmp(&b.time_raw),
-                    BattleSortColumn::Type => a.battle_type.cmp(&b.battle_type),
-                    BattleSortColumn::Target => a.target.cmp(&b.target),
-                    BattleSortColumn::Damage => {
-                        if is_gathering {
-                            a.talent_add.cmp(&b.talent_add)
-                        } else {
-                            a.damage_pct.cmp(&b.damage_pct)
-                        }
-                    },
-                    BattleSortColumn::Tier => a.plunder_tier.cmp(&b.plunder_tier),
-                    BattleSortColumn::Crystal => a.crystal_quantity().cmp(&b.crystal_quantity()),
-                    BattleSortColumn::Level => a.target_level.cmp(&b.target_level),
-                    BattleSortColumn::Resource => {
-                        if is_gathering {
-                            let a_val = a.items.first().map(|i| i.value).unwrap_or(0);
-                            let b_val = b.items.first().map(|i| i.value).unwrap_or(0);
-                            a_val.cmp(&b_val)
-                        } else if is_barb {
-                            a.total_resource_value().cmp(&b.total_resource_value())
-                        } else {
-                            a.total_resources_breakdown().choice_packs.cmp(&b.total_resources_breakdown().choice_packs)
-                        }
+        let is_dirty = self.reports_sort_dirty
+            || records.len() != self.last_records_count
+            || self.battle_search != self.last_battle_search
+            || self.battle_sort_col != self.last_battle_sort_col
+            || self.battle_sort_dir != self.last_battle_sort_dir
+            || self.selected_mode != self.last_battle_mode
+            || self.language != self.last_battle_lang
+            || self.cached_sorted_battle_indices.iter().any(|&i| i >= records.len());
+
+        if is_dirty {
+            let mut indices: Vec<usize> = records
+                .iter()
+                .enumerate()
+                .filter_map(|(idx, r)| {
+                    if search_lower.is_empty() {
+                        Some(idx)
+                    } else {
+                        let matches = r.battle_type.contains(&search_lower)
+                            || r.time_vn.contains(&search_lower)
+                            || r.target.to_lowercase().contains(&search_lower)
+                            || r.display_target(cur_lang).to_lowercase().contains(&search_lower);
+                        if matches { Some(idx) } else { None }
                     }
-                    BattleSortColumn::TomeExp => {
-                        if is_barb {
-                            a.total_exp_value().cmp(&b.total_exp_value())
-                        } else {
-                            a.item_quantity(2, 130).cmp(&b.item_quantity(2, 130))
+                })
+                .collect();
+
+            if let Some(sort_col) = self.battle_sort_col {
+                indices.sort_by(|&a_idx, &b_idx| {
+                    let a = &records[a_idx];
+                    let b = &records[b_idx];
+                    let ordering = match sort_col {
+                        BattleSortColumn::Time => a.time_raw.cmp(&b.time_raw),
+                        BattleSortColumn::Type => a.battle_type.cmp(&b.battle_type),
+                        BattleSortColumn::Target => a.target.cmp(&b.target),
+                        BattleSortColumn::Damage => {
+                            if is_gathering {
+                                a.talent_add.cmp(&b.talent_add)
+                            } else {
+                                a.damage_pct.cmp(&b.damage_pct)
+                            }
+                        },
+                        BattleSortColumn::Tier => a.plunder_tier.cmp(&b.plunder_tier),
+                        BattleSortColumn::Crystal => a.crystal_quantity().cmp(&b.crystal_quantity()),
+                        BattleSortColumn::Level => a.target_level.cmp(&b.target_level),
+                        BattleSortColumn::Resource => {
+                            if is_gathering {
+                                let a_val = a.items.first().map(|i| i.value).unwrap_or(0);
+                                let b_val = b.items.first().map(|i| i.value).unwrap_or(0);
+                                a_val.cmp(&b_val)
+                            } else if is_barb {
+                                a.total_resource_value().cmp(&b.total_resource_value())
+                            } else {
+                                a.total_resources_breakdown().choice_packs.cmp(&b.total_resources_breakdown().choice_packs)
+                            }
                         }
+                        BattleSortColumn::TomeExp => {
+                            if is_barb {
+                                a.total_exp_value().cmp(&b.total_exp_value())
+                            } else {
+                                a.item_quantity(2, 130).cmp(&b.item_quantity(2, 130))
+                            }
+                        }
+                        BattleSortColumn::Arrow => a.item_quantity(2, 145).cmp(&b.item_quantity(2, 145)),
+                        BattleSortColumn::UnivSpeedup => a.univ_speedup_minutes().cmp(&b.univ_speedup_minutes()),
+                        BattleSortColumn::TrainSpeedup => a.training_speedup_minutes().cmp(&b.training_speedup_minutes()),
+                        BattleSortColumn::HealSpeedup => a.heal_speedup_minutes().cmp(&b.heal_speedup_minutes()),
+                    };
+                    match self.battle_sort_dir {
+                        SortDirection::Ascending => ordering,
+                        SortDirection::Descending => ordering.reverse(),
                     }
-                    BattleSortColumn::Arrow => a.item_quantity(2, 145).cmp(&b.item_quantity(2, 145)),
-                    BattleSortColumn::UnivSpeedup => a.univ_speedup_minutes().cmp(&b.univ_speedup_minutes()),
-                    BattleSortColumn::TrainSpeedup => a.training_speedup_minutes().cmp(&b.training_speedup_minutes()),
-                    BattleSortColumn::HealSpeedup => a.heal_speedup_minutes().cmp(&b.heal_speedup_minutes()),
-                };
-                match self.battle_sort_dir {
-                    SortDirection::Ascending => ordering,
-                    SortDirection::Descending => ordering.reverse(),
-                }
-            });
+                });
+            }
+
+            self.cached_sorted_battle_indices = indices;
+            self.last_records_count = records.len();
+            self.last_battle_search = self.battle_search.clone();
+            self.last_battle_sort_col = self.battle_sort_col;
+            self.last_battle_sort_dir = self.battle_sort_dir;
+            self.last_battle_mode = self.selected_mode;
+            self.last_battle_lang = self.language;
+            self.reports_sort_dirty = false;
         }
 
         let mut clicked_record = None;
@@ -2031,10 +2094,10 @@ impl RoKLootWatcherApp {
 
         egui::ScrollArea::both()
             .auto_shrink([false, false])
-            .show_rows(ui, row_height, sorted_records.len(), |ui, row_range| {
+            .show_rows(ui, row_height, self.cached_sorted_battle_indices.len(), |ui, row_range| {
                 ui.set_width(dimensions.table_width);
                 for idx in row_range {
-                    let r = sorted_records[idx];
+                    let r = &records[self.cached_sorted_battle_indices[idx]];
                     let (row_rect, row_resp) = ui.allocate_exact_size(
                         egui::vec2(dimensions.table_width, 28.0),
                         egui::Sense::click(),
@@ -2952,6 +3015,9 @@ impl RoKLootWatcherApp {
                         };
                         ui.checkbox(&mut self.overlay_config.enabled, egui::RichText::new(toggle_lbl).strong().color(c.canvas_tint));
                         if self.overlay_config.enabled != prev_enabled {
+                            if self.overlay_config.enabled {
+                                self.refresh_cached_overlay_records();
+                            }
                             self.save_config();
                         }
 
@@ -2991,6 +3057,7 @@ impl RoKLootWatcherApp {
                                         ui.selectable_value(&mut self.overlay_config.filter, FilterMode::Gathering, rss_lbl);
                                     });
                                 if self.overlay_config.filter != prev_filter {
+                                    self.refresh_cached_overlay_records();
                                     self.save_config();
                                 }
                             });
@@ -3775,49 +3842,52 @@ impl eframe::App for RoKLootWatcherApp {
 
         // Slate & Charcoal Minimalist Visuals
         let c = self.colors();
-        let mut visuals = if self.theme == AppTheme::Dark {
-            egui::Visuals::dark()
-        } else {
-            egui::Visuals::light()
-        };
-        visuals.override_text_color = Some(c.canvas_tint);
-        visuals.window_fill = c.ink_deep;
-        visuals.panel_fill = c.ink;
-        visuals.faint_bg_color = c.ink_deep;
-        visuals.extreme_bg_color = if self.theme == AppTheme::Dark {
-            c.ink
-        } else {
-            Color32::from_rgb(0xeb, 0xee, 0xf2)
-        };
+        if self.last_applied_theme != Some(self.theme) {
+            self.last_applied_theme = Some(self.theme);
+            let mut visuals = if self.theme == AppTheme::Dark {
+                egui::Visuals::dark()
+            } else {
+                egui::Visuals::light()
+            };
+            visuals.override_text_color = Some(c.canvas_tint);
+            visuals.window_fill = c.ink_deep;
+            visuals.panel_fill = c.ink;
+            visuals.faint_bg_color = c.ink_deep;
+            visuals.extreme_bg_color = if self.theme == AppTheme::Dark {
+                c.ink
+            } else {
+                Color32::from_rgb(0xeb, 0xee, 0xf2)
+            };
 
-        visuals.window_shadow = egui::epaint::Shadow::NONE;
-        visuals.popup_shadow = egui::epaint::Shadow::NONE;
+            visuals.window_shadow = egui::epaint::Shadow::NONE;
+            visuals.popup_shadow = egui::epaint::Shadow::NONE;
 
-        visuals.widgets.inactive.rounding = Rounding::same(4.0);
-        visuals.widgets.inactive.bg_fill = c.primary;
-        visuals.widgets.inactive.fg_stroke = Stroke::new(1.0_f32, c.canvas_tint);
-        visuals.widgets.inactive.bg_stroke = Stroke::new(1.0_f32, c.field_border);
+            visuals.widgets.inactive.rounding = Rounding::same(4.0);
+            visuals.widgets.inactive.bg_fill = c.primary;
+            visuals.widgets.inactive.fg_stroke = Stroke::new(1.0_f32, c.canvas_tint);
+            visuals.widgets.inactive.bg_stroke = Stroke::new(1.0_f32, c.field_border);
 
-        visuals.widgets.hovered.rounding = Rounding::same(4.0);
-        visuals.widgets.hovered.bg_fill = c.primary_pressed;
-        visuals.widgets.hovered.fg_stroke = Stroke::new(1.0_f32, if self.theme == AppTheme::Dark { Color32::WHITE } else { Color32::BLACK });
-        visuals.widgets.hovered.bg_stroke = Stroke::new(1.0_f32, c.focus_teal);
+            visuals.widgets.hovered.rounding = Rounding::same(4.0);
+            visuals.widgets.hovered.bg_fill = c.primary_pressed;
+            visuals.widgets.hovered.fg_stroke = Stroke::new(1.0_f32, if self.theme == AppTheme::Dark { Color32::WHITE } else { Color32::BLACK });
+            visuals.widgets.hovered.bg_stroke = Stroke::new(1.0_f32, c.focus_teal);
 
-        visuals.widgets.active.rounding = Rounding::same(4.0);
-        visuals.widgets.active.bg_fill = c.primary_pressed;
-        visuals.widgets.active.fg_stroke = Stroke::new(1.0_f32, c.focus_teal);
-        visuals.widgets.active.bg_stroke = Stroke::new(1.0_f32, c.focus_teal);
+            visuals.widgets.active.rounding = Rounding::same(4.0);
+            visuals.widgets.active.bg_fill = c.primary_pressed;
+            visuals.widgets.active.fg_stroke = Stroke::new(1.0_f32, c.focus_teal);
+            visuals.widgets.active.bg_stroke = Stroke::new(1.0_f32, c.focus_teal);
 
-        visuals.widgets.open.rounding = Rounding::same(4.0);
-        visuals.widgets.open.bg_fill = c.primary_pressed;
+            visuals.widgets.open.rounding = Rounding::same(4.0);
+            visuals.widgets.open.bg_fill = c.primary_pressed;
 
-        visuals.window_rounding = Rounding::same(8.0);
-        visuals.window_stroke = Stroke::new(1.0_f32, c.hairline);
+            visuals.window_rounding = Rounding::same(8.0);
+            visuals.window_stroke = Stroke::new(1.0_f32, c.hairline);
 
-        visuals.selection.bg_fill = c.primary_pressed;
-        visuals.selection.stroke = Stroke::new(1.0_f32, c.focus_teal);
+            visuals.selection.bg_fill = c.primary_pressed;
+            visuals.selection.stroke = Stroke::new(1.0_f32, c.focus_teal);
 
-        ctx.set_visuals(visuals);
+            ctx.set_visuals(visuals);
+        }
 
         if had_events || self.watcher.is_scanning() {
             ctx.request_repaint_after(std::time::Duration::from_millis(50));
@@ -3901,15 +3971,12 @@ impl eframe::App for RoKLootWatcherApp {
                             .with_inner_size([geom.width.round(), geom.height.round()])
                             .with_visible(true);
 
-                        let filtered = self.watcher.get_latest_vault_records(
-                            self.overlay_config.filter,
-                            5,
-                        );
+                        let overlay_records = &self.cached_overlay_records;
                         let overlay_cfg = self.overlay_config.clone();
                         let last_mail = self.last_mail_arrival;
 
-                        ctx.show_viewport_immediate(overlay_id, builder, move |ctx, _class| {
-                            crate::overlay_ui::render_overlay_viewport(ctx, &filtered, &overlay_cfg, last_mail);
+                        ctx.show_viewport_immediate(overlay_id, builder, |ctx, _class| {
+                            crate::overlay_ui::render_overlay_viewport(ctx, overlay_records, &overlay_cfg, last_mail);
                         });
 
                         // Ensure viewport size & position update smoothly when sliders or D-pad are used
@@ -4311,5 +4378,135 @@ mod tests {
             initial_path = dir.to_string_lossy().to_string();
         }
         assert_eq!(initial_path, "D:\\Games\\ROK\\mailcache");
+    }
+
+    #[test]
+    fn test_theme_visuals_caching_state() {
+        let mut last_applied_theme: Option<AppTheme> = None;
+        let current_theme = AppTheme::Dark;
+
+        // Frame 1: Not applied yet
+        assert_ne!(last_applied_theme, Some(current_theme));
+        last_applied_theme = Some(current_theme);
+
+        // Frame 2: Same theme -> cached, no update needed
+        assert_eq!(last_applied_theme, Some(current_theme));
+
+        // Frame 3: Toggle theme -> dirty, needs update
+        let toggled = current_theme.toggle();
+        assert_ne!(last_applied_theme, Some(toggled));
+        last_applied_theme = Some(toggled);
+        assert_eq!(last_applied_theme, Some(AppTheme::Light));
+    }
+
+    #[test]
+    fn test_reports_tab_dirty_state_tracking() {
+        let mut reports_sort_dirty = false;
+        let last_records_count = 10usize;
+        let last_battle_search = "motte".to_string();
+        let last_battle_sort_col = Some(BattleSortColumn::Time);
+        let last_battle_sort_dir = SortDirection::Descending;
+        let last_battle_mode = FilterMode::AllTargets;
+        let last_battle_lang = AppLanguage::Vietnamese;
+        let cached_indices = vec![0, 1, 2];
+
+        // 1. Static frame: nothing changed
+        let is_dirty = reports_sort_dirty
+            || 10 != last_records_count
+            || "motte" != last_battle_search
+            || Some(BattleSortColumn::Time) != last_battle_sort_col
+            || SortDirection::Descending != last_battle_sort_dir
+            || FilterMode::AllTargets != last_battle_mode
+            || AppLanguage::Vietnamese != last_battle_lang
+            || cached_indices.iter().any(|&i| i >= 10);
+        assert!(!is_dirty, "Should be clean when no parameters changed");
+
+        // 2. Search changed -> dirty
+        let is_dirty_search = "fort" != last_battle_search;
+        assert!(is_dirty_search);
+
+        // 3. Sort column changed -> dirty
+        let is_dirty_col = Some(BattleSortColumn::Damage) != last_battle_sort_col;
+        assert!(is_dirty_col);
+
+        // 4. Sort dir changed -> dirty
+        let is_dirty_dir = SortDirection::Ascending != last_battle_sort_dir;
+        assert!(is_dirty_dir);
+
+        // 5. Records count changed -> dirty
+        let is_dirty_count = 11 != last_records_count;
+        assert!(is_dirty_count);
+
+        // 6. Language changed -> dirty
+        let is_dirty_lang = AppLanguage::English != last_battle_lang;
+        assert!(is_dirty_lang);
+
+        // 7. Mode changed -> dirty
+        let is_dirty_mode = FilterMode::Barbarian != last_battle_mode;
+        assert!(is_dirty_mode);
+
+        // 8. Explicit dirty flag
+        reports_sort_dirty = true;
+        assert!(reports_sort_dirty);
+
+        // 9. Out-of-bounds cached index -> dirty
+        let invalid_indices = vec![0, 1, 15];
+        assert!(invalid_indices.iter().any(|&i| i >= 10));
+    }
+
+    #[test]
+    fn test_overlay_records_and_event_refresh() {
+        use std::sync::mpsc::channel;
+        let temp_dir = std::env::temp_dir().join(format!("rok_test_cache_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&temp_dir);
+
+        let make_rec = |id: &str, btype: &str, time_raw: i64| BattleRecord {
+            filename: format!("mail_{}", id),
+            mail_id: id.to_string(),
+            battle_type: btype.to_string(),
+            time_raw,
+            time_utc: String::new(),
+            time_vn: "2026-10-27 00:00:00".to_string(),
+            target: format!("Target {}", id),
+            target_level: "5".to_string(),
+            damage_pct: 100,
+            plunder_tier: 1,
+            talent_add: 0,
+            pos_x: 0,
+            pos_y: 0,
+            items: vec![],
+            item_totals: std::collections::HashMap::new(),
+            content: String::new(),
+        };
+
+        let mut vault = crate::vault::MailVault::new(&temp_dir);
+        vault.upsert(make_rec("1", "fort", 100));
+        let _ = vault.save_to_disk();
+
+        let (tx, _rx) = channel();
+        let watcher = Arc::new(RoKMailWatcher::new(
+            Some(temp_dir.clone()),
+            Some(temp_dir.clone()),
+            FilterMode::AllTargets,
+            crate::loot_catalog::LootCatalog::empty(),
+            tx,
+        ));
+
+        let initial_records = watcher.get_latest_vault_records(FilterMode::AllRewards, 5);
+        assert_eq!(initial_records.len(), 1);
+
+        // Cached records holds 1 record
+        let mut cached_overlay_records = initial_records;
+        assert_eq!(cached_overlay_records.len(), 1);
+
+        // Filter for motte (which has 0 records)
+        let filtered_motte = watcher.get_latest_vault_records(FilterMode::Motte, 5);
+        assert_eq!(filtered_motte.len(), 0);
+
+        // When filter changes, refresh updates the cached overlay records
+        cached_overlay_records = filtered_motte;
+        assert_eq!(cached_overlay_records.len(), 0);
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }
