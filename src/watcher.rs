@@ -19,25 +19,192 @@ use crate::vault::{read_file_shared, MailVault};
 pub const DEFAULT_MAIL_DIR: &str =
     r"C:\Program Files (x86)\Rise of Kingdoms\Rise of Kingdoms Game\save\mailcache";
 
-pub fn detect_default_mail_dir() -> PathBuf {
+pub fn probe_candidate_is_mailcache(path: &Path) -> bool {
+    if !path.is_dir() {
+        return false;
+    }
+    let is_mailcache = path
+        .file_name()
+        .map_or(false, |n| n.to_string_lossy().eq_ignore_ascii_case("mailcache"));
+    let parent_is_save = path
+        .parent()
+        .and_then(|p| p.file_name())
+        .map_or(false, |n| n.to_string_lossy().eq_ignore_ascii_case("save"));
+    is_mailcache && parent_is_save
+}
+
+#[cfg(windows)]
+fn find_running_rok_mailcache() -> Option<PathBuf> {
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::System::Threading::{
+        OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+    use windows_sys::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId;
+
+    let hwnd = crate::overlay_tracker::find_rok_window()?;
+    unsafe {
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(hwnd, &mut pid);
+        if pid == 0 {
+            return None;
+        }
+        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if handle.is_null() {
+            return None;
+        }
+        let mut buf = [0u16; 1024];
+        let mut len = buf.len() as u32;
+        let success = QueryFullProcessImageNameW(handle, 0, buf.as_mut_ptr(), &mut len);
+        CloseHandle(handle);
+
+        if success != 0 && len > 0 {
+            let exe_path_str = String::from_utf16_lossy(&buf[..len as usize]);
+            let exe_path = PathBuf::from(exe_path_str);
+            if let Some(parent) = exe_path.parent() {
+                let candidate = parent.join("save").join("mailcache");
+                if probe_candidate_is_mailcache(&candidate) {
+                    return Some(candidate);
+                }
+                if let Some(grandparent) = parent.parent() {
+                    let candidate2 = grandparent.join("save").join("mailcache");
+                    if probe_candidate_is_mailcache(&candidate2) {
+                        return Some(candidate2);
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+#[cfg(not(windows))]
+fn find_running_rok_mailcache() -> Option<PathBuf> {
+    None
+}
+
+pub(crate) fn probe_directory_tree(dir: &Path, max_depth: usize) -> Option<PathBuf> {
+    if max_depth == 0 {
+        return None;
+    }
+
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return None,
+    };
+
+    for entry in entries.flatten() {
+        let file_type = match entry.file_type() {
+            Ok(ft) => ft,
+            Err(_) => continue,
+        };
+        if !file_type.is_dir() {
+            continue;
+        }
+
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
+        let name_lower = name_str.to_lowercase();
+
+        // Skip system/hidden folders to avoid slow traversal
+        if name_lower.starts_with('$')
+            || name_lower == "windows"
+            || name_lower == "system volume information"
+            || name_lower == "recovery"
+            || name_lower == "msocache"
+            || name_lower == "users"
+            || name_lower == "programdata"
+            || name_lower == "node_modules"
+            || name_lower == ".git"
+        {
+            continue;
+        }
+
+        let child_path = entry.path();
+
+        // Check if this directory itself contains "rise of kingdoms"
+        if name_lower.contains("rise of kingdoms") {
+            let direct_cache = child_path.join("save").join("mailcache");
+            if probe_candidate_is_mailcache(&direct_cache) {
+                return Some(direct_cache);
+            }
+            let game_cache = child_path
+                .join("Rise of Kingdoms Game")
+                .join("save")
+                .join("mailcache");
+            if probe_candidate_is_mailcache(&game_cache) {
+                return Some(game_cache);
+            }
+        }
+
+        // Shallow recursion
+        if max_depth > 1 {
+            if let Some(found) = probe_directory_tree(&child_path, max_depth - 1) {
+                return Some(found);
+            }
+        }
+    }
+
+    None
+}
+
+pub fn scan_drive_candidates() -> Option<PathBuf> {
+    for drive in 'C'..='Z' {
+        let drive_root = format!(r"{}:\", drive);
+        let root_path = Path::new(&drive_root);
+        if !root_path.is_dir() {
+            continue;
+        }
+
+        // 1. Direct probe of common paths
+        let fixed_candidates = [
+            format!(r"{}:\Program Files (x86)\Rise of Kingdoms\Rise of Kingdoms Game\save\mailcache", drive),
+            format!(r"{}:\Program Files\Rise of Kingdoms\Rise of Kingdoms Game\save\mailcache", drive),
+            format!(r"{}:\Rise of Kingdoms\Rise of Kingdoms Game\save\mailcache", drive),
+            format!(r"{}:\Games\Rise of Kingdoms\Rise of Kingdoms Game\save\mailcache", drive),
+            format!(r"{}:\Game\Rise of Kingdoms\Rise of Kingdoms Game\save\mailcache", drive),
+            format!(r"{}:\ROK\Rise of Kingdoms Game\save\mailcache", drive),
+        ];
+
+        for cand_str in &fixed_candidates {
+            let cand = PathBuf::from(cand_str);
+            if probe_candidate_is_mailcache(&cand) {
+                return Some(cand);
+            }
+        }
+
+        // 2. Shallow probe (depth <= 2) on <drive>:\Games and <drive>:\
+        let games_dir = PathBuf::from(format!(r"{}:\Games", drive));
+        if games_dir.is_dir() {
+            if let Some(found) = probe_directory_tree(&games_dir, 2) {
+                return Some(found);
+            }
+        }
+
+        if let Some(found) = probe_directory_tree(root_path, 2) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+pub fn scan_for_mailcache() -> Option<PathBuf> {
     if let Ok(env_val) = std::env::var("ROK_MAIL_DIR") {
         let p = PathBuf::from(env_val);
         if p.is_dir() {
-            return p;
+            return Some(p);
         }
     }
-    let candidates = [
-        PathBuf::from(r"C:\Program Files (x86)\Rise of Kingdoms\Rise of Kingdoms Game\save\mailcache"),
-        PathBuf::from(r"D:\Program Files (x86)\Rise of Kingdoms\Rise of Kingdoms Game\save\mailcache"),
-        PathBuf::from(r"D:\Rise of Kingdoms\Rise of Kingdoms Game\save\mailcache"),
-        PathBuf::from(r"E:\Rise of Kingdoms\Rise of Kingdoms Game\save\mailcache"),
-    ];
-    for c in candidates {
-        if c.is_dir() {
-            return c;
-        }
+    if let Some(p) = find_running_rok_mailcache() {
+        return Some(p);
     }
-    PathBuf::from(DEFAULT_MAIL_DIR)
+    if let Some(p) = scan_drive_candidates() {
+        return Some(p);
+    }
+    None
+}
+
+pub fn detect_default_mail_dir() -> PathBuf {
+    scan_for_mailcache().unwrap_or_else(|| PathBuf::from(DEFAULT_MAIL_DIR))
 }
 
 #[derive(Debug, Clone)]
@@ -1056,5 +1223,74 @@ mod tests {
         assert!(!vault_file.exists(), "Non-report mail must NOT be backed up to mail_vault");
 
         let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_scan_for_mailcache_env_var_valid_and_invalid() {
+        let temp = std::env::temp_dir().join("rok_test_mailcache_valid");
+        let _ = std::fs::create_dir_all(&temp);
+
+        // Valid path in env var
+        std::env::set_var("ROK_MAIL_DIR", &temp);
+        assert_eq!(scan_for_mailcache(), Some(temp.clone()));
+
+        // Invalid non-existent path in env var should not be returned
+        std::env::set_var("ROK_MAIL_DIR", "Z:\\non_existent_folder_path_xyz_123");
+        let res = scan_for_mailcache();
+        assert_ne!(res, Some(PathBuf::from("Z:\\non_existent_folder_path_xyz_123")));
+
+        std::env::remove_var("ROK_MAIL_DIR");
+        let _ = std::fs::remove_dir_all(&temp);
+    }
+
+    #[test]
+    fn test_probe_drive_path_validates_is_dir() {
+        let temp_file = std::env::temp_dir().join("rok_test_not_a_dir.tmp");
+        let _ = std::fs::write(&temp_file, b"not a dir");
+        assert!(!probe_candidate_is_mailcache(&temp_file));
+        let _ = std::fs::remove_file(&temp_file);
+    }
+
+    #[test]
+    fn test_probe_candidate_is_mailcache_success_and_failures() {
+        let base = std::env::temp_dir().join(format!("rok_test_probe_{}", std::process::id()));
+        let valid_mc = base.join("save").join("mailcache");
+        let invalid_parent = base.join("other").join("mailcache");
+        let invalid_child = base.join("save").join("other");
+
+        let _ = std::fs::create_dir_all(&valid_mc);
+        let _ = std::fs::create_dir_all(&invalid_parent);
+        let _ = std::fs::create_dir_all(&invalid_child);
+
+        assert!(probe_candidate_is_mailcache(&valid_mc));
+        assert!(!probe_candidate_is_mailcache(&invalid_parent));
+        assert!(!probe_candidate_is_mailcache(&invalid_child));
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn test_probe_directory_tree_finds_nested_candidate() {
+        let base = std::env::temp_dir().join(format!("rok_test_tree_{}", std::process::id()));
+        let nested_mc = base
+            .join("CustomGames")
+            .join("Rise of Kingdoms")
+            .join("Rise of Kingdoms Game")
+            .join("save")
+            .join("mailcache");
+        let _ = std::fs::create_dir_all(&nested_mc);
+
+        let found = probe_directory_tree(&base, 2);
+        assert_eq!(found, Some(nested_mc));
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn test_detect_default_mail_dir_fallback() {
+        // With ROK_MAIL_DIR unset, it returns a non-empty path
+        std::env::remove_var("ROK_MAIL_DIR");
+        let p = detect_default_mail_dir();
+        assert!(!p.as_os_str().is_empty());
     }
 }
