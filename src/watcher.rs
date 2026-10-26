@@ -513,13 +513,7 @@ impl RoKMailWatcher {
                 let p = entry.path();
                 if p.is_file() {
                     let fname = p.file_name().unwrap_or_default().to_string_lossy().to_string();
-                    if fname.starts_with("Persistent.Mail.") {
-                        // Tự động sao lưu nhị phân tức thì vào mail_vault nếu chưa có
-                        let backup_target = vault_dir.join(&fname);
-                        if !backup_target.exists() {
-                            let _ = std::fs::copy(&p, &backup_target);
-                        }
-                        all_files_map.insert(fname, p);
+                    if fname.starts_with("Persistent.Mail.") {                        all_files_map.insert(fname, p);
                     }
                 }
             }
@@ -601,6 +595,10 @@ impl RoKMailWatcher {
                         return None;
                     }
                     let btype = classify_mail(&m)?;
+                    let backup_dst = vault_dir.join(&*fname);
+                    if !backup_dst.exists() && fpath.starts_with(&mail_dir) {
+                        let _ = std::fs::copy(fpath, &backup_dst);
+                    }
                     extract_motte_details(&m, &fname, catalog, Some(btype)).ok()
                 })
                 .collect();
@@ -795,13 +793,6 @@ impl RoKMailWatcher {
             return;
         }
 
-        // Sao lưu nhị phân ngay lập tức vào kho mail_vault trước khi game kịp xóa
-        let vault_dir = self.get_vault_binary_dir();
-        let backup_dst = vault_dir.join(&fname);
-        if !backup_dst.exists() {
-            let _ = std::fs::write(&backup_dst, &file_buf);
-        }
-
         // Giải mã nội dung
         let m = match crate::lilith_stream::decode_mail_bytes(&file_buf) {
             Ok(val) => val,
@@ -817,6 +808,13 @@ impl RoKMailWatcher {
             Some(t) => t,
             None => return,
         };
+
+        // Sao lưu nhị phân vào kho mail_vault chỉ khi là thư chiến báo hoặc thu gom hợp lệ
+        let vault_dir = self.get_vault_binary_dir();
+        let backup_dst = vault_dir.join(&fname);
+        if !backup_dst.exists() {
+            let _ = std::fs::write(&backup_dst, &file_buf);
+        }
 
         let rec = match extract_motte_details(&m, &fname, &self.catalog, Some(btype)) {
             Ok(r) => r,
@@ -1020,5 +1018,38 @@ mod tests {
         assert_eq!(watcher.get_date_range_label(), "Từ 2026-10-01 đến 2026-10-10");
         watcher.set_language(AppLanguage::English);
         assert_eq!(watcher.get_date_range_label(), "From 2026-10-01 to 2026-10-10");
+    }
+
+    #[test]
+    fn test_process_file_skips_non_report_backup() {
+        let temp_dir = std::env::temp_dir().join(format!("rok_test_skip_backup_{}", std::process::id()));
+        let mailcache = temp_dir.join("mailcache");
+        let _ = std::fs::create_dir_all(&mailcache);
+
+        let (tx, _rx) = std::sync::mpsc::channel();
+        let watcher = RoKMailWatcher::new(
+            Some(mailcache.clone()),
+            Some(temp_dir.clone()),
+            FilterMode::AllTargets,
+            LootCatalog::empty(),
+            tx,
+        );
+
+        // Dummy mail table without Report/Archive box
+        let mut valid = vec![0; 10];
+        valid[0] = 0xFF;
+        valid[9] = 0x05;
+        valid.push(0xFF); // End of table
+
+        let mail_path = mailcache.join("Persistent.Mail.888888");
+        std::fs::write(&mail_path, &valid).unwrap();
+
+        watcher.process_file_async(&mail_path);
+
+        // mail_vault should NOT have Persistent.Mail.888888
+        let vault_file = watcher.get_vault_binary_dir().join("Persistent.Mail.888888");
+        assert!(!vault_file.exists(), "Non-report mail must NOT be backed up to mail_vault");
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }

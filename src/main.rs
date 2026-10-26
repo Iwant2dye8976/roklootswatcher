@@ -207,13 +207,7 @@ fn run_cli_mode(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                 let p = entry.path();
                 if p.is_file() {
                     let fname = p.file_name().unwrap_or_default().to_string_lossy().to_string();
-                    if fname.starts_with("Persistent.Mail.") {
-                        // Tự động sao lưu nhị phân vào vault
-                        let backup_target = vault_dir.join(&fname);
-                        if !backup_target.exists() {
-                            let _ = std::fs::copy(&p, &backup_target);
-                        }
-                        all_files_map.insert(fname, p);
+                    if fname.starts_with("Persistent.Mail.") {                        all_files_map.insert(fname, p);
                     }
                 }
             }
@@ -250,6 +244,10 @@ fn run_cli_mode(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                     return None;
                 }
                 let btype = classify_mail(&m)?;
+                let backup_target = vault_dir.join(&*fname);
+                if !backup_target.exists() && p.starts_with(&mail_dir) {
+                    let _ = std::fs::copy(p, &backup_target);
+                }
                 extract_motte_details(&m, &fname, catalog_ref, Some(btype)).ok()
             })
             .collect();
