@@ -1,7 +1,5 @@
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
-use std::fs::File;
-use std::io::Read;
 use std::path::Path;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -207,34 +205,42 @@ pub fn decode_mail_bytes(data: &[u8]) -> Result<LilithValue, String> {
 
 pub fn decode_mail_file<P: AsRef<Path>>(filepath: P) -> Result<LilithValue, String> {
     let path = filepath.as_ref();
-    let mut file = File::open(path).map_err(|e| e.to_string())?;
-    let file_size = file.metadata().map_err(|e| e.to_string())?.len();
-    if file_size > MAX_MAIL_FILE_SIZE {
-        return Err(format!(
-            "File {} exceeds max size limit ({} bytes > {} bytes)",
-            path.display(),
-            file_size,
-            MAX_MAIL_FILE_SIZE
-        ));
-    }
-    let mut buf = Vec::with_capacity(file_size as usize);
-    file.by_ref()
-        .take(MAX_MAIL_FILE_SIZE + 1)
-        .read_to_end(&mut buf)
-        .map_err(|e| e.to_string())?;
-    if buf.len() as u64 > MAX_MAIL_FILE_SIZE {
-        return Err(format!(
-            "File {} exceeds max size limit (more than {} bytes)",
-            path.display(),
-            MAX_MAIL_FILE_SIZE
-        ));
-    }
+    let buf = crate::vault::read_file_shared(path).map_err(|e| e.to_string())?;
     decode_mail_bytes(&buf)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs::File;
+
+    #[test]
+    fn test_decode_mail_file_valid() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "rok_watcher_valid_mail_{}_{}.bin",
+            std::process::id(),
+            unique
+        ));
+        let mut valid = vec![0; 10];
+        valid[0] = 0xFF;
+        valid[9] = 0x05;
+        valid.push(0xFF); // End of table
+        std::fs::write(&path, &valid).unwrap();
+
+        let result = decode_mail_file(&path);
+        let _ = std::fs::remove_file(&path);
+
+        assert!(result.is_ok());
+        if let Ok(LilithValue::Table(m)) = result {
+            assert!(m.is_empty());
+        } else {
+            panic!("Expected Table");
+        }
+    }
 
     #[test]
     fn test_invalid_header() {

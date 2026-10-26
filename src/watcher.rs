@@ -470,7 +470,16 @@ impl RoKMailWatcher {
     pub fn flush_vault_if_dirty(&self) {
         if self.vault_dirty.swap(false, Ordering::SeqCst) {
             let v = self.vault.read().unwrap_or_else(|e| e.into_inner());
-            let _ = v.save_to_disk();
+            if let Err(e) = v.save_to_disk() {
+                self.vault_dirty.store(true, Ordering::SeqCst);
+                let err_msg = match self.get_language() {
+                    AppLanguage::Vietnamese => format!("Lỗi lưu vault vào đĩa: {}", e),
+                    AppLanguage::English => format!("Error saving vault to disk: {}", e),
+                };
+                self.log("ERROR", &err_msg);
+            } else {
+                self.auto_export();
+            }
         }
     }
 
@@ -1061,8 +1070,6 @@ impl RoKMailWatcher {
             self.log("SUCCESS", &msg);
         }
 
-        self.auto_export();
-
         let _ = self.ui_sender.send(WatcherUiEvent::MailDetected {
             target: rec.target.clone(),
             damage_pct: rec.damage_pct,
@@ -1155,6 +1162,43 @@ mod tests {
         // Calling stop while watching is false should still flush dirty state
         watcher.stop();
         assert!(!watcher.vault_dirty.load(std::sync::atomic::Ordering::SeqCst), "Dirty flag must be cleared by flush on stop");
+        assert!(temp_dir.join("motte_filtered_mails.json").exists(), "Auto export should be executed when dirty vault is flushed on stop");
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_vault_dirty_retained_on_error() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let temp_dir = std::env::temp_dir().join(format!("rok_test_dirty_err_{}_{}", std::process::id(), unique));
+        let _ = std::fs::create_dir_all(&temp_dir);
+
+        // Pre-create a corrupted vault JSON file so load_from_disk flags it as corrupted and save_to_disk refuses
+        let vault_file = temp_dir.join("rok_history_vault.json");
+        std::fs::write(&vault_file, b"{ corrupted_json").unwrap();
+
+        let (tx, _rx) = std::sync::mpsc::channel();
+        let watcher = RoKMailWatcher::new(
+            Some(temp_dir.clone()),
+            Some(temp_dir.clone()),
+            FilterMode::AllTargets,
+            LootCatalog::empty(),
+            tx,
+        );
+
+        // Mark dirty
+        watcher.mark_vault_dirty();
+        assert!(watcher.vault_dirty.load(std::sync::atomic::Ordering::SeqCst));
+
+        // Flush dirty: since vault is corrupted, save_to_disk() fails, and dirty flag must be retained
+        watcher.flush_vault_if_dirty();
+        assert!(
+            watcher.vault_dirty.load(std::sync::atomic::Ordering::SeqCst),
+            "Dirty flag must be retained (set back to true) when save_to_disk fails"
+        );
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
