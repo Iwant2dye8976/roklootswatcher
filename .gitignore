@@ -1,4 +1,4 @@
-filter_mails_json/
+filtered_mails_json/
 mail_vault/
 raw_binary_mails/
 target/
@@ -13,4 +13,3 @@ examples/
 .agents/
 AGENT.md
 AUDIT.md
-tests/

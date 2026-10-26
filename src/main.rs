@@ -668,6 +668,9 @@ mod tests {
     #[test]
     fn test_vault_init_performance() {
         let root_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        if !root_dir.join("rok_history_vault.json").exists() {
+            return;
+        }
         let start = std::time::Instant::now();
         let vault = crate::vault::MailVault::new(&root_dir);
         let elapsed = start.elapsed();

@@ -435,11 +435,10 @@ impl MailVault {
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_file() {
-                if let Ok(meta) = entry.metadata() {
-                    bytes_freed += meta.len();
-                }
+                let len = entry.metadata().map(|m| m.len()).unwrap_or(0);
                 if fs::remove_file(&path).is_ok() {
                     deleted_count += 1;
+                    bytes_freed += len;
                 }
             }
         }
@@ -808,6 +807,9 @@ mod tests {
 
     #[test]
     fn test_inspect_new_files() {
+        if !Path::new("rok_history_vault.json").exists() {
+            return;
+        }
         let vault = MailVault::new(Path::new("."));
         assert!(vault.total_count() >= 609, "Tổng số bản ghi phải từ 609 trở lên");
         let mut btypes = HashMap::new();
