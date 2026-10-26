@@ -5,6 +5,8 @@ pub mod windows {
     const KEY_QUERY_VALUE: u32 = 0x0001;
     const REG_SZ: u32 = 1;
 
+    pub const DEFAULT_RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
+
     #[link(name = "advapi32")]
     extern "system" {
         fn RegOpenKeyExW(
@@ -13,6 +15,18 @@ pub mod windows {
             ulOptions: u32,
             samDesired: u32,
             phkResult: *mut isize,
+        ) -> i32;
+
+        fn RegCreateKeyExW(
+            hKey: isize,
+            lpSubKey: *const u16,
+            Reserved: u32,
+            lpClass: *const u16,
+            dwOptions: u32,
+            samDesired: u32,
+            lpSecurityAttributes: *const std::ffi::c_void,
+            phkResult: *mut isize,
+            lpdwDisposition: *mut u32,
         ) -> i32;
 
         fn RegSetValueExW(
@@ -27,6 +41,11 @@ pub mod windows {
         fn RegDeleteValueW(
             hKey: isize,
             lpValueName: *const u16,
+        ) -> i32;
+
+        fn RegDeleteKeyW(
+            hKey: isize,
+            lpSubKey: *const u16,
         ) -> i32;
 
         fn RegQueryValueExW(
@@ -53,12 +72,12 @@ pub mod windows {
         Ok(clean.to_string())
     }
 
-    /// Lấy giá trị chuỗi lệnh thô của Autostart trong Windows Registry nếu có
-    pub fn get_raw_autostart_command() -> Option<String> {
+    /// Lấy giá trị chuỗi lệnh thô của Autostart trong Windows Registry theo subkey
+    pub fn get_raw_autostart_command_with_key(subkey: &str) -> Option<String> {
         unsafe {
-            let subkey = to_wide_null(r"Software\Microsoft\Windows\CurrentVersion\Run");
+            let subkey_wide = to_wide_null(subkey);
             let mut hkey: isize = 0;
-            let status = RegOpenKeyExW(HKEY_CURRENT_USER, subkey.as_ptr(), 0, KEY_QUERY_VALUE, &mut hkey);
+            let status = RegOpenKeyExW(HKEY_CURRENT_USER, subkey_wide.as_ptr(), 0, KEY_QUERY_VALUE, &mut hkey);
             if status != 0 || hkey == 0 {
                 return None;
             }
@@ -103,19 +122,36 @@ pub mod windows {
         None
     }
 
-    /// Ghi hoặc xóa chuỗi lệnh thô của Autostart trong Windows Registry
-    pub fn set_raw_autostart_command(cmd: Option<&str>) -> Result<(), String> {
-        unsafe {
-            let subkey = to_wide_null(r"Software\Microsoft\Windows\CurrentVersion\Run");
-            let mut hkey: isize = 0;
-            let status = RegOpenKeyExW(HKEY_CURRENT_USER, subkey.as_ptr(), 0, KEY_SET_VALUE, &mut hkey);
-            if status != 0 || hkey == 0 {
-                return Err(format!("Không thể mở Registry Run (mã lỗi: {})", status));
-            }
+    /// Lấy giá trị chuỗi lệnh thô của Autostart trong Windows Registry nếu có
+    #[allow(dead_code)]
+    pub fn get_raw_autostart_command() -> Option<String> {
+        get_raw_autostart_command_with_key(DEFAULT_RUN_KEY)
+    }
 
+    /// Ghi hoặc xóa chuỗi lệnh thô của Autostart trong Windows Registry theo subkey
+    pub fn set_raw_autostart_command_with_key(subkey: &str, cmd: Option<&str>) -> Result<(), String> {
+        unsafe {
+            let subkey_wide = to_wide_null(subkey);
             let val_name = to_wide_null("RoKLootWatcher");
 
             if let Some(cmd_str) = cmd {
+                let mut hkey: isize = 0;
+                let mut disp = 0u32;
+                let status = RegCreateKeyExW(
+                    HKEY_CURRENT_USER,
+                    subkey_wide.as_ptr(),
+                    0,
+                    std::ptr::null(),
+                    0,
+                    KEY_SET_VALUE,
+                    std::ptr::null(),
+                    &mut hkey,
+                    &mut disp,
+                );
+                if status != 0 || hkey == 0 {
+                    return Err(format!("Không thể mở/tạo Registry key (mã lỗi: {})", status));
+                }
+
                 let val_wide = to_wide_null(cmd_str);
                 let val_bytes = std::slice::from_raw_parts(
                     val_wide.as_ptr() as *const u8,
@@ -136,6 +172,12 @@ pub mod windows {
                     return Err(format!("Không thể ghi giá trị Registry (mã lỗi: {})", set_status));
                 }
             } else {
+                let mut hkey: isize = 0;
+                let status = RegOpenKeyExW(HKEY_CURRENT_USER, subkey_wide.as_ptr(), 0, KEY_SET_VALUE, &mut hkey);
+                if status != 0 || hkey == 0 {
+                    // Nếu key không tồn tại thì giá trị coi như đã không tồn tại
+                    return Ok(());
+                }
                 let _ = RegDeleteValueW(hkey, val_name.as_ptr());
                 RegCloseKey(hkey);
             }
@@ -143,10 +185,29 @@ pub mod windows {
         Ok(())
     }
 
-    /// Kiểm tra trạng thái Autostart trong Windows Registry
+    /// Ghi hoặc xóa chuỗi lệnh thô của Autostart trong Windows Registry
+    #[allow(dead_code)]
+    pub fn set_raw_autostart_command(cmd: Option<&str>) -> Result<(), String> {
+        set_raw_autostart_command_with_key(DEFAULT_RUN_KEY, cmd)
+    }
+
+    /// Xóa toàn bộ subkey của Autostart khỏi Windows Registry (dùng cho cleanup và test)
+    pub fn delete_autostart_key(subkey: &str) -> Result<(), String> {
+        unsafe {
+            let subkey_wide = to_wide_null(subkey);
+            let status = RegDeleteKeyW(HKEY_CURRENT_USER, subkey_wide.as_ptr());
+            // Mã lỗi 0 là thành công, 2 (ERROR_FILE_NOT_FOUND) là key không tồn tại
+            if status != 0 && status != 2 {
+                return Err(format!("Không thể xóa registry key (mã lỗi: {})", status));
+            }
+        }
+        Ok(())
+    }
+
+    /// Kiểm tra trạng thái Autostart trong Windows Registry theo subkey
     /// Trả về `(is_autostart_enabled, is_start_minimized)`
-    pub fn get_autostart_status() -> (bool, bool) {
-        if let Some(val_str) = get_raw_autostart_command() {
+    pub fn get_autostart_status_with_key(subkey: &str) -> (bool, bool) {
+        if let Some(val_str) = get_raw_autostart_command_with_key(subkey) {
             let is_minimized = val_str.contains("--minimized") || val_str.contains("--tray");
             (true, is_minimized)
         } else {
@@ -154,8 +215,14 @@ pub mod windows {
         }
     }
 
-    /// Cập nhật trạng thái Autostart trong Windows Registry
-    pub fn set_autostart(enabled: bool, start_minimized: bool) -> Result<(), String> {
+    /// Kiểm tra trạng thái Autostart trong Windows Registry
+    /// Trả về `(is_autostart_enabled, is_start_minimized)`
+    pub fn get_autostart_status() -> (bool, bool) {
+        get_autostart_status_with_key(DEFAULT_RUN_KEY)
+    }
+
+    /// Cập nhật trạng thái Autostart trong Windows Registry theo subkey
+    pub fn set_autostart_with_key(subkey: &str, enabled: bool, start_minimized: bool) -> Result<(), String> {
         if enabled {
             let clean_exe = get_clean_exe_path()?;
             let val_str = if start_minimized {
@@ -163,21 +230,58 @@ pub mod windows {
             } else {
                 format!("\"{}\"", clean_exe)
             };
-            set_raw_autostart_command(Some(&val_str))
+            set_raw_autostart_command_with_key(subkey, Some(&val_str))
         } else {
-            set_raw_autostart_command(None)
+            set_raw_autostart_command_with_key(subkey, None)
         }
+    }
+
+    /// Cập nhật trạng thái Autostart trong Windows Registry
+    pub fn set_autostart(enabled: bool, start_minimized: bool) -> Result<(), String> {
+        set_autostart_with_key(DEFAULT_RUN_KEY, enabled, start_minimized)
     }
 }
 
 #[cfg(not(windows))]
 pub mod windows {
+    pub const DEFAULT_RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
+
     pub fn get_clean_exe_path() -> Result<String, String> {
         Ok(String::new())
     }
 
+    pub fn get_raw_autostart_command_with_key(_subkey: &str) -> Option<String> {
+        None
+    }
+
+    #[allow(dead_code)]
+    pub fn get_raw_autostart_command() -> Option<String> {
+        None
+    }
+
+    pub fn set_raw_autostart_command_with_key(_subkey: &str, _cmd: Option<&str>) -> Result<(), String> {
+        Ok(())
+    }
+
+    #[allow(dead_code)]
+    pub fn set_raw_autostart_command(_cmd: Option<&str>) -> Result<(), String> {
+        Ok(())
+    }
+
+    pub fn delete_autostart_key(_subkey: &str) -> Result<(), String> {
+        Ok(())
+    }
+
+    pub fn get_autostart_status_with_key(_subkey: &str) -> (bool, bool) {
+        (false, false)
+    }
+
     pub fn get_autostart_status() -> (bool, bool) {
         (false, false)
+    }
+
+    pub fn set_autostart_with_key(_subkey: &str, _enabled: bool, _start_minimized: bool) -> Result<(), String> {
+        Ok(())
     }
 
     pub fn set_autostart(_enabled: bool, _start_minimized: bool) -> Result<(), String> {
@@ -223,28 +327,26 @@ mod tests {
 
     #[test]
     fn test_autostart_toggle() {
-        // Lưu giá trị thô ban đầu để khôi phục chính xác 100% sau test
-        let raw_original = get_raw_autostart_command();
-        let (initial_enabled, _initial_minimized) = get_autostart_status();
+        let test_key = r"Software\RoKLootWatcher_Test";
+        // Ensure clean state before test
+        let _ = delete_autostart_key(test_key);
 
-        // Thử bật với tùy chọn thu nhỏ
-        let set_res = set_autostart(true, true);
-        assert!(set_res.is_ok(), "Bật autostart phải thành công: {:?}", set_res.err());
+        let set_res = set_autostart_with_key(test_key, true, true);
+        assert!(set_res.is_ok(), "Bật autostart test key phải thành công");
 
-        let (enabled, minimized) = get_autostart_status();
-        assert!(enabled, "Autostart phải ở trạng thái enabled");
-        assert!(minimized, "Tùy chọn minimized phải là true");
+        let (enabled, minimized) = get_autostart_status_with_key(test_key);
+        assert!(enabled);
+        assert!(minimized);
 
-        // Thử bật không thu nhỏ
-        let set_res2 = set_autostart(true, false);
+        let set_res2 = set_autostart_with_key(test_key, true, false);
         assert!(set_res2.is_ok());
-        let (enabled2, minimized2) = get_autostart_status();
+        let (enabled2, minimized2) = get_autostart_status_with_key(test_key);
         assert!(enabled2);
-        assert!(!minimized2, "Tùy chọn minimized phải là false");
+        assert!(!minimized2);
 
-        // Khôi phục lại trạng thái ban đầu của hệ thống
-        let _ = set_raw_autostart_command(raw_original.as_deref());
-        let (restored_enabled, _) = get_autostart_status();
-        assert_eq!(restored_enabled, initial_enabled, "Phải khôi phục đúng trạng thái ban đầu");
+        let del_res = delete_autostart_key(test_key);
+        assert!(del_res.is_ok());
+        let (restored, _) = get_autostart_status_with_key(test_key);
+        assert!(!restored);
     }
 }
