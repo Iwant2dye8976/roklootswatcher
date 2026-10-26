@@ -6,7 +6,7 @@ target/
 analytics.md
 *.txt
 *.json
-loot.yaml
+!loot.json
 .superpowers/
 docs/
 examples/
