@@ -20,6 +20,7 @@ eframe = "0.29"
 image = { version = "0.25", default-features = false, features = ["png", "ico"] }
 windows-sys = { version = "0.59", features = ["Win32_UI_WindowsAndMessaging", "Win32_Foundation", "Win32_System_Threading"] }
 rayon = "1.10"
+ureq = { version = "2.10", features = ["json"] }
 
 [profile.release]
 opt-level = 3

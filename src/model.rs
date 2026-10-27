@@ -1607,6 +1607,154 @@ pub fn parse_hex_color(hex: &str) -> Option<eframe::egui::Color32> {
     }
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CloudAuthConfig {
+    #[serde(default)]
+    pub supabase_url: Option<String>,
+    #[serde(default)]
+    pub anon_key: Option<String>,
+    #[serde(skip)]
+    pub access_token: Option<String>,
+    #[serde(skip)]
+    pub refresh_token: Option<String>,
+    #[serde(default)]
+    pub user_id: Option<String>,
+    #[serde(default)]
+    pub user_email: Option<String>,
+    #[serde(default)]
+    pub last_synced: Option<String>,
+    #[serde(default)]
+    pub auto_backup: bool,
+}
+
+#[cfg(windows)]
+mod secret_store {
+    use std::fs;
+    use std::path::{Path, PathBuf};
+
+    #[repr(C)]
+    struct DataBlob {
+        cb_data: u32,
+        pb_data: *mut u8,
+    }
+
+    #[link(name = "crypt32")]
+    extern "system" {
+        fn CryptProtectData(
+            pDataIn: *const DataBlob,
+            szDataDescr: *const u16,
+            pOptionalEntropy: *const DataBlob,
+            pvReserved: *mut std::ffi::c_void,
+            pPromptStruct: *mut std::ffi::c_void,
+            dwFlags: u32,
+            pDataOut: *mut DataBlob,
+        ) -> i32;
+
+        fn CryptUnprotectData(
+            pDataIn: *const DataBlob,
+            ppszDataDescr: *mut *mut u16,
+            pOptionalEntropy: *const DataBlob,
+            pvReserved: *mut std::ffi::c_void,
+            pPromptStruct: *mut std::ffi::c_void,
+            dwFlags: u32,
+            pDataOut: *mut DataBlob,
+        ) -> i32;
+    }
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn LocalFree(hMem: isize) -> isize;
+    }
+
+    fn auth_token_path(config_path: &Path) -> PathBuf {
+        config_path.with_file_name("rok_auth.dat")
+    }
+
+    pub fn save_secure_tokens(config_path: &Path, access: Option<&str>, refresh: Option<&str>) {
+        let auth_path = auth_token_path(config_path);
+        let (acc, ref_) = match (access, refresh) {
+            (Some(a), Some(r)) if !a.is_empty() && !r.is_empty() => (a, r),
+            _ => {
+                let _ = fs::remove_file(&auth_path);
+                return;
+            }
+        };
+
+        let raw = format!("{}\n{}", acc, ref_);
+        let in_blob = DataBlob {
+            cb_data: raw.len() as u32,
+            pb_data: raw.as_ptr() as *mut u8,
+        };
+        let mut out_blob = DataBlob {
+            cb_data: 0,
+            pb_data: std::ptr::null_mut(),
+        };
+
+        // CRYPTPROTECT_UI_FORBIDDEN = 0x1
+        unsafe {
+            if CryptProtectData(
+                &in_blob,
+                std::ptr::null(),
+                std::ptr::null(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                1,
+                &mut out_blob,
+            ) != 0 {
+                let bytes = std::slice::from_raw_parts(out_blob.pb_data, out_blob.cb_data as usize);
+                let _ = fs::write(&auth_path, bytes);
+                LocalFree(out_blob.pb_data as isize);
+            }
+        }
+    }
+
+    pub fn load_secure_tokens(config_path: &Path) -> (Option<String>, Option<String>) {
+        let auth_path = auth_token_path(config_path);
+        let bytes = match fs::read(&auth_path) {
+            Ok(b) if !b.is_empty() => b,
+            _ => return (None, None),
+        };
+
+        let in_blob = DataBlob {
+            cb_data: bytes.len() as u32,
+            pb_data: bytes.as_ptr() as *mut u8,
+        };
+        let mut out_blob = DataBlob {
+            cb_data: 0,
+            pb_data: std::ptr::null_mut(),
+        };
+
+        unsafe {
+            if CryptUnprotectData(
+                &in_blob,
+                std::ptr::null_mut(),
+                std::ptr::null(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                1,
+                &mut out_blob,
+            ) != 0 {
+                let decrypted = std::slice::from_raw_parts(out_blob.pb_data, out_blob.cb_data as usize);
+                let text = String::from_utf8_lossy(decrypted).to_string();
+                LocalFree(out_blob.pb_data as isize);
+                if let Some((acc, ref_)) = text.split_once('\n') {
+                    return (Some(acc.to_string()), Some(ref_.to_string()));
+                }
+            }
+        }
+        (None, None)
+    }
+}
+
+#[cfg(not(windows))]
+mod secret_store {
+    use std::path::Path;
+    pub fn save_secure_tokens(_config_path: &Path, _access: Option<&str>, _refresh: Option<&str>) {}
+    pub fn load_secure_tokens(_config_path: &Path) -> (Option<String>, Option<String>) {
+        (None, None)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
     #[serde(default)]
@@ -1627,6 +1775,8 @@ pub struct AppConfig {
     pub autostart_minimized: bool,
     #[serde(default)]
     pub overlay: OverlayConfig,
+    #[serde(default)]
+    pub cloud_auth: CloudAuthConfig,
 }
 
 fn default_autostart_minimized() -> bool {
@@ -1645,6 +1795,7 @@ impl Default for AppConfig {
             autostart: false,
             autostart_minimized: true,
             overlay: OverlayConfig::default(),
+            cloud_auth: CloudAuthConfig::default(),
         }
     }
 }
@@ -1673,20 +1824,24 @@ impl AppConfig {
 
     pub fn load() -> Self {
         let p = Self::config_path();
-        if let Ok(data) = std::fs::read_to_string(&p) {
-            if let Ok(cfg) = serde_json::from_str(&data) {
-                return cfg;
-            }
-        }
-        let tmp = p.with_extension("tmp");
-        if tmp.exists() {
+        let mut cfg = if let Ok(data) = std::fs::read_to_string(&p) {
+            serde_json::from_str(&data).unwrap_or_default()
+        } else {
+            let tmp = p.with_extension("tmp");
             if let Ok(data) = std::fs::read_to_string(&tmp) {
-                if let Ok(cfg) = serde_json::from_str(&data) {
-                    return cfg;
-                }
+                serde_json::from_str(&data).unwrap_or_default()
+            } else {
+                Self::default()
             }
+        };
+
+        // Load securely encrypted OAuth credentials from Windows DPAPI store
+        let (acc, ref_) = secret_store::load_secure_tokens(&p);
+        if acc.is_some() || ref_.is_some() {
+            cfg.cloud_auth.access_token = acc;
+            cfg.cloud_auth.refresh_token = ref_;
         }
-        Self::default()
+        cfg
     }
 
     pub fn save(&self) {
@@ -1707,6 +1862,12 @@ impl AppConfig {
                     let _ = std::fs::remove_file(&p);
                     let _ = std::fs::rename(&tmp, &p);
                 }
+                // Save encrypted OAuth credentials via Windows DPAPI
+                secret_store::save_secure_tokens(
+                    &p,
+                    self.cloud_auth.access_token.as_deref(),
+                    self.cloud_auth.refresh_token.as_deref(),
+                );
             } else {
                 let _ = std::fs::remove_file(&tmp);
             }
@@ -2762,5 +2923,30 @@ mod tests {
         // Load should fallback to the .tmp file
         let loaded = AppConfig::load();
         assert_eq!(loaded.overlay.width, 9999.0, "AppConfig::load must fallback to .tmp if main config missing");
+    }
+
+    #[test]
+    fn test_cloud_auth_config_default_and_serde() {
+        let json_str = r#"{"autostart": true, "cloud_auth": {"user_email": "test@example.com", "user_id": "uid-123", "access_token": "secret_token", "refresh_token": "secret_refresh"}}"#;
+        let cfg: AppConfig = serde_json::from_str(json_str).expect("Must deserialize with cloud_auth");
+        assert_eq!(cfg.cloud_auth.user_email.as_deref(), Some("test@example.com"));
+        assert_eq!(cfg.cloud_auth.user_id.as_deref(), Some("uid-123"));
+        // Tokens must be skipped by serde
+        assert_eq!(cfg.cloud_auth.access_token, None);
+        assert_eq!(cfg.cloud_auth.refresh_token, None);
+        assert_eq!(cfg.cloud_auth.auto_backup, false);
+    }
+
+    #[test]
+    fn test_cloud_auth_tokens_excluded_from_json_serialization() {
+        let mut cfg = AppConfig::default();
+        cfg.cloud_auth.access_token = Some("secret_access_jwt".to_string());
+        cfg.cloud_auth.refresh_token = Some("secret_refresh_jwt".to_string());
+        cfg.cloud_auth.user_email = Some("user@test.com".to_string());
+
+        let json = serde_json::to_string(&cfg).expect("Serialization must succeed");
+        assert!(!json.contains("secret_access_jwt"), "Plaintext access_token must not appear in JSON");
+        assert!(!json.contains("secret_refresh_jwt"), "Plaintext refresh_token must not appear in JSON");
+        assert!(json.contains("user@test.com"), "Non-secret metadata should be retained");
     }
 }

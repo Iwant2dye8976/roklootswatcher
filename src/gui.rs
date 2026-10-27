@@ -157,6 +157,12 @@ pub enum ItemSortColumn {
     MaxInBattle,
 }
 
+struct CloudOpResult {
+    message: String,
+    is_backup: bool,
+    new_tokens: Option<(String, String)>,
+}
+
 pub struct RoKLootWatcherApp {
     pub watcher: Arc<RoKMailWatcher>,
     pub rx_ui: Receiver<WatcherUiEvent>,
@@ -200,6 +206,12 @@ pub struct RoKLootWatcherApp {
     is_armored: bool,
     pending_armor_check: Option<std::sync::mpsc::Receiver<bool>>,
     _single_instance: Option<crate::single_instance::windows::SingleInstanceGuard>,
+
+    pub cloud_auth: crate::model::CloudAuthConfig,
+    cloud_rx: Option<std::sync::mpsc::Receiver<Result<crate::cloud_sync::CloudAuthResult, String>>>,
+    cloud_op_rx: Option<std::sync::mpsc::Receiver<Result<CloudOpResult, String>>>,
+    cloud_busy: bool,
+    pending_auto_backup: Option<std::time::Instant>,
 
     // UI Frame-Rate Caching (Audit Items #7, #8, #11)
     pub cached_overlay_records: Vec<BattleRecord>,
@@ -431,6 +443,29 @@ pub(crate) fn poll_armor_check_channel(
     }
 }
 
+pub(crate) fn poll_cloud_receiver<T>(
+    rx_opt: &mut Option<std::sync::mpsc::Receiver<T>>,
+    busy: &mut bool,
+) -> Option<Result<T, ()>> {
+    if let Some(ref rx) = rx_opt {
+        match rx.try_recv() {
+            Ok(res) => {
+                *busy = false;
+                *rx_opt = None;
+                Some(Ok(res))
+            }
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                *busy = false;
+                *rx_opt = None;
+                Some(Err(()))
+            }
+            Err(std::sync::mpsc::TryRecvError::Empty) => None,
+        }
+    } else {
+        None
+    }
+}
+
 impl RoKLootWatcherApp {
     pub fn configure_fonts(ctx: &egui::Context) {
         let mut fonts = egui::FontDefinitions::default();
@@ -628,6 +663,12 @@ impl RoKLootWatcherApp {
             pending_armor_check: Some(armor_rx),
             _single_instance: single_instance,
 
+            cloud_auth: config.cloud_auth.clone(),
+            cloud_rx: None,
+            cloud_op_rx: None,
+            cloud_busy: false,
+            pending_auto_backup: None,
+
             cached_overlay_records: initial_overlay_records,
             cached_sorted_battle_indices: Vec::new(),
             reports_sort_dirty: true,
@@ -656,6 +697,7 @@ impl RoKLootWatcherApp {
             autostart: self.autostart,
             autostart_minimized: self.autostart_minimized,
             overlay: self.overlay_config.clone(),
+            cloud_auth: self.cloud_auth.clone(),
         };
         config.save();
     }
@@ -698,10 +740,13 @@ impl RoKLootWatcherApp {
                     self.refresh_cached_overlay_records();
                     ctx.request_repaint();
                 }
-                WatcherUiEvent::MailDetected { .. } => {
+                WatcherUiEvent::MailDetected { is_new, .. } => {
                     self.reports_sort_dirty = true;
                     self.refresh_cached_overlay_records();
                     self.last_mail_arrival = std::time::Instant::now();
+                    if is_new && self.cloud_auth.auto_backup && self.cloud_auth.access_token.is_some() {
+                        self.pending_auto_backup = Some(std::time::Instant::now() + std::time::Duration::from_secs(3));
+                    }
                     ctx.request_repaint();
                 }
             }
@@ -711,6 +756,237 @@ impl RoKLootWatcherApp {
 
     fn poll_armor_check(&mut self) {
         poll_armor_check_channel(&mut self.pending_armor_check, &mut self.is_armored);
+    }
+
+    fn poll_cloud_events(&mut self, ctx: &egui::Context) {
+        if let Some(deadline) = self.pending_auto_backup {
+            let now = std::time::Instant::now();
+            if now >= deadline {
+                self.pending_auto_backup = None;
+                if !self.cloud_busy && self.cloud_auth.auto_backup && self.cloud_auth.access_token.is_some() {
+                    self.trigger_cloud_backup();
+                }
+            } else {
+                ctx.request_repaint_after(deadline.duration_since(now));
+            }
+        }
+
+        if let Some(res) = poll_cloud_receiver(&mut self.cloud_rx, &mut self.cloud_busy) {
+            match res {
+                Ok(Ok(auth)) => {
+                    let email = auth.user.email.clone();
+                    self.cloud_auth.access_token = Some(auth.access_token);
+                    self.cloud_auth.refresh_token = Some(auth.refresh_token);
+                    self.cloud_auth.user_id = Some(auth.user.id);
+                    self.cloud_auth.user_email = Some(auth.user.email);
+                    self.save_config();
+                    let msg = match self.language {
+                        AppLanguage::Vietnamese => format!("Đăng nhập Google thành công: {}", email),
+                        AppLanguage::English => format!("Google login successful: {}", email),
+                    };
+                    self.watcher.log("SUCCESS", &msg);
+                }
+                Ok(Err(e)) => {
+                    let msg = match self.language {
+                        AppLanguage::Vietnamese => format!("Đăng nhập Google thất bại: {}", e),
+                        AppLanguage::English => format!("Google login failed: {}", e),
+                    };
+                    self.watcher.log("ERROR", &msg);
+                }
+                Err(()) => {
+                    let msg = match self.language {
+                        AppLanguage::Vietnamese => "Đăng nhập Google thất bại: luồng xác thực bị ngắt kết nối".to_string(),
+                        AppLanguage::English => "Google login failed: auth thread disconnected".to_string(),
+                    };
+                    self.watcher.log("ERROR", &msg);
+                }
+            }
+        }
+
+        if let Some(res) = poll_cloud_receiver(&mut self.cloud_op_rx, &mut self.cloud_busy) {
+            match res {
+                Ok(Ok(op_res)) => {
+                    let mut needs_save = false;
+                    if let Some((new_acc, new_ref)) = op_res.new_tokens {
+                        self.cloud_auth.access_token = Some(new_acc);
+                        self.cloud_auth.refresh_token = Some(new_ref);
+                        needs_save = true;
+                    }
+                    if op_res.is_backup {
+                        self.cloud_auth.last_synced = Some(chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string());
+                        needs_save = true;
+                    }
+                    if needs_save {
+                        self.save_config();
+                    }
+                    self.watcher.log("SUCCESS", &op_res.message);
+                }
+                Ok(Err(e)) => {
+                    self.watcher.log("ERROR", &e);
+                }
+                Err(()) => {
+                    let msg = match self.language {
+                        AppLanguage::Vietnamese => "Thao tác cloud thất bại: luồng xử lý bị đóng bất ngờ".to_string(),
+                        AppLanguage::English => "Cloud operation failed: worker thread disconnected".to_string(),
+                    };
+                    self.watcher.log("ERROR", &msg);
+                }
+            }
+        }
+    }
+
+    fn get_cloud_credentials(&self) -> (String, String) {
+        let url = self
+            .cloud_auth
+            .supabase_url
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or(crate::cloud_sync::DEFAULT_SUPABASE_URL)
+            .trim()
+            .to_string();
+        let key = self
+            .cloud_auth
+            .anon_key
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or(crate::cloud_sync::DEFAULT_SUPABASE_ANON_KEY)
+            .trim()
+            .to_string();
+        (url, key)
+    }
+
+    fn start_google_login(&mut self) {
+        if self.cloud_busy {
+            return;
+        }
+
+        let (url, key) = self.get_cloud_credentials();
+        let lang = self.language;
+
+        if url.is_empty() || key.is_empty() {
+            let err_msg = match lang {
+                AppLanguage::Vietnamese => "Chưa cấu hình Supabase URL / Anon Key (cần thiết lập trong rok_config.json hoặc biến môi trường build ROK_SUPABASE_URL).",
+                AppLanguage::English => "Supabase URL / Anon Key not configured (set in rok_config.json or compile with ROK_SUPABASE_URL).",
+            };
+            self.watcher.log("ERROR", err_msg);
+            return;
+        }
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.cloud_rx = Some(rx);
+        self.cloud_busy = true;
+
+        let start_msg = match lang {
+            AppLanguage::Vietnamese => "Đang mở trình duyệt để đăng nhập Google qua Supabase...",
+            AppLanguage::English => "Opening browser for Google login via Supabase...",
+        };
+        self.watcher.log("INFO", start_msg);
+
+        let _ = std::thread::Builder::new()
+            .name("rok-google-login".into())
+            .spawn(move || {
+                let res = crate::cloud_sync::start_google_login(&url, &key);
+                let _ = tx.send(res);
+            });
+    }
+
+    fn trigger_cloud_backup(&mut self) {
+        if self.cloud_busy {
+            return;
+        }
+        self.watcher.flush_vault_if_dirty();
+
+        let (url, key) = self.get_cloud_credentials();
+        let token = match &self.cloud_auth.access_token {
+            Some(t) => t.clone(),
+            None => return,
+        };
+        let refresh_token = self.cloud_auth.refresh_token.clone();
+        let user_id = match &self.cloud_auth.user_id {
+            Some(u) => u.clone(),
+            None => return,
+        };
+
+        let vault_path = self.watcher.get_vault_file_path();
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.cloud_op_rx = Some(rx);
+        self.cloud_busy = true;
+
+        let lang = self.language;
+        self.watcher.log("INFO", match lang {
+            AppLanguage::Vietnamese => "Đang tải dữ liệu Vault lên Supabase Cloud...",
+            AppLanguage::English => "Uploading Vault data to Supabase Cloud...",
+        });
+
+        let _ = std::thread::Builder::new()
+            .name("rok-cloud-backup".into())
+            .spawn(move || {
+                match crate::cloud_sync::backup_vault(&url, &key, &token, refresh_token.as_deref(), &user_id, &vault_path) {
+                    Ok((cnt, new_tokens)) => {
+                        let success_msg = match lang {
+                            AppLanguage::Vietnamese => format!("Đã sao lưu thành công {} chiến báo lên Cloud!", cnt),
+                            AppLanguage::English => format!("Successfully backed up {} reports to Cloud!", cnt),
+                        };
+                        let _ = tx.send(Ok(CloudOpResult {
+                            message: success_msg,
+                            is_backup: true,
+                            new_tokens,
+                        }));
+                    }
+                    Err(e) => {
+                        let _ = tx.send(Err(e));
+                    }
+                }
+            });
+    }
+
+    fn trigger_cloud_restore(&mut self) {
+        if self.cloud_busy {
+            return;
+        }
+
+        let (url, key) = self.get_cloud_credentials();
+        let token = match &self.cloud_auth.access_token {
+            Some(t) => t.clone(),
+            None => return,
+        };
+        let refresh_token = self.cloud_auth.refresh_token.clone();
+
+        let vault_path = self.watcher.get_vault_file_path();
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.cloud_op_rx = Some(rx);
+        self.cloud_busy = true;
+
+        let lang = self.language;
+        self.watcher.log("INFO", match lang {
+            AppLanguage::Vietnamese => "Đang tải bản sao lưu từ Supabase Cloud...",
+            AppLanguage::English => "Downloading backup from Supabase Cloud...",
+        });
+
+        let watcher_clone = Arc::clone(&self.watcher);
+        let _ = std::thread::Builder::new()
+            .name("rok-cloud-restore".into())
+            .spawn(move || {
+                match crate::cloud_sync::restore_vault(&url, &key, &token, refresh_token.as_deref(), &vault_path) {
+                    Ok((cnt, updated_at, new_tokens)) => {
+                        watcher_clone.reload_vault();
+                        let success_msg = match lang {
+                            AppLanguage::Vietnamese => format!("Khôi phục thành công {} chiến báo từ Cloud (Bản sao lưu: {})!", cnt, updated_at),
+                            AppLanguage::English => format!("Successfully restored {} reports from Cloud (Backup: {})!", cnt, updated_at),
+                        };
+                        let _ = tx.send(Ok(CloudOpResult {
+                            message: success_msg,
+                            is_backup: false,
+                            new_tokens,
+                        }));
+                    }
+                    Err(e) => {
+                        let _ = tx.send(Err(e));
+                    }
+                }
+            });
     }
 
     fn toggle_watcher(&self) {
@@ -973,7 +1249,7 @@ impl RoKLootWatcherApp {
                         ui.spacing_mut().item_spacing.x = col_gap;
 
                         let scan_btn = egui::Button::new(
-                            egui::RichText::new(format!("🔄 {}", self.language.t(TrKey::BtnScan)))
+                            egui::RichText::new(self.language.t(TrKey::BtnScan))
                                 .font(egui::FontId::proportional(11.0))
                                 .color(c.canvas_tint),
                         )
@@ -989,14 +1265,14 @@ impl RoKLootWatcherApp {
                         }
 
                         let is_watching = self.watcher.is_watching();
-                        let (pause_icon, pause_text, pause_color) = if is_watching {
-                            ("⏸", self.language.t(TrKey::BtnPause), c.canvas_tint)
+                        let (pause_text, pause_color) = if is_watching {
+                            (self.language.t(TrKey::BtnPause), c.canvas_tint)
                         } else {
-                            ("▶", self.language.t(TrKey::BtnResume), c.accent_gold)
+                            (self.language.t(TrKey::BtnResume), c.accent_gold)
                         };
 
                         let pause_btn = egui::Button::new(
-                            egui::RichText::new(format!("{} {}", pause_icon, pause_text))
+                            egui::RichText::new(pause_text)
                                 .font(egui::FontId::proportional(11.0))
                                 .strong()
                                 .color(pause_color),
@@ -1036,14 +1312,14 @@ impl RoKLootWatcherApp {
                     ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = col_gap;
 
-                        let (theme_icon, theme_text) = if self.theme == AppTheme::Dark {
-                            ("☀", self.language.t(TrKey::ThemeToggleLight))
+                        let theme_text = if self.theme == AppTheme::Dark {
+                            self.language.t(TrKey::ThemeToggleLight)
                         } else {
-                            ("🌙", self.language.t(TrKey::ThemeToggleDark))
+                            self.language.t(TrKey::ThemeToggleDark)
                         };
 
                         let theme_btn = egui::Button::new(
-                            egui::RichText::new(format!("{} {}", theme_icon, theme_text))
+                            egui::RichText::new(theme_text)
                                 .font(egui::FontId::proportional(11.0))
                                 .color(c.canvas_tint),
                         )
@@ -1060,7 +1336,7 @@ impl RoKLootWatcherApp {
                         }
 
                         let tray_btn = egui::Button::new(
-                            egui::RichText::new(format!("📥 {}", self.language.t(TrKey::TrayMinimize)))
+                            egui::RichText::new(self.language.t(TrKey::TrayMinimize))
                                 .font(egui::FontId::proportional(11.0))
                                 .color(c.canvas_tint),
                         )
@@ -2909,605 +3185,1043 @@ impl RoKLootWatcherApp {
     fn render_view_settings(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         let c = self.colors();
 
+        let card_frame = egui::Frame::none()
+            .fill(c.card_surface)
+            .stroke(Stroke::new(1.0_f32, c.hairline))
+            .rounding(Rounding::same(8.0))
+            .inner_margin(Margin::symmetric(16.0, 14.0));
+
         ui.columns(2, |cols| {
             // Left Column: Configuration & Controls
             egui::ScrollArea::vertical().auto_shrink([false, false]).show(&mut cols[0], |ui| {
                 // Card 1: Mail Folder
-                egui::Frame::none()
-                    .fill(c.card_surface)
-                    .stroke(Stroke::new(1.0_f32, c.hairline))
-                    .rounding(Rounding::same(6.0))
-                    .inner_margin(Margin::same(14.0))
-                    .show(ui, |ui| {
-                        ui.label(egui::RichText::new(self.language.t(TrKey::SettingsCardMailTitle)).font(egui::FontId::proportional(12.0)).strong().color(c.canvas_tint));
-                        ui.add_space(4.0);
-                        ui.label(egui::RichText::new(self.language.t(TrKey::SettingsCardMailDesc)).font(egui::FontId::proportional(10.5)).color(c.text_muted));
-                        ui.add_space(8.0);
-
-                        let text_edit = ui.add_sized(
-                            [ui.available_width(), 24.0],
-                            egui::TextEdit::singleline(&mut self.mail_path_input),
-                        );
-                        if text_edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                            self.watcher.set_mail_dir(PathBuf::from(&self.mail_path_input));
-                            self.save_config();
-                        }
-
-                        ui.add_space(8.0);
-                        ui.horizontal(|ui| {
-                            if ui.button(self.language.t(TrKey::SettingsBtnAutoScan)).clicked() {
-                                match crate::watcher::scan_for_mailcache() {
-                                    Some(dir) => {
-                                        self.mail_path_input = dir.to_string_lossy().to_string();
-                                        self.watcher.set_mail_dir(dir.clone());
-                                        self.save_config();
-                                        self.watcher.log(
-                                            "SUCCESS",
-                                            &format!("{}: {}", self.language.t(TrKey::SettingsScanFound), dir.display()),
-                                        );
-                                    }
-                                    None => {
-                                        self.watcher.log(
-                                            "WARN",
-                                            self.language.t(TrKey::SettingsScanNotFound),
-                                        );
-                                    }
-                                }
-                            }
-                            if ui.button(self.language.t(TrKey::SettingsBtnBrowse)).clicked() {
-                                if let Some(folder) = rfd::FileDialog::new().pick_folder() {
-                                    self.mail_path_input = folder.to_string_lossy().to_string();
-                                    self.watcher.set_mail_dir(folder);
-                                    self.save_config();
-                                }
-                            }
-                            if ui.button(self.language.t(TrKey::SettingsBtnDefault)).clicked() {
-                                let def_mail = detect_default_mail_dir();
-                                self.mail_path_input = def_mail.to_string_lossy().to_string();
-                                self.watcher.set_mail_dir(def_mail);
-                                self.save_config();
-                            }
-                            if ui.button(self.language.t(TrKey::SettingsBtnOpenExplorer)).clicked() {
-                                let _ = open::that(self.watcher.get_mail_dir());
-                            }
-                        });
-                    });
-
-                ui.add_space(10.0);
-
-                // Card 2: Scan Actions
-                egui::Frame::none()
-                    .fill(c.card_surface)
-                    .stroke(Stroke::new(1.0_f32, c.hairline))
-                    .rounding(Rounding::same(6.0))
-                    .inner_margin(Margin::same(14.0))
-                    .show(ui, |ui| {
-                        ui.label(egui::RichText::new(self.language.t(TrKey::SettingsCardScanTitle)).font(egui::FontId::proportional(12.0)).strong().color(c.canvas_tint));
-                        ui.add_space(4.0);
-                        ui.label(egui::RichText::new(self.language.t(TrKey::SettingsCardScanDesc)).font(egui::FontId::proportional(10.5)).color(c.text_muted));
-                        ui.add_space(8.0);
-
-                        ui.horizontal(|ui| {
-                            if ui.button(egui::RichText::new(self.language.t(TrKey::SettingsBtnScanNew)).strong()).on_hover_text(self.language.t(TrKey::SettingsBtnScanNewTooltip)).clicked() {
-                                self.watcher.rescan();
-                            }
-                            if ui.button(egui::RichText::new(self.language.t(TrKey::SettingsBtnRescanForce)).color(c.accent_gold).strong()).on_hover_text(self.language.t(TrKey::SettingsBtnRescanForceTooltip)).clicked() {
-                                self.watcher.rescan_force();
-                            }
-                        });
-                    });
-
-                ui.add_space(10.0);
-
-                // Card: In-Game Overlay (Rise of Kingdoms)
-                egui::Frame::none()
-                    .fill(c.card_surface)
-                    .stroke(Stroke::new(1.0_f32, c.hairline))
-                    .rounding(Rounding::same(6.0))
-                    .inner_margin(Margin::same(14.0))
-                    .show(ui, |ui| {
-                        let title = match self.language {
-                            AppLanguage::Vietnamese => "HIỂN THỊ ĐÈ TRONG GAME (RISE OF KINGDOMS OVERLAY)",
-                            AppLanguage::English => "IN-GAME OVERLAY (RISE OF KINGDOMS)",
-                        };
+                card_frame.show(ui, |ui| {
+                    ui.horizontal(|ui| {
                         ui.label(
-                            egui::RichText::new(title)
-                                .font(egui::FontId::proportional(12.0))
+                            egui::RichText::new(format!("{}", self.language.t(TrKey::SettingsCardMailTitle)))
+                                .font(egui::FontId::proportional(12.5))
                                 .strong()
                                 .color(c.focus_teal),
                         );
-                        ui.add_space(4.0);
+                    });
+                    ui.add_space(4.0);
+                    ui.label(
+                        egui::RichText::new(self.language.t(TrKey::SettingsCardMailDesc))
+                            .font(egui::FontId::proportional(10.5))
+                            .color(c.text_muted),
+                    );
+                    ui.add_space(10.0);
 
-                        let desc = match self.language {
-                            AppLanguage::Vietnamese => "Tự động hiển thị 5 báo cáo mới nhất ghim vào góc trái cửa sổ game Rise of Kingdoms với tính năng xuyên chuột (click-through).",
-                            AppLanguage::English => "Automatically displays 5 latest reports pinned to the left edge of Rise of Kingdoms window with click-through safety.",
-                        };
-                        ui.label(egui::RichText::new(desc).font(egui::FontId::proportional(10.5)).color(c.text_muted));
-                        ui.add_space(8.0);
+                    // TextEdit path input with custom frame
+                    let text_edit = ui.add_sized(
+                        [ui.available_width(), 26.0],
+                        egui::TextEdit::singleline(&mut self.mail_path_input)
+                            .font(egui::FontId::monospace(11.0))
+                            .margin(egui::vec2(8.0, 5.0)),
+                    );
+                    if text_edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                        self.watcher.set_mail_dir(PathBuf::from(&self.mail_path_input));
+                        self.save_config();
+                    }
 
-                        // Toggle
+                    ui.add_space(10.0);
+
+                    // Action buttons in a clean 2-row layout
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 8.0;
+
+                        let btn_scan = egui::Button::new(
+                            egui::RichText::new(self.language.t(TrKey::SettingsBtnAutoScan))
+                                .font(egui::FontId::proportional(11.0))
+                                .strong()
+                                .color(c.focus_teal),
+                        )
+                        .fill(c.primary)
+                        .stroke(Stroke::new(1.0_f32, c.focus_teal.linear_multiply(0.4)))
+                        .rounding(Rounding::same(5.0));
+
+                        if ui.add_sized([0.0, 28.0], btn_scan).clicked() {
+                            match crate::watcher::scan_for_mailcache() {
+                                Some(dir) => {
+                                    self.mail_path_input = dir.to_string_lossy().to_string();
+                                    self.watcher.set_mail_dir(dir.clone());
+                                    self.save_config();
+                                    self.watcher.log(
+                                        "SUCCESS",
+                                        &format!("{}: {}", self.language.t(TrKey::SettingsScanFound), dir.display()),
+                                    );
+                                }
+                                None => {
+                                    self.watcher.log("WARN", self.language.t(TrKey::SettingsScanNotFound));
+                                }
+                            }
+                        }
+
+                        let btn_browse = egui::Button::new(
+                            egui::RichText::new(self.language.t(TrKey::SettingsBtnBrowse))
+                                .font(egui::FontId::proportional(11.0))
+                                .color(c.canvas_tint),
+                        )
+                        .fill(c.primary)
+                        .stroke(Stroke::new(1.0_f32, c.hairline))
+                        .rounding(Rounding::same(5.0));
+
+                        if ui.add_sized([0.0, 28.0], btn_browse).clicked() {
+                            if let Some(folder) = rfd::FileDialog::new().pick_folder() {
+                                self.mail_path_input = folder.to_string_lossy().to_string();
+                                self.watcher.set_mail_dir(folder);
+                                self.save_config();
+                            }
+                        }
+
+                        let btn_def = egui::Button::new(
+                            egui::RichText::new(self.language.t(TrKey::SettingsBtnDefault))
+                                .font(egui::FontId::proportional(11.0))
+                                .color(c.text_muted),
+                        )
+                        .fill(c.primary)
+                        .stroke(Stroke::new(1.0_f32, c.hairline))
+                        .rounding(Rounding::same(5.0));
+
+                        if ui.add_sized([0.0, 28.0], btn_def).clicked() {
+                            let def_mail = detect_default_mail_dir();
+                            self.mail_path_input = def_mail.to_string_lossy().to_string();
+                            self.watcher.set_mail_dir(def_mail);
+                            self.save_config();
+                        }
+
+                        let btn_open = egui::Button::new(
+                            egui::RichText::new(self.language.t(TrKey::SettingsBtnOpenExplorer))
+                                .font(egui::FontId::proportional(11.0))
+                                .color(c.text_muted),
+                        )
+                        .fill(c.primary)
+                        .stroke(Stroke::new(1.0_f32, c.hairline))
+                        .rounding(Rounding::same(5.0));
+
+                        if ui.add_sized([0.0, 28.0], btn_open).clicked() {
+                            let _ = open::that(self.watcher.get_mail_dir());
+                        }
+                    });
+                });
+
+                ui.add_space(12.0);
+
+                // Card 2: Scan Actions
+                card_frame.show(ui, |ui| {
+                    ui.label(
+                        egui::RichText::new(format!("{}", self.language.t(TrKey::SettingsCardScanTitle)))
+                            .font(egui::FontId::proportional(12.5))
+                            .strong()
+                            .color(c.accent_gold),
+                    );
+                    ui.add_space(4.0);
+                    ui.label(
+                        egui::RichText::new(self.language.t(TrKey::SettingsCardScanDesc))
+                            .font(egui::FontId::proportional(10.5))
+                            .color(c.text_muted),
+                    );
+                    ui.add_space(10.0);
+
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 10.0;
+
+                        let btn_scan_new = egui::Button::new(
+                            egui::RichText::new(self.language.t(TrKey::SettingsBtnScanNew))
+                                .font(egui::FontId::proportional(11.5))
+                                .strong()
+                                .color(c.status_green),
+                        )
+                        .fill(c.primary)
+                        .stroke(Stroke::new(1.0_f32, c.status_green.linear_multiply(0.4)))
+                        .rounding(Rounding::same(6.0));
+
+                        if ui.add_sized([0.0, 30.0], btn_scan_new)
+                            .on_hover_text(self.language.t(TrKey::SettingsBtnScanNewTooltip))
+                            .clicked()
+                        {
+                            self.watcher.rescan();
+                        }
+
+                        let btn_rescan_force = egui::Button::new(
+                            egui::RichText::new(format!("{}", self.language.t(TrKey::SettingsBtnRescanForce)))
+                                .font(egui::FontId::proportional(11.5))
+                                .strong()
+                                .color(c.accent_gold),
+                        )
+                        .fill(c.primary)
+                        .stroke(Stroke::new(1.0_f32, c.accent_gold.linear_multiply(0.4)))
+                        .rounding(Rounding::same(6.0));
+
+                        if ui.add_sized([0.0, 30.0], btn_rescan_force)
+                            .on_hover_text(self.language.t(TrKey::SettingsBtnRescanForceTooltip))
+                            .clicked()
+                        {
+                            self.watcher.rescan_force();
+                        }
+                    });
+                });
+
+                ui.add_space(12.0);
+
+                // Card 3: In-Game Overlay (Rise of Kingdoms)
+                card_frame.show(ui, |ui| {
+                    let title = match self.language {
+                        AppLanguage::Vietnamese => "HIỂN THỊ ĐÈ TRONG GAME",
+                        AppLanguage::English => "IN-GAME OVERLAY",
+                    };
+                    ui.label(
+                        egui::RichText::new(title)
+                            .font(egui::FontId::proportional(12.5))
+                            .strong()
+                            .color(c.focus_teal),
+                    );
+                    ui.add_space(4.0);
+
+                    let desc = match self.language {
+                        AppLanguage::Vietnamese => "Tự động hiển thị 5 chiến báo mới nhất ghim trên cửa sổ game với cơ chế xuyên chuột (click-through).",
+                        AppLanguage::English => "Displays 5 latest reports pinned to Rise of Kingdoms window with click-through safety.",
+                    };
+                    ui.label(egui::RichText::new(desc).font(egui::FontId::proportional(10.5)).color(c.text_muted));
+                    ui.add_space(10.0);
+
+                    // Toggle row with visual badge
+                    ui.horizontal(|ui| {
                         let prev_enabled = self.overlay_config.enabled;
                         let toggle_lbl = match self.language {
-                            AppLanguage::Vietnamese => "Bật hiển thị đè (Enable Overlay)",
-                            AppLanguage::English => "Enable In-Game Overlay",
+                            AppLanguage::Vietnamese => "Kích hoạt Overlay",
+                            AppLanguage::English => "Enable Overlay",
                         };
                         ui.checkbox(&mut self.overlay_config.enabled, egui::RichText::new(toggle_lbl).strong().color(c.canvas_tint));
+
+                        ui.add_space(8.0);
+                        let (badge_txt, badge_col) = if self.overlay_config.enabled {
+                            ("● ACTIVE", c.status_green)
+                        } else {
+                            ("○ INACTIVE", c.text_muted)
+                        };
+                        ui.label(egui::RichText::new(badge_txt).font(egui::FontId::proportional(10.0)).strong().color(badge_col));
+
                         if self.overlay_config.enabled != prev_enabled {
                             if self.overlay_config.enabled {
                                 self.refresh_cached_overlay_records();
                             }
                             self.save_config();
                         }
+                    });
 
-                        if self.overlay_config.enabled {
-                            ui.add_space(8.0);
-                            ui.separator();
-                            ui.add_space(8.0);
+                    if self.overlay_config.enabled {
+                        ui.add_space(10.0);
+                        ui.separator();
+                        ui.add_space(10.0);
 
-                            // Filter selection
-                            let filter_lbl = match self.language {
-                                AppLanguage::Vietnamese => "Loại báo cáo:",
-                                AppLanguage::English => "Report Filter:",
+                        // Filter selection
+                        let filter_lbl = match self.language {
+                            AppLanguage::Vietnamese => "Loại báo cáo:",
+                            AppLanguage::English => "Report Filter:",
+                        };
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new(filter_lbl).strong().color(c.canvas_tint));
+                            let prev_filter = self.overlay_config.filter;
+                            egui::ComboBox::from_id_salt("overlay_filter_select")
+                                .selected_text(match self.overlay_config.filter {
+                                    FilterMode::AllRewards => if self.language == AppLanguage::Vietnamese { "Tất cả phần thưởng" } else { "All Rewards" },
+                                    FilterMode::AllTargets => if self.language == AppLanguage::Vietnamese { "Tất cả mục tiêu" } else { "All Targets" },
+                                    FilterMode::Motte => "Motte Only",
+                                    FilterMode::Fort => if self.language == AppLanguage::Vietnamese { "Pháo đài" } else { "Forts Only" },
+                                    FilterMode::Barbarian => if self.language == AppLanguage::Vietnamese { "Dã man" } else { "Barbarians Only" },
+                                    FilterMode::Gathering => if self.language == AppLanguage::Vietnamese { "Thu thập" } else { "Gathering Only" },
+                                    _ => "Filtered",
+                                })
+                                .show_ui(ui, |ui| {
+                                    let all_lbl = if self.language == AppLanguage::Vietnamese { "Tất cả phần thưởng" } else { "All Rewards" };
+                                    ui.selectable_value(&mut self.overlay_config.filter, FilterMode::AllRewards, all_lbl);
+                                    let motte_lbl = "Motte Only";
+                                    ui.selectable_value(&mut self.overlay_config.filter, FilterMode::Motte, motte_lbl);
+                                    let fort_lbl = if self.language == AppLanguage::Vietnamese { "Pháo đài" } else { "Forts Only" };
+                                    ui.selectable_value(&mut self.overlay_config.filter, FilterMode::Fort, fort_lbl);
+                                    let barb_lbl = if self.language == AppLanguage::Vietnamese { "Dã man" } else { "Barbarians Only" };
+                                    ui.selectable_value(&mut self.overlay_config.filter, FilterMode::Barbarian, barb_lbl);
+                                    let rss_lbl = if self.language == AppLanguage::Vietnamese { "Thu thập" } else { "Gathering Only" };
+                                    ui.selectable_value(&mut self.overlay_config.filter, FilterMode::Gathering, rss_lbl);
+                                });
+                            if self.overlay_config.filter != prev_filter {
+                                self.refresh_cached_overlay_records();
+                                self.save_config();
+                            }
+                        });
+
+                        ui.add_space(10.0);
+
+                        // D-Pad and Position Controls
+                        let pos_lbl = match self.language {
+                            AppLanguage::Vietnamese => "Vị trí & Di chuyển:",
+                            AppLanguage::English => "Position & Movement:",
+                        };
+                        let hold_hint = match self.language {
+                            AppLanguage::Vietnamese => "(Nhấn giữ mũi tên để di chuyển)",
+                            AppLanguage::English => "(Hold arrows to nudge)",
+                        };
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new(pos_lbl).strong().color(c.canvas_tint));
+                            ui.label(egui::RichText::new(hold_hint).size(10.5).color(c.text_muted));
+                        });
+                        ui.add_space(6.0);
+
+                        let mut pos_changed = false;
+                        let nudge_step = 0.5_f32;
+                        ui.horizontal(|ui| {
+                            // Styled 3x3 D-Pad
+                            let dpad_size = [32.0, 26.0];
+                            let dpad_btn = |text: &str| {
+                                egui::Button::new(
+                                    egui::RichText::new(text)
+                                        .font(egui::FontId::proportional(12.0))
+                                        .strong()
+                                        .color(c.canvas_tint),
+                                )
+                                .fill(c.primary)
+                                .stroke(Stroke::new(1.0_f32, c.hairline))
+                                .rounding(Rounding::same(4.0))
+                                .sense(egui::Sense::click_and_drag())
                             };
-                            ui.horizontal(|ui| {
-                                ui.label(egui::RichText::new(filter_lbl).strong().color(c.canvas_tint));
-                                let prev_filter = self.overlay_config.filter;
-                                egui::ComboBox::from_id_salt("overlay_filter_select")
-                                    .selected_text(match self.overlay_config.filter {
-                                        FilterMode::AllRewards => if self.language == AppLanguage::Vietnamese { "Tất cả phần thưởng" } else { "All Rewards" },
-                                        FilterMode::AllTargets => if self.language == AppLanguage::Vietnamese { "Tất cả mục tiêu" } else { "All Targets" },
-                                        FilterMode::Motte => "Motte Only",
-                                        FilterMode::Fort => if self.language == AppLanguage::Vietnamese { "Pháo đài" } else { "Forts Only" },
-                                        FilterMode::Barbarian => if self.language == AppLanguage::Vietnamese { "Dã man" } else { "Barbarians Only" },
-                                        FilterMode::Gathering => if self.language == AppLanguage::Vietnamese { "Thu thập" } else { "Gathering Only" },
-                                        _ => "Filtered",
-                                    })
-                                    .show_ui(ui, |ui| {
-                                        let all_lbl = if self.language == AppLanguage::Vietnamese { "Tất cả phần thưởng" } else { "All Rewards" };
-                                        ui.selectable_value(&mut self.overlay_config.filter, FilterMode::AllRewards, all_lbl);
-                                        let motte_lbl = "Motte Only";
-                                        ui.selectable_value(&mut self.overlay_config.filter, FilterMode::Motte, motte_lbl);
-                                        let fort_lbl = if self.language == AppLanguage::Vietnamese { "Pháo đài" } else { "Forts Only" };
-                                        ui.selectable_value(&mut self.overlay_config.filter, FilterMode::Fort, fort_lbl);
-                                        let barb_lbl = if self.language == AppLanguage::Vietnamese { "Dã man" } else { "Barbarians Only" };
-                                        ui.selectable_value(&mut self.overlay_config.filter, FilterMode::Barbarian, barb_lbl);
-                                        let rss_lbl = if self.language == AppLanguage::Vietnamese { "Thu thập" } else { "Gathering Only" };
-                                        ui.selectable_value(&mut self.overlay_config.filter, FilterMode::Gathering, rss_lbl);
-                                    });
-                                if self.overlay_config.filter != prev_filter {
-                                    self.refresh_cached_overlay_records();
-                                    self.save_config();
-                                }
-                            });
 
-                            ui.add_space(8.0);
+                            egui::Grid::new("overlay_dpad_grid")
+                                .spacing([4.0, 4.0])
+                                .show(ui, |ui| {
+                                    // Row 1: [ empty ] [  ▲  ] [ empty ]
+                                    ui.allocate_space(egui::vec2(dpad_size[0], dpad_size[1]));
+                                    let btn_up = ui.add_sized(dpad_size, dpad_btn("▲"));
+                                    if btn_up.is_pointer_button_down_on() || btn_up.dragged() || (btn_up.hovered() && ui.input(|i| i.pointer.primary_down())) {
+                                        self.overlay_config.offset_y = (self.overlay_config.offset_y - nudge_step).max(0.0);
+                                        pos_changed = true;
+                                    }
+                                    ui.allocate_space(egui::vec2(dpad_size[0], dpad_size[1]));
+                                    ui.end_row();
 
-                            // D-Pad and Position Controls
-                            let pos_lbl = match self.language {
-                                AppLanguage::Vietnamese => "Vị trí & Di chuyển:",
-                                AppLanguage::English => "Position & Movement:",
-                            };
-                            let hold_hint = match self.language {
-                                AppLanguage::Vietnamese => "(Nhấn giữ mũi tên để di chuyển)",
-                                AppLanguage::English => "(Hold arrows to nudge)",
-                            };
-                            ui.horizontal(|ui| {
-                                ui.label(egui::RichText::new(pos_lbl).strong().color(c.canvas_tint));
-                                ui.label(egui::RichText::new(hold_hint).size(11.0).color(Color32::from_gray(140)));
-                            });
-
-                            let mut pos_changed = false;
-                            let nudge_step = 0.5_f32;
-                            ui.horizontal(|ui| {
-                                // 3x3 D-Pad
-                                egui::Grid::new("overlay_dpad_grid")
-                                    .spacing([4.0, 4.0])
-                                    .show(ui, |ui| {
-                                        // Row 1: [ empty ] [  ▲  ] [ empty ]
-                                        ui.allocate_space(egui::vec2(30.0, 24.0));
-                                        let btn_up = ui.add_sized([30.0, 24.0], egui::Button::new("▲").sense(egui::Sense::click_and_drag()));
-                                        if btn_up.is_pointer_button_down_on() || btn_up.dragged() || (btn_up.hovered() && ui.input(|i| i.pointer.primary_down())) {
-                                            self.overlay_config.offset_y = (self.overlay_config.offset_y - nudge_step).max(0.0);
-                                            pos_changed = true;
-                                        }
-                                        ui.allocate_space(egui::vec2(30.0, 24.0));
-                                        ui.end_row();
-
-                                        // Row 2: [   ◄   ] [ RoK ] [   ►   ]
-                                        let btn_left = ui.add_sized([30.0, 24.0], egui::Button::new("◄").sense(egui::Sense::click_and_drag()));
-                                        if btn_left.is_pointer_button_down_on() || btn_left.dragged() || (btn_left.hovered() && ui.input(|i| i.pointer.primary_down())) {
-                                            self.overlay_config.offset_x = (self.overlay_config.offset_x - nudge_step).max(0.0);
-                                            pos_changed = true;
-                                        }
-                                        let btn_reset = ui.add_sized([30.0, 24.0], egui::Button::new(egui::RichText::new("RoK").size(10.0)));
-                                        if btn_reset.clicked() {
-                                            self.overlay_config.offset_x = 16.0;
-                                            self.overlay_config.offset_y = 60.0;
-                                            pos_changed = true;
-                                        }
-                                        let btn_right = ui.add_sized([30.0, 24.0], egui::Button::new("►").sense(egui::Sense::click_and_drag()));
-                                        if btn_right.is_pointer_button_down_on() || btn_right.dragged() || (btn_right.hovered() && ui.input(|i| i.pointer.primary_down())) {
-                                            self.overlay_config.offset_x += nudge_step;
-                                            pos_changed = true;
-                                        }
-                                        ui.end_row();
-
-                                        // Row 3: [ empty ] [  ▼  ] [ empty ]
-                                        ui.allocate_space(egui::vec2(30.0, 24.0));
-                                        let btn_down = ui.add_sized([30.0, 24.0], egui::Button::new("▼").sense(egui::Sense::click_and_drag()));
-                                        if btn_down.is_pointer_button_down_on() || btn_down.dragged() || (btn_down.hovered() && ui.input(|i| i.pointer.primary_down())) {
-                                            self.overlay_config.offset_y += nudge_step;
-                                            pos_changed = true;
-                                        }
-                                        ui.allocate_space(egui::vec2(30.0, 24.0));
-                                        ui.end_row();
-                                    });
-
-                                ui.add_space(16.0);
-
-                                // Numeric DragValues and Reset
-                                ui.vertical(|ui| {
-                                    ui.horizontal(|ui| {
-                                        ui.label("X:");
-                                        let prev_x = self.overlay_config.offset_x;
-                                        ui.add(egui::DragValue::new(&mut self.overlay_config.offset_x).speed(1.0).range(0.0..=3000.0));
-                                        if (self.overlay_config.offset_x - prev_x).abs() > 0.1 {
-                                            self.overlay_config.offset_x = self.overlay_config.offset_x.max(0.0);
-                                            pos_changed = true;
-                                        }
-                                        ui.add_space(8.0);
-                                        ui.label("Y:");
-                                        let prev_y = self.overlay_config.offset_y;
-                                        ui.add(egui::DragValue::new(&mut self.overlay_config.offset_y).speed(1.0).range(0.0..=3000.0));
-                                        if (self.overlay_config.offset_y - prev_y).abs() > 0.1 {
-                                            self.overlay_config.offset_y = self.overlay_config.offset_y.max(0.0);
-                                            pos_changed = true;
-                                        }
-                                    });
-
-                                    let reset_lbl = match self.language {
-                                        AppLanguage::Vietnamese => "Đặt lại tọa độ",
-                                        AppLanguage::English => "Reset Coordinates",
-                                    };
-                                    if ui.button(reset_lbl).clicked() {
+                                    // Row 2: [   ◄   ] [ RoK ] [   ►   ]
+                                    let btn_left = ui.add_sized(dpad_size, dpad_btn("◄"));
+                                    if btn_left.is_pointer_button_down_on() || btn_left.dragged() || (btn_left.hovered() && ui.input(|i| i.pointer.primary_down())) {
+                                        self.overlay_config.offset_x = (self.overlay_config.offset_x - nudge_step).max(0.0);
+                                        pos_changed = true;
+                                    }
+                                    let btn_reset = egui::Button::new(egui::RichText::new("RoK").size(10.0).strong().color(c.focus_teal))
+                                        .fill(c.primary)
+                                        .stroke(Stroke::new(1.0_f32, c.focus_teal.linear_multiply(0.4)))
+                                        .rounding(Rounding::same(4.0));
+                                    if ui.add_sized(dpad_size, btn_reset).clicked() {
                                         self.overlay_config.offset_x = 16.0;
                                         self.overlay_config.offset_y = 60.0;
                                         pos_changed = true;
                                     }
+                                    let btn_right = ui.add_sized(dpad_size, dpad_btn("►"));
+                                    if btn_right.is_pointer_button_down_on() || btn_right.dragged() || (btn_right.hovered() && ui.input(|i| i.pointer.primary_down())) {
+                                        self.overlay_config.offset_x += nudge_step;
+                                        pos_changed = true;
+                                    }
+                                    ui.end_row();
+
+                                    // Row 3: [ empty ] [  ▼  ] [ empty ]
+                                    ui.allocate_space(egui::vec2(dpad_size[0], dpad_size[1]));
+                                    let btn_down = ui.add_sized(dpad_size, dpad_btn("▼"));
+                                    if btn_down.is_pointer_button_down_on() || btn_down.dragged() || (btn_down.hovered() && ui.input(|i| i.pointer.primary_down())) {
+                                        self.overlay_config.offset_y += nudge_step;
+                                        pos_changed = true;
+                                    }
+                                    ui.allocate_space(egui::vec2(dpad_size[0], dpad_size[1]));
+                                    ui.end_row();
                                 });
-                            });
 
-                            if pos_changed {
-                                self.overlay_config.offset_x = self.overlay_config.offset_x.max(0.0);
-                                self.overlay_config.offset_y = self.overlay_config.offset_y.max(0.0);
-                                self.last_mail_arrival = std::time::Instant::now();
-                                self.pending_overlay_save = true;
-                                ctx.request_repaint();
-                            }
+                            ui.add_space(16.0);
 
-                            if self.pending_overlay_save && (!ui.input(|i| i.pointer.any_down()) || ui.input(|i| i.pointer.any_released())) {
-                                self.pending_overlay_save = false;
-                                self.save_config();
-                            }
-
-                            ui.add_space(8.0);
-
-                            // Width slider
-                            let width_lbl = match self.language {
-                                AppLanguage::Vietnamese => "Chiều rộng lớp phủ:",
-                                AppLanguage::English => "Overlay Width:",
-                            };
-                            let prev_width = self.overlay_config.width;
-                            ui.horizontal(|ui| {
-                                ui.label(egui::RichText::new(width_lbl).strong().color(c.canvas_tint));
-                                ui.add(
-                                    egui::Slider::new(&mut self.overlay_config.width, 180.0_f32..=380.0_f32)
-                                        .custom_formatter(|n, _| format!("{:.0} px", n)),
-                                );
-                            });
-                            if (self.overlay_config.width - prev_width).abs() > 0.5 {
-                                self.last_mail_arrival = std::time::Instant::now();
-                                self.save_config();
-                            }
-
-                            ui.add_space(8.0);
-
-                            // Font size slider
-                            let font_lbl = match self.language {
-                                AppLanguage::Vietnamese => "Cỡ chữ:",
-                                AppLanguage::English => "Font Size:",
-                            };
-                            let prev_fs = self.overlay_config.font_size;
-                            ui.horizontal(|ui| {
-                                ui.label(egui::RichText::new(font_lbl).strong().color(c.canvas_tint));
-                                ui.add(
-                                    egui::Slider::new(&mut self.overlay_config.font_size, 8.5_f32..=15.0_f32)
-                                        .custom_formatter(|n, _| format!("{:.1} pt", n)),
-                                );
-                            });
-                            if (self.overlay_config.font_size - prev_fs).abs() > 0.1 {
-                                self.last_mail_arrival = std::time::Instant::now();
-                                self.save_config();
-                            }
-
-                            ui.add_space(8.0);
-
-                            // Opacity slider (0.0 to 1.0)
-                            let opacity_lbl = match self.language {
-                                AppLanguage::Vietnamese => "Độ mờ nền:",
-                                AppLanguage::English => "Background Opacity:",
-                            };
-                            let prev_opacity = self.overlay_config.opacity;
-                            ui.horizontal(|ui| {
-                                ui.label(egui::RichText::new(opacity_lbl).strong().color(c.canvas_tint));
-                                ui.add(
-                                    egui::Slider::new(&mut self.overlay_config.opacity, 0.0_f32..=1.0_f32)
-                                        .custom_formatter(|n, _| {
-                                            if n <= 0.01 {
-                                                "0% (See-Through)".to_string()
-                                            } else {
-                                                format!("{:.0}%", n * 100.0)
-                                            }
-                                        }),
-                                );
-                            });
-                            if (self.overlay_config.opacity - prev_opacity).abs() > 0.005 {
-                                self.last_mail_arrival = std::time::Instant::now();
-                                self.save_config();
-                            }
-
-                            ui.add_space(8.0);
-
-                            // Color theme swatches
-                            let color_lbl = match self.language {
-                                AppLanguage::Vietnamese => "Màu chữ:",
-                                AppLanguage::English => "Text Color:",
-                            };
-                            ui.horizontal(|ui| {
-                                ui.label(egui::RichText::new(color_lbl).strong().color(c.canvas_tint));
-                                let themes = [
-                                    ("#F8FAFC", "White", Color32::from_rgb(0xF8, 0xFA, 0xFC)),
-                                    ("#FDE047", "Gold", Color32::from_rgb(0xFD, 0xE0, 0x47)),
-                                    ("#38BDF8", "Cyan", Color32::from_rgb(0x38, 0xBD, 0xF8)),
-                                    ("#4ADE80", "Green", Color32::from_rgb(0x4A, 0xDE, 0x80)),
-                                ];
-                                for (hex, name, col) in themes {
-                                    let btn = egui::Button::new(
-                                        egui::RichText::new(format!("[ {} ]", name))
-                                            .color(col)
-                                            .strong(),
-                                    );
-                                    if ui.add(btn).clicked() {
-                                        self.overlay_config.text_color_hex = hex.to_string();
-                                        self.last_mail_arrival = std::time::Instant::now();
-                                        self.save_config();
+                            // Numeric coordinates and reset button
+                            ui.vertical(|ui| {
+                                ui.horizontal(|ui| {
+                                    ui.label(egui::RichText::new("X:").color(c.text_muted).strong());
+                                    let prev_x = self.overlay_config.offset_x;
+                                    ui.add(egui::DragValue::new(&mut self.overlay_config.offset_x).speed(1.0).range(0.0..=3000.0));
+                                    if (self.overlay_config.offset_x - prev_x).abs() > 0.1 {
+                                        self.overlay_config.offset_x = self.overlay_config.offset_x.max(0.0);
+                                        pos_changed = true;
                                     }
+                                    ui.add_space(8.0);
+                                    ui.label(egui::RichText::new("Y:").color(c.text_muted).strong());
+                                    let prev_y = self.overlay_config.offset_y;
+                                    ui.add(egui::DragValue::new(&mut self.overlay_config.offset_y).speed(1.0).range(0.0..=3000.0));
+                                    if (self.overlay_config.offset_y - prev_y).abs() > 0.1 {
+                                        self.overlay_config.offset_y = self.overlay_config.offset_y.max(0.0);
+                                        pos_changed = true;
+                                    }
+                                });
+
+                                ui.add_space(6.0);
+                                let reset_lbl = match self.language {
+                                    AppLanguage::Vietnamese => "Đặt lại vị trí mặc định",
+                                    AppLanguage::English => "Reset Coordinates",
+                                };
+                                let btn_rst = egui::Button::new(egui::RichText::new(reset_lbl).font(egui::FontId::proportional(10.5)).color(c.canvas_tint))
+                                    .fill(c.primary)
+                                    .stroke(Stroke::new(1.0_f32, c.hairline))
+                                    .rounding(Rounding::same(5.0));
+                                if ui.add_sized([0.0, 24.0], btn_rst).clicked() {
+                                    self.overlay_config.offset_x = 16.0;
+                                    self.overlay_config.offset_y = 60.0;
+                                    pos_changed = true;
                                 }
                             });
+                        });
+
+                        if pos_changed {
+                            self.overlay_config.offset_x = self.overlay_config.offset_x.max(0.0);
+                            self.overlay_config.offset_y = self.overlay_config.offset_y.max(0.0);
+                            self.last_mail_arrival = std::time::Instant::now();
+                            self.pending_overlay_save = true;
+                            ctx.request_repaint();
                         }
-                    });
 
-                ui.add_space(10.0);
+                        if self.pending_overlay_save && (!ui.input(|i| i.pointer.any_down()) || ui.input(|i| i.pointer.any_released())) {
+                            self.pending_overlay_save = false;
+                            self.save_config();
+                        }
 
-                // Card 3: App Behavior & Protection
-                egui::Frame::none()
-                    .fill(c.card_surface)
-                    .stroke(Stroke::new(1.0_f32, c.hairline))
-                    .rounding(Rounding::same(6.0))
-                    .inner_margin(Margin::same(14.0))
-                    .show(ui, |ui| {
-                        ui.label(egui::RichText::new(self.language.t(TrKey::SettingsCardSystemTitle)).font(egui::FontId::proportional(12.0)).strong().color(c.canvas_tint));
-                        ui.add_space(8.0);
+                        ui.add_space(10.0);
 
-                        // Language Selector
+                        // Width slider
+                        let width_lbl = match self.language {
+                            AppLanguage::Vietnamese => "Chiều rộng lớp phủ:",
+                            AppLanguage::English => "Overlay Width:",
+                        };
+                        let prev_width = self.overlay_config.width;
                         ui.horizontal(|ui| {
-                            ui.label(egui::RichText::new(self.language.t(TrKey::SettingsLanguageLabel)).strong().color(c.canvas_tint));
-                            let prev_lang = self.language;
-                            ui.selectable_value(&mut self.language, AppLanguage::Vietnamese, "Tiếng Việt");
-                            ui.selectable_value(&mut self.language, AppLanguage::English, "English");
-                            if self.language != prev_lang {
-                                self.watcher.set_language(self.language);
-                                self.save_config();
-                                if let Some(tray) = &self.tray {
-                                    tray.update_language(self.language);
-                                }
-                            }
+                            ui.label(egui::RichText::new(width_lbl).strong().color(c.canvas_tint));
+                            ui.add(
+                                egui::Slider::new(&mut self.overlay_config.width, 180.0_f32..=380.0_f32)
+                                    .custom_formatter(|n, _| format!("{:.0} px", n)),
+                            );
                         });
+                        if (self.overlay_config.width - prev_width).abs() > 0.5 {
+                            self.last_mail_arrival = std::time::Instant::now();
+                            self.save_config();
+                        }
 
                         ui.add_space(8.0);
-                        ui.separator();
-                        ui.add_space(8.0);
 
+                        // Font size slider
+                        let font_lbl = match self.language {
+                            AppLanguage::Vietnamese => "Cỡ chữ hiển thị:",
+                            AppLanguage::English => "Font Size:",
+                        };
+                        let prev_fs = self.overlay_config.font_size;
                         ui.horizontal(|ui| {
-                            ui.label(egui::RichText::new(self.language.t(TrKey::SettingsCloseBehavior)).strong().color(c.canvas_tint));
-                            let prev_close = self.close_behavior;
-                            ui.selectable_value(&mut self.close_behavior, CloseBehavior::Tray, self.language.t(TrKey::SettingsCloseTray));
-                            ui.selectable_value(&mut self.close_behavior, CloseBehavior::Close, self.language.t(TrKey::SettingsCloseExit));
-                            if self.close_behavior != prev_close {
-                                self.save_config();
-                            }
+                            ui.label(egui::RichText::new(font_lbl).strong().color(c.canvas_tint));
+                            ui.add(
+                                egui::Slider::new(&mut self.overlay_config.font_size, 8.5_f32..=15.0_f32)
+                                    .custom_formatter(|n, _| format!("{:.1} pt", n)),
+                            );
                         });
+                        if (self.overlay_config.font_size - prev_fs).abs() > 0.1 {
+                            self.last_mail_arrival = std::time::Instant::now();
+                            self.save_config();
+                        }
 
                         ui.add_space(8.0);
-                        ui.separator();
-                        ui.add_space(8.0);
 
-                        // Autostart setting
+                        // Opacity slider (0.0 to 1.0)
+                        let opacity_lbl = match self.language {
+                            AppLanguage::Vietnamese => "Độ mờ nền (Opacity):",
+                            AppLanguage::English => "Background Opacity:",
+                        };
+                        let prev_opacity = self.overlay_config.opacity;
                         ui.horizontal(|ui| {
-                            let mut autostart = self.autostart;
-                            if ui.checkbox(&mut autostart, egui::RichText::new(self.language.t(TrKey::SettingsAutostart)).strong().color(c.canvas_tint))
-                                .on_hover_text(self.language.t(TrKey::SettingsAutostartTooltip))
-                                .changed()
-                            {
-                                self.autostart = autostart;
-                                if let Err(e) = crate::autostart::set_autostart(self.autostart, self.autostart_minimized) {
-                                    let err_msg = match self.language {
-                                        AppLanguage::Vietnamese => format!("Lỗi cài đặt Autostart: {}", e),
-                                        AppLanguage::English => format!("Autostart setting error: {}", e),
-                                    };
-                                    self.watcher.log("ERROR", &err_msg);
-                                } else {
-                                    let msg = if self.autostart {
-                                        match self.language {
-                                            AppLanguage::Vietnamese => format!("Đã BẬT tự khởi động cùng Windows (Thu nhỏ vào khay: {})", if self.autostart_minimized { "BẬT" } else { "TẮT" }),
-                                            AppLanguage::English => format!("ENABLED Autostart with Windows (Start minimized: {})", if self.autostart_minimized { "YES" } else { "NO" }),
-                                        }
-                                    } else {
-                                        match self.language {
-                                            AppLanguage::Vietnamese => "Đã TẮT tự khởi động cùng Windows".to_string(),
-                                            AppLanguage::English => "DISABLED Autostart with Windows".to_string(),
-                                        }
-                                    };
-                                    self.watcher.log("SUCCESS", &msg);
-                                }
-                                self.save_config();
-                            }
-                        });
-
-                        // Tùy chọn thu nhỏ xuống khay icon ở trong
-                        if self.autostart {
-                            ui.add_space(4.0);
-                            ui.horizontal(|ui| {
-                                ui.add_space(20.0);
-                                let mut start_min = self.autostart_minimized;
-                                let min_color = if self.autostart_minimized { c.accent_gold } else { c.canvas_tint };
-                                if ui.checkbox(&mut start_min, egui::RichText::new(self.language.t(TrKey::SettingsAutostartMinimized)).color(min_color))
-                                    .on_hover_text(self.language.t(TrKey::SettingsAutostartMinimizedTooltip))
-                                    .changed()
-                                {
-                                    self.autostart_minimized = start_min;
-                                    if let Err(e) = crate::autostart::set_autostart(self.autostart, self.autostart_minimized) {
-                                        let err_msg = match self.language {
-                                            AppLanguage::Vietnamese => format!("Lỗi cập nhật cấu hình Autostart: {}", e),
-                                            AppLanguage::English => format!("Autostart config update error: {}", e),
-                                        };
-                                        self.watcher.log("ERROR", &err_msg);
-                                    } else {
-                                        let msg = if self.autostart_minimized {
-                                            match self.language {
-                                                AppLanguage::Vietnamese => "Đã BẬT tùy chọn: Thu nhỏ xuống khay icon khi khởi động cùng Windows",
-                                                AppLanguage::English => "ENABLED: Start minimized to system tray on Windows startup",
-                                            }
+                            ui.label(egui::RichText::new(opacity_lbl).strong().color(c.canvas_tint));
+                            ui.add(
+                                egui::Slider::new(&mut self.overlay_config.opacity, 0.0_f32..=1.0_f32)
+                                    .custom_formatter(|n, _| {
+                                        if n <= 0.01 {
+                                            "0% (See-Through)".to_string()
                                         } else {
-                                            match self.language {
-                                                AppLanguage::Vietnamese => "Đã TẮT tùy chọn: Thu nhỏ xuống khay icon khi khởi động cùng Windows (sẽ hiện cửa sổ)",
-                                                AppLanguage::English => "DISABLED: Start minimized to system tray on Windows startup (will show window)",
-                                            }
-                                        };
-                                        self.watcher.log("INFO", msg);
-                                    }
+                                            format!("{:.0}%", n * 100.0)
+                                        }
+                                    }),
+                            );
+                        });
+                        if (self.overlay_config.opacity - prev_opacity).abs() > 0.005 {
+                            self.last_mail_arrival = std::time::Instant::now();
+                            self.save_config();
+                        }
+
+                        ui.add_space(10.0);
+
+                        // Color theme swatches as interactive chip buttons
+                        let color_lbl = match self.language {
+                            AppLanguage::Vietnamese => "Màu chữ:",
+                            AppLanguage::English => "Text Color:",
+                        };
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 8.0;
+                            ui.label(egui::RichText::new(color_lbl).strong().color(c.canvas_tint));
+                            let themes = [
+                                ("#F8FAFC", "White", Color32::from_rgb(0xF8, 0xFA, 0xFC)),
+                                ("#FDE047", "Gold", Color32::from_rgb(0xFD, 0xE0, 0x47)),
+                                ("#38BDF8", "Cyan", Color32::from_rgb(0x38, 0xBD, 0xF8)),
+                                ("#4ADE80", "Green", Color32::from_rgb(0x4A, 0xDE, 0x80)),
+                            ];
+                            for (hex, name, col) in themes {
+                                let is_active = self.overlay_config.text_color_hex == hex;
+                                let border_stroke = if is_active {
+                                    Stroke::new(1.5_f32, col)
+                                } else {
+                                    Stroke::new(1.0_f32, c.hairline)
+                                };
+                                let btn = egui::Button::new(
+                                    egui::RichText::new(format!("■ {}", name))
+                                        .font(egui::FontId::proportional(11.0))
+                                        .strong()
+                                        .color(col),
+                                )
+                                .fill(if is_active { c.primary_pressed } else { c.primary })
+                                .stroke(border_stroke)
+                                .rounding(Rounding::same(5.0));
+
+                                if ui.add_sized([0.0, 26.0], btn).clicked() {
+                                    self.overlay_config.text_color_hex = hex.to_string();
+                                    self.last_mail_arrival = std::time::Instant::now();
                                     self.save_config();
                                 }
-                            });
-                        }
-
-                        ui.add_space(8.0);
-                        ui.separator();
-                        ui.add_space(8.0);
-
-                        // Deny-Delete Mailcache Armor
-                        let armor_label = if self.is_armored {
-                            self.language.t(TrKey::SettingsArmorOn)
-                        } else {
-                            self.language.t(TrKey::SettingsArmorOff)
-                        };
-                        let armor_color = if self.is_armored { c.status_green } else { c.text_muted };
-
-                        if ui.button(egui::RichText::new(armor_label).color(armor_color).strong())
-                            .on_hover_text(self.language.t(TrKey::SettingsArmorTooltip))
-                            .clicked()
-                        {
-                            let mail_dir = self.watcher.get_mail_dir();
-                            if self.is_armored {
-                                match crate::armor::disable_mailcache_armor(&mail_dir, self.language) {
-                                    Ok(msg) => {
-                                        self.watcher.log("SUCCESS", &msg);
-                                        self.is_armored = false;
-                                    }
-                                    Err(err) => {
-                                        self.watcher.log("ERROR", &err);
-                                    }
-                                }
-                            } else {
-                                match crate::armor::enable_mailcache_armor(&mail_dir, self.language) {
-                                    Ok(msg) => {
-                                        self.watcher.log("SUCCESS", &msg);
-                                        self.is_armored = true;
-                                    }
-                                    Err(err) => {
-                                        self.watcher.log("ERROR", &err);
-                                    }
-                                }
-                            }
-                        }
-                    });
-
-                ui.add_space(10.0);
-
-                // Card 4: Persistent Vault
-                egui::Frame::none()
-                    .fill(c.card_surface)
-                    .stroke(Stroke::new(1.0_f32, c.hairline))
-                    .rounding(Rounding::same(6.0))
-                    .inner_margin(Margin::same(14.0))
-                    .show(ui, |ui| {
-                        let vault_total = self.watcher.get_vault_total_count();
-                        ui.label(egui::RichText::new(self.language.t(TrKey::SettingsCardVaultTitle)).font(egui::FontId::proportional(12.0)).strong().color(c.accent_gold));
-                        ui.add_space(4.0);
-                        let secured_str = self.language.t(TrKey::SettingsVaultSecured).replace("{}", &format_num(vault_total));
-                        ui.label(egui::RichText::new(secured_str).font(egui::FontId::proportional(11.0)).color(c.canvas_tint));
-                        ui.add_space(8.0);
-
-                        ui.horizontal(|ui| {
-                            if ui.button(self.language.t(TrKey::SettingsBtnOpenVaultDir)).clicked() {
-                                let dir = self.watcher.get_vault_binary_dir();
-                                let _ = open::that(&dir);
-                            }
-                            if ui.button(self.language.t(TrKey::SettingsBtnOpenVaultJson)).clicked() {
-                                let f = self.watcher.get_vault_file_path();
-                                let _ = open::that(&f);
-                            }
-                            if ui.button(self.language.t(TrKey::SettingsBtnCleanVault)).clicked() {
-                                match self.watcher.clean_binary_vault() {
-                                    Ok((cnt, bytes)) => {
-                                        let mb = format!("{:.2}", bytes as f64 / (1024.0 * 1024.0));
-                                        let msg = self.language.t(TrKey::SettingsCleanVaultSuccess)
-                                            .replace("{files}", &cnt.to_string())
-                                            .replace("{mb}", &mb);
-                                        self.watcher.log("SUCCESS", &msg);
-                                    }
-                                    Err(err) => {
-                                        self.watcher.log("ERROR", &err);
-                                    }
-                                }
                             }
                         });
+                    }
+                });
+
+                ui.add_space(12.0);
+
+                // Card 4: App Behavior & Protection
+                card_frame.show(ui, |ui| {
+                    ui.label(
+                        egui::RichText::new(format!("{}", self.language.t(TrKey::SettingsCardSystemTitle)))
+                            .font(egui::FontId::proportional(12.5))
+                            .strong()
+                            .color(c.canvas_tint),
+                    );
+                    ui.add_space(10.0);
+
+                    // Language Selector as segmented pills
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 8.0;
+                        ui.label(egui::RichText::new(self.language.t(TrKey::SettingsLanguageLabel)).strong().color(c.canvas_tint));
+
+                        let lang_btn = |ui: &mut egui::Ui, is_sel: bool, text: &str| -> egui::Response {
+                            let fill = if is_sel { c.primary_pressed } else { c.primary };
+                            let stroke = if is_sel { Stroke::new(1.0_f32, c.focus_teal) } else { Stroke::new(1.0_f32, c.hairline) };
+                            let col = if is_sel { c.focus_teal } else { c.text_muted };
+                            ui.add_sized(
+                                [0.0, 26.0],
+                                egui::Button::new(egui::RichText::new(text).font(egui::FontId::proportional(11.0)).strong().color(col))
+                                    .fill(fill)
+                                    .stroke(stroke)
+                                    .rounding(Rounding::same(5.0)),
+                            )
+                        };
+
+                        let is_vi = self.language == AppLanguage::Vietnamese;
+                        if lang_btn(ui, is_vi, "Tiếng Việt").clicked() && !is_vi {
+                            self.language = AppLanguage::Vietnamese;
+                            self.watcher.set_language(self.language);
+                            self.save_config();
+                            if let Some(tray) = &self.tray {
+                                tray.update_language(self.language);
+                            }
+                        }
+
+                        let is_en = self.language == AppLanguage::English;
+                        if lang_btn(ui, is_en, "English").clicked() && !is_en {
+                            self.language = AppLanguage::English;
+                            self.watcher.set_language(self.language);
+                            self.save_config();
+                            if let Some(tray) = &self.tray {
+                                tray.update_language(self.language);
+                            }
+                        }
                     });
+
+                    ui.add_space(10.0);
+                    ui.separator();
+                    ui.add_space(10.0);
+
+                    // Close behavior segmented pills
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 8.0;
+                        ui.label(egui::RichText::new(self.language.t(TrKey::SettingsCloseBehavior)).strong().color(c.canvas_tint));
+
+                        let is_tray = self.close_behavior == CloseBehavior::Tray;
+                        let tray_stroke = if is_tray { Stroke::new(1.0_f32, c.focus_teal) } else { Stroke::new(1.0_f32, c.hairline) };
+                        let tray_fill = if is_tray { c.primary_pressed } else { c.primary };
+                        let tray_col = if is_tray { c.focus_teal } else { c.text_muted };
+
+                        let btn_tray = egui::Button::new(
+                            egui::RichText::new(self.language.t(TrKey::SettingsCloseTray))
+                                .font(egui::FontId::proportional(11.0))
+                                .strong()
+                                .color(tray_col),
+                        )
+                        .fill(tray_fill)
+                        .stroke(tray_stroke)
+                        .rounding(Rounding::same(5.0));
+
+                        if ui.add_sized([0.0, 26.0], btn_tray).clicked() {
+                            self.close_behavior = CloseBehavior::Tray;
+                            self.save_config();
+                        }
+
+                        let is_close = self.close_behavior == CloseBehavior::Close;
+                        let close_stroke = if is_close { Stroke::new(1.0_f32, c.error.linear_multiply(0.6)) } else { Stroke::new(1.0_f32, c.hairline) };
+                        let close_fill = if is_close { c.primary_pressed } else { c.primary };
+                        let close_col = if is_close { c.error } else { c.text_muted };
+
+                        let btn_close = egui::Button::new(
+                            egui::RichText::new(self.language.t(TrKey::SettingsCloseExit))
+                                .font(egui::FontId::proportional(11.0))
+                                .strong()
+                                .color(close_col),
+                        )
+                        .fill(close_fill)
+                        .stroke(close_stroke)
+                        .rounding(Rounding::same(5.0));
+
+                        if ui.add_sized([0.0, 26.0], btn_close).clicked() {
+                            self.close_behavior = CloseBehavior::Close;
+                            self.save_config();
+                        }
+                    });
+
+                    ui.add_space(10.0);
+                    ui.separator();
+                    ui.add_space(10.0);
+
+                    // Autostart setting
+                    ui.horizontal(|ui| {
+                        let mut autostart = self.autostart;
+                        if ui.checkbox(&mut autostart, egui::RichText::new(self.language.t(TrKey::SettingsAutostart)).strong().color(c.canvas_tint))
+                            .on_hover_text(self.language.t(TrKey::SettingsAutostartTooltip))
+                            .changed()
+                        {
+                            self.autostart = autostart;
+                            if let Err(e) = crate::autostart::set_autostart(self.autostart, self.autostart_minimized) {
+                                let err_msg = match self.language {
+                                    AppLanguage::Vietnamese => format!("Lỗi cài đặt Autostart: {}", e),
+                                    AppLanguage::English => format!("Autostart setting error: {}", e),
+                                };
+                                self.watcher.log("ERROR", &err_msg);
+                            } else {
+                                let msg = if self.autostart {
+                                    match self.language {
+                                        AppLanguage::Vietnamese => format!("Đã BẬT tự khởi động cùng Windows (Thu nhỏ: {})", if self.autostart_minimized { "BẬT" } else { "TẮT" }),
+                                        AppLanguage::English => format!("ENABLED Autostart with Windows (Minimized: {})", if self.autostart_minimized { "YES" } else { "NO" }),
+                                    }
+                                } else {
+                                    match self.language {
+                                        AppLanguage::Vietnamese => "Đã TẮT tự khởi động cùng Windows".to_string(),
+                                        AppLanguage::English => "DISABLED Autostart with Windows".to_string(),
+                                    }
+                                };
+                                self.watcher.log("SUCCESS", &msg);
+                            }
+                            self.save_config();
+                        }
+                    });
+
+                    // Sub-option: Start minimized
+                    if self.autostart {
+                        ui.add_space(4.0);
+                        ui.horizontal(|ui| {
+                            ui.add_space(20.0);
+                            let mut start_min = self.autostart_minimized;
+                            let min_color = if self.autostart_minimized { c.accent_gold } else { c.canvas_tint };
+                            if ui.checkbox(&mut start_min, egui::RichText::new(self.language.t(TrKey::SettingsAutostartMinimized)).color(min_color))
+                                .on_hover_text(self.language.t(TrKey::SettingsAutostartMinimizedTooltip))
+                                .changed()
+                            {
+                                self.autostart_minimized = start_min;
+                                if let Err(e) = crate::autostart::set_autostart(self.autostart, self.autostart_minimized) {
+                                    let err_msg = match self.language {
+                                        AppLanguage::Vietnamese => format!("Lỗi cấu hình Autostart: {}", e),
+                                        AppLanguage::English => format!("Autostart config error: {}", e),
+                                    };
+                                    self.watcher.log("ERROR", &err_msg);
+                                }
+                                self.save_config();
+                            }
+                        });
+                    }
+
+                    ui.add_space(10.0);
+                    ui.separator();
+                    ui.add_space(10.0);
+
+                    // Deny-Delete Mailcache Armor as an interactive security badge
+                    let armor_label = if self.is_armored {
+                        self.language.t(TrKey::SettingsArmorOn)
+                    } else {
+                        self.language.t(TrKey::SettingsArmorOff)
+                    };
+                    let (armor_stroke, armor_color) = if self.is_armored {
+                        (Stroke::new(1.0_f32, c.status_green.linear_multiply(0.4)), c.status_green)
+                    } else {
+                        (Stroke::new(1.0_f32, c.hairline), c.text_muted)
+                    };
+
+                    let armor_btn = egui::Button::new(
+                        egui::RichText::new(armor_label)
+                            .font(egui::FontId::proportional(11.0))
+                            .strong()
+                            .color(armor_color),
+                    )
+                    .fill(c.primary)
+                    .stroke(armor_stroke)
+                    .rounding(Rounding::same(6.0));
+
+                    if ui.add_sized([ui.available_width(), 30.0], armor_btn)
+                        .on_hover_text(self.language.t(TrKey::SettingsArmorTooltip))
+                        .clicked()
+                    {
+                        let mail_dir = self.watcher.get_mail_dir();
+                        if self.is_armored {
+                            match crate::armor::disable_mailcache_armor(&mail_dir, self.language) {
+                                Ok(msg) => {
+                                    self.watcher.log("SUCCESS", &msg);
+                                    self.is_armored = false;
+                                }
+                                Err(err) => {
+                                    self.watcher.log("ERROR", &err);
+                                }
+                            }
+                        } else {
+                            match crate::armor::enable_mailcache_armor(&mail_dir, self.language) {
+                                Ok(msg) => {
+                                    self.watcher.log("SUCCESS", &msg);
+                                    self.is_armored = true;
+                                }
+                                Err(err) => {
+                                    self.watcher.log("ERROR", &err);
+                                }
+                            }
+                        }
+                    }
+                });
+
+                ui.add_space(12.0);
+
+                // Card 5: Persistent Vault
+                card_frame.show(ui, |ui| {
+                    let vault_total = self.watcher.get_vault_total_count();
+                    ui.label(
+                        egui::RichText::new(format!("{}", self.language.t(TrKey::SettingsCardVaultTitle)))
+                            .font(egui::FontId::proportional(12.5))
+                            .strong()
+                            .color(c.accent_gold),
+                    );
+                    ui.add_space(4.0);
+
+                    // Stat badge
+                    let secured_str = self.language.t(TrKey::SettingsVaultSecured).replace("{}", &format_num(vault_total));
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            egui::RichText::new(format!("{}", secured_str))
+                                .font(egui::FontId::proportional(11.0))
+                                .color(c.accent_gold),
+                        );
+                    });
+                    ui.add_space(10.0);
+
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 8.0;
+
+                        let btn_vdir = egui::Button::new(
+                            egui::RichText::new(self.language.t(TrKey::SettingsBtnOpenVaultDir))
+                                .font(egui::FontId::proportional(11.0))
+                                .color(c.canvas_tint),
+                        )
+                        .fill(c.primary)
+                        .stroke(Stroke::new(1.0_f32, c.hairline))
+                        .rounding(Rounding::same(5.0));
+
+                        if ui.add_sized([0.0, 28.0], btn_vdir).clicked() {
+                            let dir = self.watcher.get_vault_binary_dir();
+                            let _ = open::that(&dir);
+                        }
+
+                        let btn_vjson = egui::Button::new(
+                            egui::RichText::new(self.language.t(TrKey::SettingsBtnOpenVaultJson))
+                                .font(egui::FontId::proportional(11.0))
+                                .color(c.canvas_tint),
+                        )
+                        .fill(c.primary)
+                        .stroke(Stroke::new(1.0_f32, c.hairline))
+                        .rounding(Rounding::same(5.0));
+
+                        if ui.add_sized([0.0, 28.0], btn_vjson).clicked() {
+                            let f = self.watcher.get_vault_file_path();
+                            let _ = open::that(&f);
+                        }
+
+                        let btn_clean = egui::Button::new(
+                            egui::RichText::new(self.language.t(TrKey::SettingsBtnCleanVault))
+                                .font(egui::FontId::proportional(11.0))
+                                .color(c.text_muted),
+                        )
+                        .fill(c.primary)
+                        .stroke(Stroke::new(1.0_f32, c.hairline))
+                        .rounding(Rounding::same(5.0));
+
+                        if ui.add_sized([0.0, 28.0], btn_clean).clicked() {
+                            match self.watcher.clean_binary_vault() {
+                                Ok((cnt, bytes)) => {
+                                    let mb = format!("{:.2}", bytes as f64 / (1024.0 * 1024.0));
+                                    let msg = self.language.t(TrKey::SettingsCleanVaultSuccess)
+                                        .replace("{files}", &cnt.to_string())
+                                        .replace("{mb}", &mb);
+                                    self.watcher.log("SUCCESS", &msg);
+                                }
+                                Err(err) => {
+                                    self.watcher.log("ERROR", &err);
+                                }
+                            }
+                        }
+                    });
+                });
+
+                ui.add_space(12.0);
+
+                // Card 6: Cloud Backup & Migration (Supabase + Google OAuth)
+                card_frame.show(ui, |ui| {
+                    let title = match self.language {
+                        AppLanguage::Vietnamese => "ĐỒNG BỘ CLOUD VỚI GOOGLE & SUPABASE",
+                        AppLanguage::English => "CLOUD BACKUP & SYNC WITH GOOGLE & SUPABASE",
+                    };
+                    ui.label(
+                        egui::RichText::new(title)
+                            .font(egui::FontId::proportional(12.5))
+                            .strong()
+                            .color(c.crystal_cyan),
+                    );
+                    ui.add_space(4.0);
+
+                    let (status_text, is_logged_in) = match (
+                        &self.cloud_auth.user_email,
+                        self.cloud_auth.access_token.is_some(),
+                    ) {
+                        (Some(email), true) => {
+                            let sync_info = self
+                                .cloud_auth
+                                .last_synced
+                                .as_deref()
+                                .unwrap_or("Chưa đồng bộ / Never");
+                            let txt = match self.language {
+                                AppLanguage::Vietnamese => {
+                                    format!("● Tài khoản: {} | Lần sao lưu gần nhất: {}", email, sync_info)
+                                }
+                                AppLanguage::English => {
+                                    format!("● Account: {} | Last backup: {}", email, sync_info)
+                                }
+                            };
+                            (txt, true)
+                        }
+                        _ => {
+                            let txt = match self.language {
+                                AppLanguage::Vietnamese => {
+                                    "Chưa đăng nhập. Đăng nhập Google để sao lưu & khôi phục khi chuyển thiết bị.".to_string()
+                                }
+                                AppLanguage::English => {
+                                    "Not logged in. Log in with Google to backup & restore across devices.".to_string()
+                                }
+                            };
+                            (txt, false)
+                        }
+                    };
+
+                    let status_col = if is_logged_in { c.status_green } else { c.text_muted };
+                    ui.label(
+                        egui::RichText::new(status_text)
+                            .font(egui::FontId::proportional(11.0))
+                            .color(status_col),
+                    );
+                    ui.add_space(10.0);
+
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 8.0;
+
+                        if self.cloud_busy {
+                            ui.spinner();
+                            let wait_txt = match self.language {
+                                AppLanguage::Vietnamese => "Đang xử lý...",
+                                AppLanguage::English => "Processing...",
+                            };
+                            ui.label(egui::RichText::new(wait_txt).font(egui::FontId::proportional(11.0)).color(c.accent_gold));
+
+                            let cancel_txt = match self.language {
+                                AppLanguage::Vietnamese => "Hủy",
+                                AppLanguage::English => "Cancel",
+                            };
+                            let btn_cancel = egui::Button::new(
+                                egui::RichText::new(cancel_txt)
+                                    .font(egui::FontId::proportional(11.0))
+                                    .color(c.error),
+                            )
+                            .fill(c.card_surface)
+                            .stroke(Stroke::new(1.0_f32, c.error.linear_multiply(0.5)))
+                            .rounding(Rounding::same(4.0));
+
+                            if ui.add(btn_cancel).clicked() {
+                                self.cloud_busy = false;
+                                self.cloud_rx = None;
+                                self.cloud_op_rx = None;
+                                let msg = match self.language {
+                                    AppLanguage::Vietnamese => "Đã hủy thao tác cloud",
+                                    AppLanguage::English => "Cloud operation cancelled",
+                                };
+                                self.watcher.log("WARN", msg);
+                            }
+                        } else if !is_logged_in {
+                            let btn_login_txt = match self.language {
+                                AppLanguage::Vietnamese => "Đăng Nhập Google",
+                                AppLanguage::English => "Login with Google",
+                            };
+                            let btn_login = egui::Button::new(
+                                egui::RichText::new(btn_login_txt)
+                                    .font(egui::FontId::proportional(11.5))
+                                    .strong()
+                                    .color(c.crystal_cyan),
+                            )
+                            .fill(c.primary)
+                            .stroke(Stroke::new(1.0_f32, c.crystal_cyan.linear_multiply(0.4)))
+                            .rounding(Rounding::same(6.0));
+
+                            if ui.add_sized([ui.available_width(), 30.0], btn_login).clicked() && !self.cloud_busy {
+                                self.start_google_login();
+                            }
+                        } else {
+                            let btn_backup_txt = match self.language {
+                                AppLanguage::Vietnamese => "Sao Lưu Lên Cloud",
+                                AppLanguage::English => "Backup to Cloud",
+                            };
+                            let btn_backup = egui::Button::new(
+                                egui::RichText::new(btn_backup_txt)
+                                    .font(egui::FontId::proportional(11.0))
+                                    .strong()
+                                    .color(c.status_green),
+                            )
+                            .fill(c.primary)
+                            .stroke(Stroke::new(1.0_f32, c.status_green.linear_multiply(0.4)))
+                            .rounding(Rounding::same(5.0));
+
+                            if ui.add_sized([0.0, 28.0], btn_backup).clicked() && !self.cloud_busy {
+                                self.trigger_cloud_backup();
+                            }
+
+                            let btn_restore_txt = match self.language {
+                                AppLanguage::Vietnamese => "Khôi Phục Từ Cloud",
+                                AppLanguage::English => "Restore from Cloud",
+                            };
+                            let btn_restore = egui::Button::new(
+                                egui::RichText::new(btn_restore_txt)
+                                    .font(egui::FontId::proportional(11.0))
+                                    .strong()
+                                    .color(c.accent_gold),
+                            )
+                            .fill(c.primary)
+                            .stroke(Stroke::new(1.0_f32, c.accent_gold.linear_multiply(0.4)))
+                            .rounding(Rounding::same(5.0));
+
+                            if ui.add_sized([0.0, 28.0], btn_restore).clicked() && !self.cloud_busy {
+                                self.trigger_cloud_restore();
+                            }
+
+                            let btn_logout_txt = match self.language {
+                                AppLanguage::Vietnamese => "Đăng Xuất",
+                                AppLanguage::English => "Logout",
+                            };
+                            let btn_logout = egui::Button::new(
+                                egui::RichText::new(btn_logout_txt)
+                                    .font(egui::FontId::proportional(11.0))
+                                    .color(c.error),
+                            )
+                            .fill(c.primary)
+                            .stroke(Stroke::new(1.0_f32, c.error.linear_multiply(0.4)))
+                            .rounding(Rounding::same(5.0));
+
+                            if ui.add_sized([0.0, 28.0], btn_logout).clicked() && !self.cloud_busy {
+                                self.cloud_auth.access_token = None;
+                                self.cloud_auth.refresh_token = None;
+                                self.cloud_auth.user_id = None;
+                                self.cloud_auth.user_email = None;
+                                self.save_config();
+                                let msg = match self.language {
+                                    AppLanguage::Vietnamese => "Đã đăng xuất tài khoản Cloud",
+                                    AppLanguage::English => "Logged out from Cloud",
+                                };
+                                self.watcher.log("INFO", msg);
+                            }
+                        }
+                    });
+
+                    if is_logged_in {
+                        ui.add_space(8.0);
+                        let auto_backup_label = match self.language {
+                            AppLanguage::Vietnamese => "Tự động sao lưu lên Cloud khi có chiến báo mới",
+                            AppLanguage::English => "Auto back-up to Cloud when new reports arrive",
+                        };
+                        if ui.checkbox(&mut self.cloud_auth.auto_backup, auto_backup_label).changed() {
+                            self.save_config();
+                        }
+                    }
+                });
+
+                ui.add_space(8.0);
             });
 
             // Right Column: Terminal Log Viewer
             egui::Frame::none()
                 .fill(c.log_bg)
                 .stroke(Stroke::new(1.0_f32, c.hairline))
-                .rounding(Rounding::same(6.0))
-                .inner_margin(Margin::same(12.0))
+                .rounding(Rounding::same(8.0))
+                .inner_margin(Margin::same(14.0))
                 .show(&mut cols[1], |ui| {
                     ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new(self.language.t(TrKey::LogsTitle)).font(egui::FontId::proportional(12.0)).strong().color(c.focus_teal));
+                        ui.label(
+                            egui::RichText::new(format!("{}", self.language.t(TrKey::LogsTitle)))
+                                .font(egui::FontId::proportional(12.5))
+                                .strong()
+                                .color(c.focus_teal),
+                        );
+
                         let count_str = self.language.t(TrKey::LogsLinesCount).replace("{}", &self.console_logs.len().to_string());
-                        ui.label(egui::RichText::new(count_str).font(egui::FontId::proportional(10.5)).color(c.text_muted));
+                        ui.label(
+                            egui::RichText::new(format!("({})", count_str))
+                                .font(egui::FontId::proportional(10.5))
+                                .color(c.text_muted),
+                        );
 
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.button(self.language.t(TrKey::LogsBtnClear)).clicked() {
+                            let btn_clear = egui::Button::new(
+                                egui::RichText::new(self.language.t(TrKey::LogsBtnClear))
+                                    .font(egui::FontId::proportional(10.5))
+                                    .color(c.canvas_tint),
+                            )
+                            .fill(c.primary)
+                            .stroke(Stroke::new(1.0_f32, c.hairline))
+                            .rounding(Rounding::same(5.0));
+
+                            if ui.add_sized([0.0, 24.0], btn_clear).clicked() {
                                 self.console_logs.clear();
                             }
+
                             ui.checkbox(&mut self.log_auto_scroll, self.language.t(TrKey::LogsAutoScroll));
                         });
                     });
 
-                    ui.add_space(6.0);
+                    ui.add_space(8.0);
                     ui.separator();
-                    ui.add_space(6.0);
+                    ui.add_space(8.0);
 
                     egui::ScrollArea::vertical()
                         .stick_to_bottom(self.log_auto_scroll)
@@ -3534,6 +4248,7 @@ impl RoKLootWatcherApp {
                                             .font(egui::FontId::monospace(10.5))
                                             .color(text_color),
                                     );
+                                    ui.add_space(2.0);
                                 }
                             }
                         });
@@ -3813,6 +4528,7 @@ impl eframe::App for RoKLootWatcherApp {
 
         // Nhận kết quả kiểm tra trạng thái armor từ luồng nền nếu có
         self.poll_armor_check();
+        self.poll_cloud_events(ctx);
 
         // Check if an external restore was requested (tray icon clicked, second instance opened, etc.)
         if crate::tray::check_and_clear_restore_request() {
@@ -4376,6 +5092,47 @@ mod tests {
         poll_armor_check_channel(&mut pending, &mut armored);
         assert!(pending.is_some());
         assert!(!armored);
+    }
+
+    #[test]
+    fn test_poll_cloud_receiver_ok_clears_busy_and_receiver() {
+        let (tx, rx) = std::sync::mpsc::channel::<String>();
+        tx.send("test_token".to_string()).unwrap();
+
+        let mut opt = Some(rx);
+        let mut busy = true;
+        let res = poll_cloud_receiver(&mut opt, &mut busy);
+
+        assert_eq!(res, Some(Ok("test_token".to_string())));
+        assert!(!busy);
+        assert!(opt.is_none());
+    }
+
+    #[test]
+    fn test_poll_cloud_receiver_disconnect_clears_busy_and_receiver() {
+        let (tx, rx) = std::sync::mpsc::channel::<String>();
+        drop(tx);
+
+        let mut opt = Some(rx);
+        let mut busy = true;
+        let res = poll_cloud_receiver(&mut opt, &mut busy);
+
+        assert_eq!(res, Some(Err(())));
+        assert!(!busy);
+        assert!(opt.is_none());
+    }
+
+    #[test]
+    fn test_poll_cloud_receiver_empty_retains_busy_and_receiver() {
+        let (_tx, rx) = std::sync::mpsc::channel::<String>();
+
+        let mut opt = Some(rx);
+        let mut busy = true;
+        let res = poll_cloud_receiver(&mut opt, &mut busy);
+
+        assert_eq!(res, None);
+        assert!(busy);
+        assert!(opt.is_some());
     }
 
     #[test]

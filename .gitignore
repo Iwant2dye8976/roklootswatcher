@@ -13,3 +13,8 @@ examples/
 .agents/
 AGENT.md
 AUDIT.md
+.env
+.env.*
+*.dat
+rok_auth.dat
+security-audit/

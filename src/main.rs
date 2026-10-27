@@ -4,6 +4,7 @@ mod analyzer;
 mod armor;
 mod autostart;
 mod classifier;
+pub mod cloud_sync;
 mod exporters;
 mod gui;
 mod i18n;

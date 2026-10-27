@@ -324,6 +324,13 @@ impl RoKMailWatcher {
         self.vault.read().unwrap_or_else(|e| e.into_inner()).get_vault_file().to_path_buf()
     }
 
+    pub fn reload_vault(&self) {
+        let out_dir = self.out_dir.read().unwrap_or_else(|e| e.into_inner()).clone();
+        let new_vault = crate::vault::MailVault::new(&out_dir);
+        *self.vault.write().unwrap_or_else(|e| e.into_inner()) = new_vault;
+        self.recompute_filtered_records_and_stats();
+    }
+
 
     pub fn clean_binary_vault(&self) -> Result<(usize, u64), String> {
         self.vault.read().unwrap_or_else(|e| e.into_inner()).clean_binary_vault()

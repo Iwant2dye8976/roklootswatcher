@@ -4,7 +4,9 @@ pub mod windows {
     use eframe::egui;
     use crate::watcher::RoKMailWatcher;
 
+    #[allow(dead_code)]
     pub const SINGLE_INSTANCE_MUTEX_NAME: &str = "Local\\ROK_Loot_Watcher_SingleInstance_Mutex";
+    #[allow(dead_code)]
     pub const SINGLE_INSTANCE_EVENT_NAME: &str = "Local\\ROK_Loot_Watcher_Activate_Event";
 
     const ERROR_ALREADY_EXISTS: u32 = 183;
@@ -56,6 +58,7 @@ pub mod windows {
         fn SetForegroundWindow(hWnd: isize) -> i32;
         fn BringWindowToTop(hWnd: isize) -> i32;
         fn AllowSetForegroundWindow(dwProcessId: u32) -> i32;
+        #[allow(dead_code)]
         fn MessageBoxW(
             hWnd: isize,
             lpText: *const u16,
@@ -91,11 +94,30 @@ pub mod windows {
         AlreadyExists,
     }
 
+    fn get_app_instance_id() -> String {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        if let Ok(exe) = std::env::current_exe() {
+            exe.to_string_lossy().hash(&mut hasher);
+        } else {
+            "rok_default".hash(&mut hasher);
+        }
+        format!("{:016x}", hasher.finish())
+    }
+
+    pub fn default_mutex_name() -> String {
+        format!("Local\\ROK_Loot_Watcher_{}_Mutex", get_app_instance_id())
+    }
+
+    pub fn default_event_name() -> String {
+        format!("Local\\ROK_Loot_Watcher_{}_Event", get_app_instance_id())
+    }
+
     /// Kiểm tra nếu ứng dụng đã mở sẵn trên hệ thống.
     /// Nếu đã mở sẵn: Đưa cửa sổ đang chạy lên tiền cảnh (foreground), unhide từ tray nếu cần, và trả về AlreadyExists.
     /// Nếu chưa mở: Khởi tạo Mutex và Event lắng nghe, trả về Running(SingleInstanceGuard).
     pub fn check_or_acquire() -> CheckResult {
-        check_or_acquire_named(SINGLE_INSTANCE_MUTEX_NAME, SINGLE_INSTANCE_EVENT_NAME)
+        check_or_acquire_named(&default_mutex_name(), &default_event_name())
     }
 
     pub fn check_or_acquire_named(mutex_name_str: &str, event_name_str: &str) -> CheckResult {
@@ -105,19 +127,26 @@ pub mod windows {
 
             let err = GetLastError();
             if err == ERROR_ALREADY_EXISTS {
-                if mutex != 0 {
-                    CloseHandle(mutex);
-                }
-
                 // 1. Tín hiệu cho tiến trình đang chạy khôi phục cửa sổ từ tray và focus lại
                 let event_signaled = signal_activate_event_named(event_name_str);
 
                 // 2. Trực tiếp tìm cửa sổ và đưa lên tiền cảnh (foreground)
                 let window_found = activate_existing_window();
 
-                // 3. Nếu không có cửa sổ nào và không thể gửi tín hiệu (tiến trình cũ treo hoặc crash ngầm)
-                if !event_signaled && !window_found && mutex_name_str == SINGLE_INSTANCE_MUTEX_NAME {
-                    show_already_running_message();
+                // 3. Nếu không có cửa sổ nào và không thể gửi tín hiệu:
+                // Có thể do tiến trình khác squatting mutex hoặc tiến trình cũ bị crash đột ngột.
+                // Không chặn khởi động một cách mù quáng! Tiếp tục khởi chạy ứng dụng.
+                if !event_signaled && !window_found {
+                    let event_wide = to_wide_null(event_name_str);
+                    let event = CreateEventW(std::ptr::null(), 0, 0, event_wide.as_ptr());
+                    return CheckResult::Running(SingleInstanceGuard {
+                        mutex_handle: mutex,
+                        event_handle: event,
+                    });
+                }
+
+                if mutex != 0 {
+                    CloseHandle(mutex);
                 }
 
                 return CheckResult::AlreadyExists;
@@ -137,7 +166,7 @@ pub mod windows {
     /// Gửi tín hiệu kích hoạt đến tiến trình đang chạy
     #[allow(dead_code)]
     pub fn signal_activate_event() -> bool {
-        signal_activate_event_named(SINGLE_INSTANCE_EVENT_NAME)
+        signal_activate_event_named(&default_event_name())
     }
 
     pub fn signal_activate_event_named(event_name_str: &str) -> bool {
@@ -209,6 +238,7 @@ pub mod windows {
     }
 
     /// Hiển thị thông báo khi ứng dụng đã chạy nhưng không thể khôi phục tự động
+    #[allow(dead_code)]
     pub fn show_already_running_message() {
         let msg = to_wide_null(
             "Rise of Kingdoms Loot Watcher hiện đang được mở sẵn trên máy tính của bạn.\n\n\
@@ -333,5 +363,44 @@ mod tests {
         assert!(signaled, "Phải gửi được tín hiệu kích hoạt đến Event của tiến trình đang chạy");
 
         drop(guard);
+    }
+
+    #[test]
+    fn test_single_instance_squatted_mutex_fallback() {
+        let pid = std::process::id();
+        let mutex_name = format!("Local\\ROK_Squat_Mutex_{}", pid);
+        let event_name = format!("Local\\ROK_Squat_Event_{}", pid);
+
+        // Simulate an external squatter holding the mutex WITHOUT an activation event or window
+        let mutex_wide: Vec<u16> = mutex_name.encode_utf16().chain(std::iter::once(0)).collect();
+        let rogue_mutex = unsafe {
+            #[link(name = "kernel32")]
+            extern "system" {
+                fn CreateMutexW(lpMutexAttributes: *const std::ffi::c_void, bInitialOwner: i32, lpName: *const u16) -> isize;
+            }
+            CreateMutexW(std::ptr::null(), 1, mutex_wide.as_ptr())
+        };
+
+        // When application starts, it encounters ERROR_ALREADY_EXISTS on the mutex,
+        // but since no activation event responds and no window is found,
+        // it must NOT exit, but rather fall back to Running!
+        let result = check_or_acquire_named(&mutex_name, &event_name);
+        match result {
+            CheckResult::Running(guard) => {
+                // Succeeded! Launch denial prevented.
+                drop(guard);
+            }
+            CheckResult::AlreadyExists => {
+                panic!("App must not exit when a squatted mutex has no genuine responding instance");
+            }
+        }
+
+        unsafe {
+            #[link(name = "kernel32")]
+            extern "system" {
+                fn CloseHandle(h: isize) -> i32;
+            }
+            CloseHandle(rogue_mutex);
+        }
     }
 }
