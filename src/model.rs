@@ -392,10 +392,33 @@ impl ItemDrop {
         match lang {
             AppLanguage::English => {
                 let trimmed = self.name_en.trim();
-                if !trimmed.is_empty() {
+                let effective = if !trimmed.is_empty() {
                     trimmed
                 } else {
-                    &self.name_vi
+                    self.name_vi.trim()
+                };
+                match effective {
+                    "Thực phẩm" => "Food",
+                    "Gỗ" => "Wood",
+                    "Đá" => "Stone",
+                    "Vàng" => "Gold",
+                    "Đá quý" => "Gems",
+                    "Tài nguyên khác" => "Other Resources",
+                    other => {
+                        if other == self.name_vi.trim() && self.itype == 1 {
+                            match self.sub_type {
+                                1 => "Food",
+                                2 => "Wood",
+                                3 => "Stone",
+                                4 => "Gold",
+                                5 => "Gems",
+                                9 => "Crystals",
+                                _ => other,
+                            }
+                        } else {
+                            other
+                        }
+                    }
                 }
             }
             AppLanguage::Vietnamese => &self.name_vi,
@@ -1168,10 +1191,33 @@ impl ItemStat {
         match lang {
             AppLanguage::English => {
                 let trimmed = self.name_en.trim();
-                if !trimmed.is_empty() {
+                let effective = if !trimmed.is_empty() {
                     trimmed
                 } else {
-                    &self.name_vi
+                    self.name_vi.trim()
+                };
+                match effective {
+                    "Thực phẩm" => "Food",
+                    "Gỗ" => "Wood",
+                    "Đá" => "Stone",
+                    "Vàng" => "Gold",
+                    "Đá quý" => "Gems",
+                    "Tài nguyên khác" => "Other Resources",
+                    other => {
+                        if other == self.name_vi.trim() && self.itype == 1 {
+                            match self.sub_type {
+                                1 => "Food",
+                                2 => "Wood",
+                                3 => "Stone",
+                                4 => "Gold",
+                                5 => "Gems",
+                                9 => "Crystals",
+                                _ => other,
+                            }
+                        } else {
+                            other
+                        }
+                    }
                 }
             }
             AppLanguage::Vietnamese => &self.name_vi,
@@ -2325,6 +2371,53 @@ mod tests {
         };
         assert_eq!(item_vi_only.display_name(AppLanguage::Vietnamese), "Vật phẩm lạ");
         assert_eq!(item_vi_only.display_name(AppLanguage::English), "Vật phẩm lạ");
+
+        // Gathering items with itype = 1
+        let gather_food = ItemDrop {
+            itype: 1,
+            sub_type: 1,
+            value: 1000,
+            pic: "".into(),
+            name_vi: "Thực phẩm".into(),
+            name_en: "Food".into(),
+            category: "resource".into(),
+            sprites: vec![],
+        };
+        assert_eq!(gather_food.display_name(AppLanguage::Vietnamese), "Thực phẩm");
+        assert_eq!(gather_food.display_name(AppLanguage::English), "Food");
+
+        // Legacy gathering item where name_en was saved as Vietnamese in vault
+        let legacy_gather_wood = ItemDrop {
+            itype: 1,
+            sub_type: 2,
+            value: 2000,
+            pic: "".into(),
+            name_vi: "Gỗ".into(),
+            name_en: "Gỗ".into(),
+            category: "resource".into(),
+            sprites: vec![],
+        };
+        assert_eq!(legacy_gather_wood.display_name(AppLanguage::Vietnamese), "Gỗ");
+        assert_eq!(legacy_gather_wood.display_name(AppLanguage::English), "Wood");
+
+        // ItemStat display_name for gathering
+        let gather_stat = ItemStat {
+            itype: 1,
+            sub_type: 3,
+            name_vi: "Đá".into(),
+            name_en: "Đá".into(),
+            category: "resource".into(),
+            sprites: vec![],
+            pic: "".into(),
+            total_quantity: 5000,
+            battle_count: 1,
+            max_in_battle: 5000,
+            min_in_battle: 5000,
+            avg_per_battle: 5000.0,
+            by_battle_type: HashMap::new(),
+        };
+        assert_eq!(gather_stat.display_name(AppLanguage::Vietnamese), "Đá");
+        assert_eq!(gather_stat.display_name(AppLanguage::English), "Stone");
     }
 
     #[test]

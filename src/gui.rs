@@ -1621,6 +1621,7 @@ impl RoKLootWatcherApp {
                                 let badge_color = match r.battle_type.as_str() {
                                     "motte" => c.motte_accent,
                                     "fort" => c.fort_accent,
+                                    "gathering" => c.focus_teal,
                                     _ => c.barb_accent,
                                 };
 
@@ -1643,18 +1644,33 @@ impl RoKLootWatcherApp {
                                 );
 
                                 let d_pos = egui::pos2(card_rect.min.x + 8.0, card_rect.min.y + 36.0);
-                                let cry = r.item_quantity(1, 9);
-                                let cry_label = match self.language {
-                                    AppLanguage::Vietnamese => "Pha Lê",
-                                    AppLanguage::English => "Crystals",
+                                let sub_info = if r.battle_type == "gathering" {
+                                    let type_lbl = match self.language {
+                                        AppLanguage::Vietnamese => "THU THẬP",
+                                        AppLanguage::English => "GATHERING",
+                                    };
+                                    let res_name = r.items.first().map(|i| i.display_name(self.language)).unwrap_or("-");
+                                    let total_val = r.items.first().map(|i| i.value).unwrap_or(0);
+                                    let bonus = if r.talent_add > 0 {
+                                        format!(" (+{})", format_num(r.talent_add))
+                                    } else {
+                                        "".to_string()
+                                    };
+                                    format!("[{}]  {}: {}{}", type_lbl, res_name, format_num(total_val), bonus)
+                                } else {
+                                    let cry = r.item_quantity(1, 9);
+                                    let cry_label = match self.language {
+                                        AppLanguage::Vietnamese => "Pha Lê",
+                                        AppLanguage::English => "Crystals",
+                                    };
+                                    let cry_str = if cry > 0 { format!("+{} {}  |  ", format_num(cry), cry_label) } else { "".to_string() };
+                                    let dmg_label = match self.language {
+                                        AppLanguage::Vietnamese => "ST",
+                                        AppLanguage::English => "DMG",
+                                    };
+                                    let dmg_str = format!("{}: {}%", dmg_label, r.damage_pct);
+                                    format!("[{}]  {}{}", r.battle_type.to_uppercase(), cry_str, dmg_str)
                                 };
-                                let cry_str = if cry > 0 { format!("+{} {}  |  ", format_num(cry), cry_label) } else { "".to_string() };
-                                let dmg_label = match self.language {
-                                    AppLanguage::Vietnamese => "ST",
-                                    AppLanguage::English => "DMG",
-                                };
-                                let dmg_str = format!("{}: {}%", dmg_label, r.damage_pct);
-                                let sub_info = format!("[{}]  {}{}", r.battle_type.to_uppercase(), cry_str, dmg_str);
                                 ui.painter().text(
                                     d_pos,
                                     egui::Align2::LEFT_CENTER,

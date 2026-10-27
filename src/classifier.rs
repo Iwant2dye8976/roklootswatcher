@@ -381,13 +381,13 @@ pub fn extract_gathering_details(
     let res_value = content.get("ResValue").and_then(|v| v.as_f64()).unwrap_or(0.0);
     let talent_add = content.get("talentAdd").and_then(|v| v.as_f64()).unwrap_or(0.0);
 
-    let (res_name, category) = match res_type {
-        1 => ("Thực phẩm", "resource"),
-        2 => ("Gỗ", "resource"),
-        3 => ("Đá", "resource"),
-        4 => ("Vàng", "resource"),
-        5 => ("Đá quý", "gems"),
-        _ => ("Tài nguyên khác", "resource"),
+    let (res_name, res_name_en, category) = match res_type {
+        1 => ("Thực phẩm", "Food", "resource"),
+        2 => ("Gỗ", "Wood", "resource"),
+        3 => ("Đá", "Stone", "resource"),
+        4 => ("Vàng", "Gold", "resource"),
+        5 => ("Đá quý", "Gems", "gems"),
+        _ => ("Tài nguyên khác", "Other Resources", "resource"),
     };
 
     let target = if (1..=5).contains(&res_type) {
@@ -415,7 +415,7 @@ pub fn extract_gathering_details(
             value: base_val,
             pic: String::new(),
             name_vi: res_name.to_string(),
-            name_en: res_name.to_string(),
+            name_en: res_name_en.to_string(),
             category: category.to_string(),
             sprites: Vec::new(),
         });
@@ -817,6 +817,7 @@ mod tests {
         assert_eq!(rec.items[0].itype, 1);
         assert_eq!(rec.items[0].sub_type, 3);
         assert_eq!(rec.items[0].name_vi, "Đá");
+        assert_eq!(rec.items[0].name_en, "Stone");
         assert_eq!(rec.items[0].value, 23462);
         assert_eq!(rec.item_totals.get("Đá"), Some(&23462));
     }
@@ -845,6 +846,7 @@ mod tests {
         assert_eq!(rec.target, "Mỏ Thu Thập Cấp 4");
         assert_eq!(rec.talent_add, 500);
         assert_eq!(rec.items[0].name_vi, "Tài nguyên khác");
+        assert_eq!(rec.items[0].name_en, "Other Resources");
         assert_eq!(rec.items[0].value, 50000);
     }
 }
