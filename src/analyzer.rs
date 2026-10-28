@@ -318,6 +318,238 @@ pub fn generate_statistics(records: &[BattleRecord]) -> Statistics {
     }
 }
 
+/// Calculates Action Point (AP) cost per battle based on target level tiers:
+/// - Barbarian Forts: Lvl 1-10 = 150 AP | Lvl 11-15 = 300 AP
+/// - Motte: Lvl 1-10 = 150 AP | Lvl 11-15 = 300 AP
+/// - Barbarians: Lvl 1-40 = 40 AP | Lvl 41-55 = 80 AP
+/// - Chained reports (AoE) count as 1 march cost
+/// - Gathering / other = 0 AP
+pub fn calculate_ap_cost(battle_type: &str, target_level: &str) -> i64 {
+    let lvl: u32 = target_level
+        .split(|c: char| !c.is_ascii_digit())
+        .filter_map(|s| s.parse::<u32>().ok())
+        .max()
+        .unwrap_or(0);
+
+    match battle_type {
+        "fort" => {
+            if lvl <= 10 { 150 } else { 300 }
+        }
+        "motte" => {
+            if lvl <= 10 { 150 } else { 300 }
+        }
+        "barbarian" => {
+            if lvl <= 40 { 40 } else { 80 }
+        }
+        _ => 0,
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct DailyApSpeedupStat {
+    pub date_label: String,
+    pub speedup_hours: f64,
+    pub ap_consumed: i64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct TargetRoiBenchmark {
+    pub target_name: String,
+    pub unit_ap_cost: i64,
+    pub battle_count: usize,
+    pub avg_speedup_mins: f64,
+    pub speedup_mins_per_1k_ap: f64,
+    pub covenant_drop_rate: f64,
+    pub avg_gems: f64,
+    pub tier_badge: &'static str,
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ApEconomics {
+    pub total_ap_consumed: i64,
+    pub total_ap_recovered: i64,
+    pub net_ap_spent: i64,
+    pub rebate_pct: f64,
+    pub speedup_mins_per_1k_ap: f64,
+    pub gems_per_1k_ap: f64,
+    pub daily_timeline: Vec<DailyApSpeedupStat>,
+    pub target_benchmarks: Vec<TargetRoiBenchmark>,
+}
+
+/// Computes AP Economics and Drop Rate Analytics across active filtered records
+/// and a rolling 7-day timeline from historical vault records.
+pub fn compute_ap_economics(active_records: &[BattleRecord], vault_records: &[BattleRecord]) -> ApEconomics {
+    let mut total_ap_consumed = 0i64;
+    let mut total_ap_recovered = 0i64;
+    let mut total_speedup_mins = 0i64;
+    let mut total_gems = 0i64;
+
+    struct TargetAccumulator {
+        name: &'static str,
+        unit_ap: i64,
+        count: usize,
+        speedup_mins: i64,
+        gems: i64,
+        covenant_battles: usize,
+    }
+
+    let mut target_groups = [
+        TargetAccumulator { name: "Fort Lvl 11-15 (KvK)", unit_ap: 300, count: 0, speedup_mins: 0, gems: 0, covenant_battles: 0 },
+        TargetAccumulator { name: "Fort Lvl 1-10", unit_ap: 150, count: 0, speedup_mins: 0, gems: 0, covenant_battles: 0 },
+        TargetAccumulator { name: "Motte Lvl 11-15", unit_ap: 300, count: 0, speedup_mins: 0, gems: 0, covenant_battles: 0 },
+        TargetAccumulator { name: "Motte Lvl 1-10", unit_ap: 150, count: 0, speedup_mins: 0, gems: 0, covenant_battles: 0 },
+        TargetAccumulator { name: "Barbarians Lvl 41-55", unit_ap: 80, count: 0, speedup_mins: 0, gems: 0, covenant_battles: 0 },
+        TargetAccumulator { name: "Barbarians Lvl 1-40", unit_ap: 40, count: 0, speedup_mins: 0, gems: 0, covenant_battles: 0 },
+    ];
+
+    for r in active_records {
+        if r.battle_type == "gathering" {
+            continue;
+        }
+        let ap_cost = calculate_ap_cost(&r.battle_type, &r.target_level);
+        total_ap_consumed += ap_cost;
+        total_ap_recovered += r.ap_breakdown().total_ap_points();
+
+        let spd = r.total_speedup_minutes();
+        total_speedup_mins += spd;
+
+        let gems = r.compute_gems();
+        total_gems += gems;
+
+        let has_covenant = r.items.iter().any(|it| it.itype == 2 && it.sub_type == 109);
+
+        let lvl: u32 = r.target_level
+            .split(|c: char| !c.is_ascii_digit())
+            .filter_map(|s| s.parse::<u32>().ok())
+            .max()
+            .unwrap_or(0);
+
+        let group_idx = match r.battle_type.as_str() {
+            "fort" if lvl > 10 => Some(0),
+            "fort" => Some(1),
+            "motte" if lvl > 10 => Some(2),
+            "motte" => Some(3),
+            "barbarian" if lvl > 40 => Some(4),
+            "barbarian" => Some(5),
+            _ => None,
+        };
+
+        if let Some(idx) = group_idx {
+            target_groups[idx].count += 1;
+            target_groups[idx].speedup_mins += spd;
+            target_groups[idx].gems += gems;
+            if has_covenant {
+                target_groups[idx].covenant_battles += 1;
+            }
+        }
+    }
+
+    let net_ap_spent = total_ap_consumed - total_ap_recovered;
+    let rebate_pct = if total_ap_consumed > 0 {
+        (total_ap_recovered as f64 / total_ap_consumed as f64) * 100.0
+    } else {
+        0.0
+    };
+
+    let speedup_mins_per_1k_ap = if total_ap_consumed > 0 {
+        total_speedup_mins as f64 / (total_ap_consumed as f64 / 1000.0)
+    } else {
+        0.0
+    };
+
+    let gems_per_1k_ap = if total_ap_consumed > 0 {
+        total_gems as f64 / (total_ap_consumed as f64 / 1000.0)
+    } else {
+        0.0
+    };
+
+    // Rolling 7 calendar days timeline (today down to 6 days ago) in a single pass
+    let today = current_date_vn();
+    let min_date = today - Duration::days(6);
+    let mut day_stats = [(0i64, 0i64); 7]; // (speedup_mins, ap_consumed)
+
+    for r in vault_records {
+        if r.battle_type == "gathering" {
+            continue;
+        }
+        if let Some(d) = get_record_date_vn(r) {
+            if d >= min_date && d <= today {
+                let day_idx = (d - min_date).num_days() as usize;
+                if day_idx < 7 {
+                    day_stats[day_idx].0 += r.total_speedup_minutes();
+                    day_stats[day_idx].1 += calculate_ap_cost(&r.battle_type, &r.target_level);
+                }
+            }
+        }
+    }
+
+    let mut daily_timeline = Vec::with_capacity(7);
+    for (idx, stat) in day_stats.iter().enumerate() {
+        let target_date = min_date + Duration::days(idx as i64);
+        let date_label = if idx == 6 {
+            "Today".to_string()
+        } else {
+            target_date.format("%d/%m").to_string()
+        };
+        daily_timeline.push(DailyApSpeedupStat {
+            date_label,
+            speedup_hours: stat.0 as f64 / 60.0,
+            ap_consumed: stat.1,
+        });
+    }
+
+    // Benchmark Matrix (only non-empty targets, ranked by yield)
+    let mut target_benchmarks: Vec<TargetRoiBenchmark> = target_groups
+        .into_iter()
+        .filter(|g| g.count > 0)
+        .map(|g| {
+            let avg_speedup = g.speedup_mins as f64 / g.count as f64;
+            let group_ap = g.count as i64 * g.unit_ap;
+            let spd_per_1k = if group_ap > 0 {
+                g.speedup_mins as f64 / (group_ap as f64 / 1000.0)
+            } else {
+                0.0
+            };
+            let covenant_rate = (g.covenant_battles as f64 / g.count as f64) * 100.0;
+            let avg_gems = g.gems as f64 / g.count as f64;
+
+            let tier_badge = if spd_per_1k >= 1000.0 {
+                "TIER S+"
+            } else if spd_per_1k >= 800.0 {
+                "TIER S"
+            } else if spd_per_1k >= 500.0 {
+                "TIER A"
+            } else {
+                "TIER B"
+            };
+
+            TargetRoiBenchmark {
+                target_name: g.name.to_string(),
+                unit_ap_cost: g.unit_ap,
+                battle_count: g.count,
+                avg_speedup_mins: avg_speedup,
+                speedup_mins_per_1k_ap: spd_per_1k,
+                covenant_drop_rate: covenant_rate,
+                avg_gems,
+                tier_badge,
+            }
+        })
+        .collect();
+
+    target_benchmarks.sort_by(|a, b| b.speedup_mins_per_1k_ap.partial_cmp(&a.speedup_mins_per_1k_ap).unwrap_or(std::cmp::Ordering::Equal));
+
+    ApEconomics {
+        total_ap_consumed,
+        total_ap_recovered,
+        net_ap_spent,
+        rebate_pct,
+        speedup_mins_per_1k_ap,
+        gems_per_1k_ap,
+        daily_timeline,
+        target_benchmarks,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -771,5 +1003,165 @@ mod tests {
         assert_eq!(crystal_stat.total_quantity, 800);
         assert_eq!(crystal_stat.min_in_battle, 100);
         assert_eq!(crystal_stat.max_in_battle, 500);
+    }
+
+    #[test]
+    fn test_calculate_ap_cost_tiers() {
+        assert_eq!(calculate_ap_cost("fort", "5"), 150);
+        assert_eq!(calculate_ap_cost("fort", "10"), 150);
+        assert_eq!(calculate_ap_cost("fort", "11"), 300);
+        assert_eq!(calculate_ap_cost("fort", "15"), 300);
+        assert_eq!(calculate_ap_cost("motte", "5"), 150);
+        assert_eq!(calculate_ap_cost("motte", "12"), 300);
+        assert_eq!(calculate_ap_cost("barbarian", "25"), 40);
+        assert_eq!(calculate_ap_cost("barbarian", "40"), 40);
+        assert_eq!(calculate_ap_cost("barbarian", "41"), 80);
+        assert_eq!(calculate_ap_cost("barbarian", "47-52"), 80);
+        assert_eq!(calculate_ap_cost("gathering", "5"), 0);
+    }
+
+    #[test]
+    fn test_ap_economics_zero_ap_safety() {
+        let stats = compute_ap_economics(&[], &[]);
+        assert_eq!(stats.total_ap_consumed, 0);
+        assert_eq!(stats.speedup_mins_per_1k_ap, 0.0);
+        assert_eq!(stats.gems_per_1k_ap, 0.0);
+        assert_eq!(stats.daily_timeline.len(), 7);
+        assert_eq!(stats.target_benchmarks.len(), 0);
+    }
+
+    #[test]
+    fn test_ap_economics_full_aggregation() {
+        use crate::model::ItemDrop;
+
+        let mk_item = |itype: u32, sub_type: u32, value: i64| ItemDrop {
+            itype,
+            sub_type,
+            value,
+            pic: "".into(),
+            name_vi: "".into(),
+            name_en: "".into(),
+            category: "".into(),
+            sprites: vec![],
+        };
+
+        let make_battle = |btype: &str, lvl: &str, spd_5m: i64, ap_50: i64, covenant: i64, gems_10: i64| {
+            let mut items = Vec::new();
+            if spd_5m > 0 {
+                items.push(mk_item(2, 58, spd_5m)); // 5m universal
+            }
+            if ap_50 > 0 {
+                items.push(mk_item(2, 182, ap_50)); // 50 AP pot
+            }
+            if covenant > 0 {
+                items.push(mk_item(2, 109, covenant)); // Book of Covenant
+            }
+            if gems_10 > 0 {
+                items.push(mk_item(2, 26, gems_10)); // 10 gems
+            }
+            BattleRecord {
+                filename: "mail1".into(),
+                mail_id: "1".into(),
+                battle_type: btype.into(),
+                time_raw: 1792720000,
+                time_utc: "".into(),
+                time_vn: "2026-10-28 10:00:00".into(),
+                target: format!("{} Lvl {}", btype, lvl),
+                target_level: lvl.into(),
+                talent_add: 0,
+                pos_x: 0,
+                pos_y: 0,
+                damage_pct: 100,
+                plunder_tier: 0,
+                items,
+                item_totals: HashMap::new(),
+                content: "".into(),
+            }
+        };
+
+        // 2 x Fort 5 (150 AP each = 300 AP), 20x 5m speedups (100m total), 2x 50 AP pots (100 AP recovered), 1 book, 5x 10 gems (50 gems)
+        let r1 = make_battle("fort", "5", 10, 1, 1, 3);
+        let r2 = make_battle("fort", "5", 10, 1, 0, 2);
+
+        // 1 x Barb 25 (40 AP), 2x 5m speedups (10m total), 0 AP pot, 0 book, 1x 10 gems (10 gems)
+        let r3 = make_battle("barbarian", "25", 2, 0, 0, 1);
+
+        let records = vec![r1, r2, r3];
+        let econ = compute_ap_economics(&records, &records);
+
+        // Gross AP: 150 + 150 + 40 = 340 AP
+        assert_eq!(econ.total_ap_consumed, 340);
+        // AP Recovered: 2 x 50 AP = 100 AP
+        assert_eq!(econ.total_ap_recovered, 100);
+        assert_eq!(econ.net_ap_spent, 240);
+        // Rebate: (100 / 340) * 100 = 29.41%
+        assert!((econ.rebate_pct - 29.41).abs() < 0.1);
+
+        // Total speedup: 100m + 10m = 110m.
+        // Speedup per 1k AP: 110 / 0.340 = 323.5m
+        assert!((econ.speedup_mins_per_1k_ap - 323.5).abs() < 0.2);
+
+        // Total gems: 50 + 10 = 60 gems.
+        // Gems per 1k AP: 60 / 0.340 = 176.47
+        assert!((econ.gems_per_1k_ap - 176.47).abs() < 0.2);
+
+        // Target benchmarks: 2 rows (Fort Lvl 1-10, Barbarians Lvl 1-40)
+        assert_eq!(econ.target_benchmarks.len(), 2);
+        let fort_bm = econ.target_benchmarks.iter().find(|b| b.target_name == "Fort Lvl 1-10").unwrap();
+        assert_eq!(fort_bm.battle_count, 2);
+        assert_eq!(fort_bm.unit_ap_cost, 150);
+        assert_eq!(fort_bm.avg_speedup_mins, 50.0);
+        assert_eq!(fort_bm.covenant_drop_rate, 50.0); // 1 out of 2 battles
+    }
+
+    #[test]
+    fn test_ap_economics_ignores_gathering_gems() {
+        use crate::model::ItemDrop;
+
+        let gathering_record = BattleRecord {
+            filename: "mail_gather".into(),
+            mail_id: "gather_1".into(),
+            battle_type: "gathering".into(),
+            time_raw: 1792720000,
+            time_utc: "".into(),
+            time_vn: "2026-10-28 10:00:00".into(),
+            target: "Mỏ Đá Quý Cấp 2".into(),
+            target_level: "2".into(),
+            talent_add: 0,
+            pos_x: 0,
+            pos_y: 0,
+            damage_pct: 100,
+            plunder_tier: 0,
+            items: vec![
+                ItemDrop {
+                    itype: 1, // gathering gem node
+                    sub_type: 5,
+                    value: 10,
+                    pic: "".into(),
+                    name_vi: "".into(),
+                    name_en: "".into(),
+                    category: "".into(),
+                    sprites: vec![],
+                },
+            ],
+            item_totals: HashMap::new(),
+            content: "".into(),
+        };
+
+        let econ = compute_ap_economics(&[gathering_record], &[]);
+        assert_eq!(econ.total_ap_consumed, 0);
+        assert_eq!(econ.gems_per_1k_ap, 0.0, "Gathering gems must not count in AP economics");
+        assert_eq!(econ.target_benchmarks.len(), 0);
+    }
+
+    #[test]
+    fn test_ap_economics_timeline_today_label() {
+        let econ = compute_ap_economics(&[], &[]);
+        assert_eq!(econ.daily_timeline.len(), 7);
+        assert_eq!(econ.daily_timeline[6].date_label, "Today");
+        for i in 0..6 {
+            assert_ne!(econ.daily_timeline[i].date_label, "Today");
+            assert!(econ.daily_timeline[i].date_label.contains('/'));
+        }
     }
 }

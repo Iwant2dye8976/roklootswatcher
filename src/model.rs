@@ -742,6 +742,16 @@ impl BattleRecord {
         }
         totals
     }
+
+    pub fn compute_gems(&self) -> i64 {
+        let mut total = 0;
+        for it in &self.items {
+            if let ConvertedValue::Gem(mult) = get_item_conversion(it.itype, it.sub_type) {
+                total += it.value * mult;
+            }
+        }
+        total
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1607,7 +1617,11 @@ pub fn parse_hex_color(hex: &str) -> Option<eframe::egui::Color32> {
     }
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+fn default_true() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CloudAuthConfig {
     #[serde(default)]
     pub supabase_url: Option<String>,
@@ -1625,6 +1639,24 @@ pub struct CloudAuthConfig {
     pub last_synced: Option<String>,
     #[serde(default)]
     pub auto_backup: bool,
+    #[serde(default = "default_true")]
+    pub stay_login: bool,
+}
+
+impl Default for CloudAuthConfig {
+    fn default() -> Self {
+        Self {
+            supabase_url: None,
+            anon_key: None,
+            access_token: None,
+            refresh_token: None,
+            user_id: None,
+            user_email: None,
+            last_synced: None,
+            auto_backup: false,
+            stay_login: true,
+        }
+    }
 }
 
 #[cfg(windows)]
@@ -1837,9 +1869,23 @@ impl AppConfig {
 
         // Load securely encrypted OAuth credentials from Windows DPAPI store
         let (acc, ref_) = secret_store::load_secure_tokens(&p);
-        if acc.is_some() || ref_.is_some() {
+        if cfg.cloud_auth.stay_login && (acc.is_some() || ref_.is_some()) {
             cfg.cloud_auth.access_token = acc;
             cfg.cloud_auth.refresh_token = ref_;
+        } else {
+            cfg.cloud_auth.access_token = None;
+            cfg.cloud_auth.refresh_token = None;
+            cfg.cloud_auth.user_id = None;
+            cfg.cloud_auth.user_email = None;
+        }
+        cfg
+    }
+
+    pub fn prepare_for_disk(&self) -> Self {
+        let mut cfg = self.clone();
+        if !cfg.cloud_auth.stay_login {
+            cfg.cloud_auth.user_id = None;
+            cfg.cloud_auth.user_email = None;
         }
         cfg
     }
@@ -1847,7 +1893,9 @@ impl AppConfig {
     pub fn save(&self) {
         let p = Self::config_path();
         let tmp = p.with_extension("tmp");
-        if let Ok(data) = serde_json::to_string_pretty(self) {
+        let cfg_to_write = self.prepare_for_disk();
+
+        if let Ok(data) = serde_json::to_string_pretty(&cfg_to_write) {
             let write_ok = (|| -> std::io::Result<()> {
                 use std::io::Write;
                 let mut file = std::fs::File::create(&tmp)?;
@@ -1862,12 +1910,16 @@ impl AppConfig {
                     let _ = std::fs::remove_file(&p);
                     let _ = std::fs::rename(&tmp, &p);
                 }
-                // Save encrypted OAuth credentials via Windows DPAPI
-                secret_store::save_secure_tokens(
-                    &p,
-                    self.cloud_auth.access_token.as_deref(),
-                    self.cloud_auth.refresh_token.as_deref(),
-                );
+                // Save encrypted OAuth credentials via Windows DPAPI only when stay_login is active
+                let (acc_to_save, ref_to_save) = if self.cloud_auth.stay_login {
+                    (
+                        self.cloud_auth.access_token.as_deref(),
+                        self.cloud_auth.refresh_token.as_deref(),
+                    )
+                } else {
+                    (None, None)
+                };
+                secret_store::save_secure_tokens(&p, acc_to_save, ref_to_save);
             } else {
                 let _ = std::fs::remove_file(&tmp);
             }
@@ -2935,6 +2987,7 @@ mod tests {
         assert_eq!(cfg.cloud_auth.access_token, None);
         assert_eq!(cfg.cloud_auth.refresh_token, None);
         assert_eq!(cfg.cloud_auth.auto_backup, false);
+        assert!(cfg.cloud_auth.stay_login, "stay_login must default to true when missing");
     }
 
     #[test]
@@ -2948,5 +3001,22 @@ mod tests {
         assert!(!json.contains("secret_access_jwt"), "Plaintext access_token must not appear in JSON");
         assert!(!json.contains("secret_refresh_jwt"), "Plaintext refresh_token must not appear in JSON");
         assert!(json.contains("user@test.com"), "Non-secret metadata should be retained");
+    }
+
+    #[test]
+    fn test_cloud_auth_stay_login_disabled_excludes_user_details() {
+        let mut cfg = AppConfig::default();
+        cfg.cloud_auth.user_email = Some("user@test.com".to_string());
+        cfg.cloud_auth.user_id = Some("user-123".to_string());
+        cfg.cloud_auth.stay_login = false;
+
+        let prepared = cfg.prepare_for_disk();
+        assert_eq!(prepared.cloud_auth.user_email, None);
+        assert_eq!(prepared.cloud_auth.user_id, None);
+
+        let json = serde_json::to_string(&prepared).expect("Serialization must succeed");
+        assert!(!json.contains("user@test.com"));
+        assert!(!json.contains("user-123"));
+        assert!(json.contains(r#""stay_login":false"#));
     }
 }

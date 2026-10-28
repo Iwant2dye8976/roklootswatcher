@@ -224,6 +224,10 @@ pub struct RoKLootWatcherApp {
     last_battle_sort_dir: SortDirection,
     last_battle_mode: FilterMode,
     last_battle_lang: AppLanguage,
+    pub cached_ap_econ: Option<crate::analyzer::ApEconomics>,
+    pub ap_econ_dirty: bool,
+    last_ap_records_count: usize,
+    last_ap_mode: FilterMode,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -384,6 +388,18 @@ fn category_badge_color(category: &str, c: &ThemeColors) -> Color32 {
         c.status_green
     } else {
         c.focus_teal
+    }
+}
+
+pub fn localize_benchmark_target(name: &str, lang: AppLanguage) -> &str {
+    match (name, lang) {
+        ("Fort Lvl 11-15 (KvK)", AppLanguage::Vietnamese) => "Pháo Đài Cấp 11-15 (KvK)",
+        ("Fort Lvl 1-10", AppLanguage::Vietnamese) => "Pháo Đài Cấp 1-10",
+        ("Motte Lvl 11-15", AppLanguage::Vietnamese) => "Motte Cấp 11-15",
+        ("Motte Lvl 1-10", AppLanguage::Vietnamese) => "Motte Cấp 1-10",
+        ("Barbarians Lvl 41-55", AppLanguage::Vietnamese) => "Dã Man Cấp 41-55",
+        ("Barbarians Lvl 1-40", AppLanguage::Vietnamese) => "Dã Man Cấp 1-40",
+        _ => name,
     }
 }
 
@@ -679,6 +695,10 @@ impl RoKLootWatcherApp {
             last_battle_sort_dir: SortDirection::Descending,
             last_battle_mode: initial_mode,
             last_battle_lang: initial_language,
+            cached_ap_econ: None,
+            ap_econ_dirty: true,
+            last_ap_records_count: 0,
+            last_ap_mode: initial_mode,
         }
     }
 
@@ -737,11 +757,13 @@ impl RoKLootWatcherApp {
                 }
                 WatcherUiEvent::StatsUpdated { .. } => {
                     self.reports_sort_dirty = true;
+                    self.ap_econ_dirty = true;
                     self.refresh_cached_overlay_records();
                     ctx.request_repaint();
                 }
                 WatcherUiEvent::MailDetected { is_new, .. } => {
                     self.reports_sort_dirty = true;
+                    self.ap_econ_dirty = true;
                     self.refresh_cached_overlay_records();
                     self.last_mail_arrival = std::time::Instant::now();
                     if is_new && self.cloud_auth.auto_backup && self.cloud_auth.access_token.is_some() {
@@ -999,6 +1021,7 @@ impl RoKLootWatcherApp {
 
     fn apply_date_preset(&mut self, preset: DateFilterPreset) {
         self.reports_sort_dirty = true;
+        self.ap_econ_dirty = true;
         self.selected_date_preset = preset.clone();
         let today_vn = crate::analyzer::current_date_vn();
         match preset {
@@ -1039,6 +1062,7 @@ impl RoKLootWatcherApp {
 
     fn apply_custom_date_filter(&mut self) {
         self.reports_sort_dirty = true;
+        self.ap_econ_dirty = true;
         let s = parse_date_str(&self.date_from_input);
         let e = parse_date_str(&self.date_to_input);
         self.selected_date_preset = DateFilterPreset::Custom;
@@ -1361,7 +1385,10 @@ impl RoKLootWatcherApp {
     fn render_view_dashboard(&mut self, ui: &mut egui::Ui) {
         let c = self.colors();
 
-        egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .id_salt("dashboard_main_scroll")
+            .show(ui, |ui| {
             // Dashboard Header
             ui.vertical(|ui| {
                 ui.label(
@@ -1668,7 +1695,29 @@ impl RoKLootWatcherApp {
                     });
                 });
 
-            ui.add_space(14.0);
+            ui.add_space(10.0);
+
+            // AP Economics & Efficiency Analytics Section
+            let need_ap_recompute = self.ap_econ_dirty
+                || self.cached_ap_econ.is_none()
+                || active_records.len() != self.last_ap_records_count
+                || self.selected_mode != self.last_ap_mode;
+
+            if need_ap_recompute {
+                let econ = self.watcher.with_vault_records(|vault| {
+                    crate::analyzer::compute_ap_economics(&active_records, vault)
+                });
+                self.cached_ap_econ = Some(econ);
+                self.last_ap_records_count = active_records.len();
+                self.last_ap_mode = self.selected_mode;
+                self.ap_econ_dirty = false;
+            }
+
+            if let Some(ref ap_econ) = self.cached_ap_econ {
+                self.render_ap_economics_section(ui, ap_econ, &c);
+            }
+
+            ui.add_space(10.0);
 
             // 2-Column Grid: Top 10 High-value Items (Left) + 5 Latest Battles (Right)
             ui.columns(2, |cols| {
@@ -1696,49 +1745,65 @@ impl RoKLootWatcherApp {
                         let top_items: Vec<_> = sorted_items.into_iter().take(10).collect();
                         let max_qty = top_items.first().map(|it| it.total_quantity).unwrap_or(1).max(1);
 
-                        egui::ScrollArea::vertical().max_height(350.0).show(ui, |ui| {
-                            if top_items.is_empty() {
-                                ui.label(egui::RichText::new(self.language.t(TrKey::NoItemsData)).color(c.text_muted));
-                            } else {
-                                for (idx, it) in top_items.iter().enumerate() {
-                                    let mut type_breakdown: Vec<(&String, &i64)> = it.by_battle_type.iter().filter(|(_, q)| **q > 0).collect();
-                                    type_breakdown.sort_by(|a, b| b.1.cmp(a.1));
+                        if top_items.is_empty() {
+                            ui.label(egui::RichText::new(self.language.t(TrKey::NoItemsData)).color(c.text_muted));
+                        } else {
+                            for (idx, it) in top_items.iter().enumerate() {
+                                let mut type_breakdown: Vec<(&String, &i64)> = it.by_battle_type.iter().filter(|(_, q)| **q > 0).collect();
+                                type_breakdown.sort_by(|a, b| b.1.cmp(a.1));
 
-                                    let item_resp = ui.vertical(|ui| {
-                                        ui.horizontal(|ui| {
-                                            let rank_color = match idx {
-                                                0 => c.accent_gold,
-                                                1 => c.rank_silver,
-                                                2 => c.rank_bronze,
-                                                _ => c.text_muted,
-                                            };
-                                            ui.label(egui::RichText::new(format!("#{}", idx + 1)).strong().color(rank_color).monospace());
-                                            ui.label(egui::RichText::new(it.display_name(self.language)).strong().color(c.canvas_tint));
+                                let item_resp = ui.vertical(|ui| {
+                                    ui.horizontal(|ui| {
+                                        let rank_color = match idx {
+                                            0 => c.accent_gold,
+                                            1 => c.rank_silver,
+                                            2 => c.rank_bronze,
+                                            _ => c.text_muted,
+                                        };
+                                        ui.label(egui::RichText::new(format!("#{}", idx + 1)).strong().color(rank_color).monospace());
+                                        ui.add(egui::Label::new(egui::RichText::new(it.display_name(self.language)).strong().color(c.canvas_tint)).truncate()).on_hover_text(it.display_name(self.language));
 
-                                            if let Some(conv_str) = get_item_converted_display_for_lang(it.itype, it.sub_type, it.total_quantity, self.language) {
-                                                ui.label(egui::RichText::new(format!("({})", conv_str)).font(egui::FontId::proportional(10.5)).color(c.status_green));
-                                            }
+                                        if let Some(conv_str) = get_item_converted_display_for_lang(it.itype, it.sub_type, it.total_quantity, self.language) {
+                                            ui.label(egui::RichText::new(format!("({})", conv_str)).font(egui::FontId::proportional(10.5)).color(c.status_green));
+                                        }
 
-                                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                                ui.label(egui::RichText::new(format_num(it.total_quantity)).monospace().strong().color(c.accent_gold));
-                                            });
+                                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                            ui.label(egui::RichText::new(format_num(it.total_quantity)).monospace().strong().color(c.accent_gold));
                                         });
+                                    });
 
-                                        ui.add_space(2.0);
+                                    ui.add_space(2.0);
 
-                                        // Segmented progress bar showing source distribution
-                                        let pct = (it.total_quantity as f32 / max_qty as f32).clamp(0.04, 1.0);
-                                        let bar_height = 6.0;
-                                        let (bar_rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), bar_height), egui::Sense::hover());
-                                        ui.painter().rect_filled(bar_rect, Rounding::same(3.0), c.primary);
+                                    // Segmented progress bar showing source distribution
+                                    let pct = (it.total_quantity as f32 / max_qty as f32).clamp(0.04, 1.0);
+                                    let bar_height = 5.0;
+                                    let (bar_rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), bar_height), egui::Sense::hover());
+                                    ui.painter().rect_filled(bar_rect, Rounding::same(3.0), c.primary);
 
-                                        let total_bar_w = (bar_rect.width() * pct).max(bar_height);
+                                    let total_bar_w = (bar_rect.width() * pct).max(bar_height);
 
-                                        if type_breakdown.is_empty() {
-                                            let filled_r = egui::Rect::from_min_size(bar_rect.min, egui::vec2(total_bar_w, bar_height));
-                                            ui.painter().rect_filled(filled_r, Rounding::same(3.0), c.focus_teal);
-                                        } else if type_breakdown.len() == 1 {
-                                            let (btype, _) = type_breakdown[0];
+                                    if type_breakdown.is_empty() {
+                                        let filled_r = egui::Rect::from_min_size(bar_rect.min, egui::vec2(total_bar_w, bar_height));
+                                        ui.painter().rect_filled(filled_r, Rounding::same(3.0), c.focus_teal);
+                                    } else if type_breakdown.len() == 1 {
+                                        let (btype, _) = type_breakdown[0];
+                                        let color = match btype.as_str() {
+                                            "motte" => c.motte_accent,
+                                            "fort" => c.fort_accent,
+                                            "barbarian" => c.barb_accent,
+                                            "gathering" => c.focus_teal,
+                                            _ => c.focus_teal,
+                                        };
+                                        let filled_r = egui::Rect::from_min_size(bar_rect.min, egui::vec2(total_bar_w, bar_height));
+                                        ui.painter().rect_filled(filled_r, Rounding::same(3.0), color);
+                                    } else {
+                                        let mut cur_x = bar_rect.min.x;
+                                        let total_val = it.total_quantity.max(1) as f32;
+                                        let count = type_breakdown.len();
+
+                                        for (i, (btype, qty)) in type_breakdown.iter().enumerate() {
+                                            let seg_ratio = (**qty as f32) / total_val;
+                                            let seg_w = (total_bar_w * seg_ratio).max(1.0);
                                             let color = match btype.as_str() {
                                                 "motte" => c.motte_accent,
                                                 "fort" => c.fort_accent,
@@ -1746,113 +1811,95 @@ impl RoKLootWatcherApp {
                                                 "gathering" => c.focus_teal,
                                                 _ => c.focus_teal,
                                             };
-                                            let filled_r = egui::Rect::from_min_size(bar_rect.min, egui::vec2(total_bar_w, bar_height));
-                                            ui.painter().rect_filled(filled_r, Rounding::same(3.0), color);
-                                        } else {
-                                            let mut cur_x = bar_rect.min.x;
-                                            let total_val = it.total_quantity.max(1) as f32;
-                                            let count = type_breakdown.len();
 
-                                            for (i, (btype, qty)) in type_breakdown.iter().enumerate() {
-                                                let seg_ratio = (**qty as f32) / total_val;
-                                                let seg_w = (total_bar_w * seg_ratio).max(1.0);
-                                                let color = match btype.as_str() {
-                                                    "motte" => c.motte_accent,
-                                                    "fort" => c.fort_accent,
-                                                    "barbarian" => c.barb_accent,
-                                                    "gathering" => c.focus_teal,
-                                                    _ => c.focus_teal,
-                                                };
+                                            let seg_rect = egui::Rect::from_min_max(
+                                                egui::pos2(cur_x, bar_rect.min.y),
+                                                egui::pos2((cur_x + seg_w).min(bar_rect.min.x + total_bar_w), bar_rect.max.y),
+                                            );
 
-                                                let seg_rect = egui::Rect::from_min_max(
-                                                    egui::pos2(cur_x, bar_rect.min.y),
-                                                    egui::pos2((cur_x + seg_w).min(bar_rect.min.x + total_bar_w), bar_rect.max.y),
-                                                );
-
-                                                let rounding = if i == 0 {
-                                                    Rounding { nw: 3.0, sw: 3.0, ne: 0.0, se: 0.0 }
-                                                } else if i == count - 1 {
-                                                    Rounding { nw: 0.0, sw: 0.0, ne: 3.0, se: 3.0 }
-                                                } else {
-                                                    Rounding::ZERO
-                                                };
-
-                                                ui.painter().rect_filled(seg_rect, rounding, color);
-                                                cur_x += seg_w;
-                                                if cur_x >= bar_rect.min.x + total_bar_w {
-                                                    break;
-                                                }
-                                            }
-                                        }
-
-                                        // Micro distribution breakdown badges under bar
-                                        if !type_breakdown.is_empty() {
-                                            ui.add_space(2.0);
-                                            ui.horizontal(|ui| {
-                                                ui.spacing_mut().item_spacing.x = 8.0;
-                                                let total_f = it.total_quantity.max(1) as f64;
-                                                for (btype, qty) in type_breakdown.iter().take(3) {
-                                                    let ratio = (**qty as f64 / total_f) * 100.0;
-                                                    let (type_name, color) = match (btype.as_str(), self.language) {
-                                                        ("motte", _) => ("Motte", c.motte_accent),
-                                                        ("barbarian", AppLanguage::Vietnamese) => ("Dã Man", c.barb_accent),
-                                                        ("barbarian", AppLanguage::English) => ("Barbarian", c.barb_accent),
-                                                        ("fort", AppLanguage::Vietnamese) => ("Pháo Đài", c.fort_accent),
-                                                        ("fort", AppLanguage::English) => ("Fort", c.fort_accent),
-                                                        ("gathering", AppLanguage::Vietnamese) => ("Thu Thập", c.focus_teal),
-                                                        ("gathering", AppLanguage::English) => ("Gathering", c.focus_teal),
-                                                        _ => (match self.language { AppLanguage::Vietnamese => "Khác", AppLanguage::English => "Other" }, c.text_muted),
-                                                    };
-
-                                                    ui.label(egui::RichText::new("●").font(egui::FontId::proportional(8.0)).color(color));
-                                                    ui.label(
-                                                        egui::RichText::new(format!("{}: {:.0}%", type_name, ratio))
-                                                            .font(egui::FontId::proportional(10.5))
-                                                            .color(c.text_muted),
-                                                    );
-                                                }
-                                            });
-                                        }
-
-                                        ui.add_space(6.0);
-                                    }).response;
-
-                                    item_resp.on_hover_ui(|ui| {
-                                        ui.set_max_width(280.0);
-                                        ui.label(egui::RichText::new(it.display_name(self.language)).strong().color(c.canvas_tint));
-                                        let total_lbl = match self.language {
-                                            AppLanguage::Vietnamese => format!("Tổng cộng: {} (100%)", format_num(it.total_quantity)),
-                                            AppLanguage::English => format!("Total: {} (100%)", format_num(it.total_quantity)),
-                                        };
-                                        ui.label(egui::RichText::new(total_lbl).font(egui::FontId::proportional(11.0)).color(c.accent_gold));
-                                        ui.separator();
-
-                                        let total_f = it.total_quantity.max(1) as f64;
-                                        for (btype, qty) in &type_breakdown {
-                                            let ratio = (**qty as f64 / total_f) * 100.0;
-                                            let (type_name, color) = match (btype.as_str(), self.language) {
-                                                ("motte", _) => ("Motte", c.motte_accent),
-                                                ("barbarian", AppLanguage::Vietnamese) => ("Dã Man", c.barb_accent),
-                                                ("barbarian", AppLanguage::English) => ("Barbarian", c.barb_accent),
-                                                ("fort", AppLanguage::Vietnamese) => ("Pháo Đài", c.fort_accent),
-                                                ("fort", AppLanguage::English) => ("Fort", c.fort_accent),
-                                                ("gathering", AppLanguage::Vietnamese) => ("Thu Thập", c.focus_teal),
-                                                ("gathering", AppLanguage::English) => ("Gathering", c.focus_teal),
-                                                _ => (match self.language { AppLanguage::Vietnamese => "Khác", AppLanguage::English => "Other" }, c.text_muted),
+                                            let rounding = if i == 0 {
+                                                Rounding { nw: 3.0, sw: 3.0, ne: 0.0, se: 0.0 }
+                                            } else if i == count - 1 {
+                                                Rounding { nw: 0.0, sw: 0.0, ne: 3.0, se: 3.0 }
+                                            } else {
+                                                Rounding::ZERO
                                             };
 
-                                            ui.horizontal(|ui| {
-                                                ui.label(egui::RichText::new("●").color(color));
-                                                ui.label(egui::RichText::new(type_name).strong().color(c.canvas_tint));
-                                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                                    ui.label(egui::RichText::new(format!("{} ({:.1}%)", format_num(**qty), ratio)).monospace().color(color));
-                                                });
-                                            });
+                                            ui.painter().rect_filled(seg_rect, rounding, color);
+                                            cur_x += seg_w;
+                                            if cur_x >= bar_rect.min.x + total_bar_w {
+                                                break;
+                                            }
                                         }
-                                    });
-                                }
+                                    }
+
+                                    // Micro distribution breakdown badges under bar
+                                    if !type_breakdown.is_empty() {
+                                        ui.add_space(2.0);
+                                        ui.horizontal(|ui| {
+                                            ui.spacing_mut().item_spacing.x = 8.0;
+                                            let total_f = it.total_quantity.max(1) as f64;
+                                            for (btype, qty) in type_breakdown.iter().take(3) {
+                                                let ratio = (**qty as f64 / total_f) * 100.0;
+                                                let (type_name, color) = match (btype.as_str(), self.language) {
+                                                    ("motte", _) => ("Motte", c.motte_accent),
+                                                    ("barbarian", AppLanguage::Vietnamese) => ("Dã Man", c.barb_accent),
+                                                    ("barbarian", AppLanguage::English) => ("Barbarian", c.barb_accent),
+                                                    ("fort", AppLanguage::Vietnamese) => ("Pháo Đài", c.fort_accent),
+                                                    ("fort", AppLanguage::English) => ("Fort", c.fort_accent),
+                                                    ("gathering", AppLanguage::Vietnamese) => ("Thu Thập", c.focus_teal),
+                                                    ("gathering", AppLanguage::English) => ("Gathering", c.focus_teal),
+                                                    _ => (match self.language { AppLanguage::Vietnamese => "Khác", AppLanguage::English => "Other" }, c.text_muted),
+                                                };
+
+                                                ui.label(egui::RichText::new("●").font(egui::FontId::proportional(8.0)).color(color));
+                                                ui.label(
+                                                    egui::RichText::new(format!("{}: {:.0}%", type_name, ratio))
+                                                        .font(egui::FontId::proportional(10.5))
+                                                        .color(c.text_muted),
+                                                );
+                                            }
+                                        });
+                                    }
+
+                                    ui.add_space(3.0);
+                                }).response;
+
+                                item_resp.on_hover_ui(|ui| {
+                                    ui.set_max_width(280.0);
+                                    ui.label(egui::RichText::new(it.display_name(self.language)).strong().color(c.canvas_tint));
+                                    let total_lbl = match self.language {
+                                        AppLanguage::Vietnamese => format!("Tổng cộng: {} (100%)", format_num(it.total_quantity)),
+                                        AppLanguage::English => format!("Total: {} (100%)", format_num(it.total_quantity)),
+                                    };
+                                    ui.label(egui::RichText::new(total_lbl).font(egui::FontId::proportional(11.0)).color(c.accent_gold));
+                                    ui.separator();
+
+                                    let total_f = it.total_quantity.max(1) as f64;
+                                    for (btype, qty) in &type_breakdown {
+                                        let ratio = (**qty as f64 / total_f) * 100.0;
+                                        let (type_name, color) = match (btype.as_str(), self.language) {
+                                            ("motte", _) => ("Motte", c.motte_accent),
+                                            ("barbarian", AppLanguage::Vietnamese) => ("Dã Man", c.barb_accent),
+                                            ("barbarian", AppLanguage::English) => ("Barbarian", c.barb_accent),
+                                            ("fort", AppLanguage::Vietnamese) => ("Pháo Đài", c.fort_accent),
+                                            ("fort", AppLanguage::English) => ("Fort", c.fort_accent),
+                                            ("gathering", AppLanguage::Vietnamese) => ("Thu Thập", c.focus_teal),
+                                            ("gathering", AppLanguage::English) => ("Gathering", c.focus_teal),
+                                            _ => (match self.language { AppLanguage::Vietnamese => "Khác", AppLanguage::English => "Other" }, c.text_muted),
+                                        };
+
+                                        ui.horizontal(|ui| {
+                                            ui.label(egui::RichText::new("●").color(color));
+                                            ui.label(egui::RichText::new(type_name).strong().color(c.canvas_tint));
+                                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                                ui.label(egui::RichText::new(format!("{} ({:.1}%)", format_num(**qty), ratio)).monospace().color(color));
+                                            });
+                                        });
+                                    }
+                                });
                             }
-                        });
+                        }
                     });
 
                 // Col 1: 5 Latest Battles (Realtime Feed)
@@ -1973,6 +2020,426 @@ impl RoKLootWatcherApp {
                         }
                     });
             });
+        });
+    }
+
+    fn render_ap_economics_section(
+        &self,
+        ui: &mut egui::Ui,
+        ap_econ: &crate::analyzer::ApEconomics,
+        c: &ThemeColors,
+    ) {
+        // Section Header Badge
+        ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new("[AP ECONOMY]")
+                    .font(egui::FontId::monospace(10.5))
+                    .strong()
+                    .color(c.train_orange),
+            );
+            ui.label(
+                egui::RichText::new(self.language.t(TrKey::ApEconomicsTitle))
+                    .font(egui::FontId::proportional(12.0))
+                    .strong()
+                    .color(c.canvas_tint),
+            );
+        });
+        ui.add_space(6.0);
+
+        // 1. AP Economics 4-Card Metric Strip
+        let (rebate_str, net_ap_str, spd_rate_sub, gem_sub) = match self.language {
+            AppLanguage::Vietnamese => (
+                format!("+{:.1}% hoàn lại", ap_econ.rebate_pct),
+                format!("Thực chi: {} AP", format_num(ap_econ.net_ap_spent)),
+                format!("{:.1} giờ / 1k AP", ap_econ.speedup_mins_per_1k_ap / 60.0),
+                "Gems nhận / 1,000 AP".to_string(),
+            ),
+            AppLanguage::English => (
+                format!("+{:.1}% Rebate", ap_econ.rebate_pct),
+                format!("Net: {} AP", format_num(ap_econ.net_ap_spent)),
+                format!("{:.1}h / 1k AP", ap_econ.speedup_mins_per_1k_ap / 60.0),
+                "Gems yield / 1,000 AP".to_string(),
+            ),
+        };
+
+        let cards = [
+            (
+                self.language.t(TrKey::ApConsumed),
+                format_num(ap_econ.total_ap_consumed),
+                net_ap_str,
+                c.train_orange,
+            ),
+            (
+                self.language.t(TrKey::ApRecovered),
+                format!("+{}", format_num(ap_econ.total_ap_recovered)),
+                rebate_str,
+                c.status_green,
+            ),
+            (
+                self.language.t(TrKey::ApSpeedupYield),
+                format!("{:.0}m", ap_econ.speedup_mins_per_1k_ap),
+                spd_rate_sub,
+                c.crystal_cyan,
+            ),
+            (
+                self.language.t(TrKey::ApGemYield),
+                format!("{:.0}", ap_econ.gems_per_1k_ap),
+                gem_sub,
+                c.accent_gold,
+            ),
+        ];
+
+        ui.columns(4, |cols| {
+            for (i, (title, val, sub, color)) in cards.iter().enumerate() {
+                egui::Frame::none()
+                    .fill(c.card_surface)
+                    .stroke(Stroke::new(1.0_f32, c.hairline))
+                    .rounding(Rounding::same(6.0))
+                    .inner_margin(Margin::symmetric(8.0, 5.0))
+                    .show(&mut cols[i], |ui| {
+                        ui.add(
+                            egui::Label::new(
+                                egui::RichText::new(*title)
+                                    .font(egui::FontId::proportional(10.5))
+                                    .strong()
+                                    .color(c.text_muted),
+                            )
+                            .truncate(),
+                        ).on_hover_text(*title);
+                        ui.add_space(2.0);
+                        ui.add(
+                            egui::Label::new(
+                                egui::RichText::new(val)
+                                    .font(egui::FontId::monospace(14.0))
+                                    .strong()
+                                    .color(*color),
+                            )
+                            .truncate(),
+                        );
+                        ui.add_space(2.0);
+                        ui.add(
+                            egui::Label::new(
+                                egui::RichText::new(sub)
+                                    .font(egui::FontId::proportional(9.5))
+                                    .color(c.text_muted),
+                            )
+                            .truncate(),
+                        ).on_hover_text(sub);
+                    });
+            }
+        });
+
+        ui.add_space(6.0);
+
+        // 2. Visual Analytics 2-Column Grid: 7-Day Timeline Chart (Left) + Target ROI Matrix (Right)
+        const BENCHMARK_CARD_HEIGHT: f32 = 160.0;
+
+        ui.columns(2, |cols| {
+            // Col 0: 7-Day Parallel Activity Timeline Bar Chart
+            egui::Frame::none()
+                .fill(c.card_surface)
+                .stroke(Stroke::new(1.0_f32, c.hairline))
+                .rounding(Rounding::same(6.0))
+                .inner_margin(Margin::symmetric(10.0, 8.0))
+                .show(&mut cols[0], |ui| {
+                    ui.set_height(BENCHMARK_CARD_HEIGHT);
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            egui::RichText::new(self.language.t(TrKey::ApTimelineTitle))
+                                .font(egui::FontId::proportional(11.0))
+                                .strong()
+                                .color(c.canvas_tint),
+                        );
+                    });
+                    ui.add_space(2.0);
+                    ui.horizontal(|ui| {
+                        let spd_lbl = match self.language {
+                            AppLanguage::Vietnamese => "Tăng tốc (giờ)",
+                            AppLanguage::English => "Speedup (hours)",
+                        };
+                        let ap_lbl = match self.language {
+                            AppLanguage::Vietnamese => "AP tiêu thụ (/100)",
+                            AppLanguage::English => "AP burn (/100)",
+                        };
+                        ui.label(
+                            egui::RichText::new(format!("● {}", spd_lbl))
+                                .font(egui::FontId::proportional(9.5))
+                                .color(c.crystal_cyan),
+                        );
+                        ui.add_space(8.0);
+                        ui.label(
+                            egui::RichText::new(format!("● {}", ap_lbl))
+                                .font(egui::FontId::proportional(9.5))
+                                .color(c.train_orange),
+                        );
+                    });
+                    ui.add_space(4.0);
+
+                    let chart_h = 104.0;
+                    let (chart_rect, chart_resp) = ui.allocate_exact_size(
+                        egui::vec2(ui.available_width(), chart_h),
+                        egui::Sense::hover(),
+                    );
+                    let painter = ui.painter();
+                    painter.rect_filled(chart_rect, Rounding::same(4.0), c.ink);
+
+                    let days_count = ap_econ.daily_timeline.len().max(1);
+                    let slot_w = chart_rect.width() / days_count as f32;
+                    let bar_w = (slot_w * 0.30).clamp(4.0, 16.0);
+                    let baseline_y = chart_rect.max.y - 18.0;
+
+                    // Baseline stroke
+                    painter.line_segment(
+                        [
+                            egui::pos2(chart_rect.min.x + 4.0, baseline_y),
+                            egui::pos2(chart_rect.max.x - 4.0, baseline_y),
+                        ],
+                        Stroke::new(1.0_f32, c.hairline),
+                    );
+
+                    let max_spd_h = ap_econ
+                        .daily_timeline
+                        .iter()
+                        .map(|d| d.speedup_hours)
+                        .fold(0.0_f64, f64::max)
+                        .max(1.0);
+                    let max_ap = ap_econ
+                        .daily_timeline
+                        .iter()
+                        .map(|d| d.ap_consumed)
+                        .max()
+                        .unwrap_or(0)
+                        .max(100) as f64;
+
+                    let mouse_pos = ui.input(|i| i.pointer.hover_pos());
+                    let mut hovered_day: Option<usize> = None;
+
+                    if let Some(pos) = mouse_pos {
+                        if chart_rect.contains(pos) {
+                            let rel_x = (pos.x - chart_rect.min.x).max(0.0);
+                            let idx = (rel_x / slot_w) as usize;
+                            if idx < ap_econ.daily_timeline.len() {
+                                hovered_day = Some(idx);
+                            }
+                        }
+                    }
+
+                    for (idx, d) in ap_econ.daily_timeline.iter().enumerate() {
+                        let slot_x_min = chart_rect.min.x + (idx as f32) * slot_w;
+                        let slot_x_max = slot_x_min + slot_w;
+                        let center_x = (slot_x_min + slot_x_max) / 2.0;
+                        let is_hovered = hovered_day == Some(idx);
+
+                        if is_hovered {
+                            let highlight_r = egui::Rect::from_min_max(
+                                egui::pos2(slot_x_min + 1.0, chart_rect.min.y + 1.0),
+                                egui::pos2(slot_x_max - 1.0, baseline_y),
+                            );
+                            painter.rect_filled(
+                                highlight_r,
+                                Rounding::same(2.0),
+                                c.canvas_tint.linear_multiply(0.06),
+                            );
+                        }
+
+                        // Speedup Bar (Cyan)
+                        let spd_bar_h = ((d.speedup_hours / max_spd_h) as f32 * (baseline_y - chart_rect.min.y - 6.0))
+                            .max(if d.speedup_hours > 0.0 { 2.0 } else { 0.0 });
+                        if spd_bar_h > 0.0 {
+                            let spd_rect = egui::Rect::from_min_max(
+                                egui::pos2(center_x - bar_w - 1.0, baseline_y - spd_bar_h),
+                                egui::pos2(center_x - 1.0, baseline_y),
+                            );
+                            painter.rect_filled(spd_rect, Rounding::same(2.0), c.crystal_cyan);
+                        }
+
+                        // AP Burn Bar (Orange)
+                        let ap_bar_h = ((d.ap_consumed as f64 / max_ap) as f32 * (baseline_y - chart_rect.min.y - 6.0))
+                            .max(if d.ap_consumed > 0 { 2.0 } else { 0.0 });
+                        if ap_bar_h > 0.0 {
+                            let ap_rect = egui::Rect::from_min_max(
+                                egui::pos2(center_x + 1.0, baseline_y - ap_bar_h),
+                                egui::pos2(center_x + bar_w + 1.0, baseline_y),
+                            );
+                            painter.rect_filled(ap_rect, Rounding::same(2.0), c.train_orange);
+                        }
+
+                        // Date label below baseline
+                        let display_date = if d.date_label == "Today" {
+                            match self.language {
+                                AppLanguage::Vietnamese => "Hôm nay",
+                                AppLanguage::English => "Today",
+                            }
+                        } else {
+                            &d.date_label
+                        };
+                        let text_color = if is_hovered { c.canvas_tint } else { c.text_muted };
+                        painter.text(
+                            egui::pos2(center_x, baseline_y + 9.0),
+                            egui::Align2::CENTER_CENTER,
+                            display_date,
+                            egui::FontId::monospace(8.5),
+                            text_color,
+                        );
+                    }
+
+                    // Tooltip on hover
+                    if let Some(idx) = hovered_day {
+                        let d = &ap_econ.daily_timeline[idx];
+                        let display_date = if d.date_label == "Today" {
+                            match self.language {
+                                AppLanguage::Vietnamese => "Hôm nay",
+                                AppLanguage::English => "Today",
+                            }
+                        } else {
+                            &d.date_label
+                        };
+                        let (lbl_date, lbl_spd, lbl_ap, lbl_yield) = match self.language {
+                            AppLanguage::Vietnamese => ("Ngày", "Tăng tốc", "AP tiêu thụ", "Hiệu suất"),
+                            AppLanguage::English => ("Date", "Speedups", "AP Consumed", "Yield"),
+                        };
+                        chart_resp.on_hover_ui(|ui| {
+                            ui.label(egui::RichText::new(format!("{}: {}", lbl_date, display_date)).strong().monospace());
+                            ui.label(egui::RichText::new(format!("{}: {:.1}h ({:.0}m)", lbl_spd, d.speedup_hours, d.speedup_hours * 60.0)).color(c.crystal_cyan).monospace());
+                            ui.label(egui::RichText::new(format!("{}: {} AP", lbl_ap, format_num(d.ap_consumed))).color(c.train_orange).monospace());
+                            if d.ap_consumed > 0 {
+                                let yield_rate = (d.speedup_hours * 60.0) / (d.ap_consumed as f64 / 1000.0);
+                                ui.label(egui::RichText::new(format!("{}: {:.0}m / 1k AP", lbl_yield, yield_rate)).color(c.status_green).monospace());
+                            }
+                        });
+                    }
+                });
+
+            // Col 1: Target ROI Benchmark Matrix Table
+            egui::Frame::none()
+                .fill(c.card_surface)
+                .stroke(Stroke::new(1.0_f32, c.hairline))
+                .rounding(Rounding::same(6.0))
+                .inner_margin(Margin::symmetric(10.0, 8.0))
+                .show(&mut cols[1], |ui| {
+                    ui.set_height(BENCHMARK_CARD_HEIGHT);
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            egui::RichText::new(self.language.t(TrKey::ApBenchmarkTitle))
+                                .font(egui::FontId::proportional(11.0))
+                                .strong()
+                                .color(c.canvas_tint),
+                        );
+                    });
+                    ui.add_space(2.0);
+                    ui.separator();
+                    ui.add_space(2.0);
+
+                    let avail_w = ui.available_width();
+                    let col_ap = 40.0;
+                    let col_runs = 36.0;
+                    let col_spd = 58.0;
+                    let col_cov = 46.0;
+                    let col_tier = 50.0;
+                    let fixed_cols = col_ap + col_runs + col_spd + col_cov + col_tier + 20.0;
+                    let col_target = (avail_w - fixed_cols).max(90.0);
+                    let table_w = fixed_cols + col_target;
+
+                    let (hdr_target, hdr_runs, hdr_spd, hdr_cov) = match self.language {
+                        AppLanguage::Vietnamese => ("Mục tiêu", "Trận", "Tốc/1k", "Sách %"),
+                        AppLanguage::English => ("Target", "Runs", "Spd/1k", "Cov %"),
+                    };
+
+                    egui::ScrollArea::horizontal()
+                        .auto_shrink([false, false])
+                        .id_salt("benchmark_table_hscroll")
+                        .show(ui, |ui| {
+                            ui.set_width(table_w);
+
+                            // Table Header
+                            ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing.x = 4.0;
+                                ui.add_sized([col_target, 18.0], egui::Label::new(egui::RichText::new(hdr_target).font(egui::FontId::proportional(10.0)).strong().color(c.text_muted)).truncate().halign(egui::Align::LEFT));
+                                ui.add_sized([col_ap, 18.0], egui::Label::new(egui::RichText::new("AP").font(egui::FontId::proportional(10.0)).strong().color(c.text_muted)).truncate().halign(egui::Align::Center)).on_hover_text(self.language.t(TrKey::ApUnitCost));
+                                ui.add_sized([col_runs, 18.0], egui::Label::new(egui::RichText::new(hdr_runs).font(egui::FontId::proportional(10.0)).strong().color(c.text_muted)).truncate().halign(egui::Align::Center)).on_hover_text(self.language.t(TrKey::ApRuns));
+                                ui.add_sized([col_spd, 18.0], egui::Label::new(egui::RichText::new(hdr_spd).font(egui::FontId::proportional(10.0)).strong().color(c.text_muted)).truncate().halign(egui::Align::Center)).on_hover_text(self.language.t(TrKey::ApSpeedupYield));
+                                ui.add_sized([col_cov, 18.0], egui::Label::new(egui::RichText::new(hdr_cov).font(egui::FontId::proportional(10.0)).strong().color(c.text_muted)).truncate().halign(egui::Align::Center)).on_hover_text(self.language.t(TrKey::ApCovenantRate));
+                                ui.add_sized([col_tier, 18.0], egui::Label::new(egui::RichText::new("Tier").font(egui::FontId::proportional(10.0)).strong().color(c.text_muted)).truncate().halign(egui::Align::Center)).on_hover_text(self.language.t(TrKey::ApTier));
+                            });
+                            ui.add_space(2.0);
+
+                            // Scrollable Benchmark Rows
+                            let rows_h = (BENCHMARK_CARD_HEIGHT - 44.0).max(80.0);
+                            egui::ScrollArea::vertical()
+                                .id_salt("benchmark_rows_vscroll")
+                                .auto_shrink([false, false])
+                                .max_height(rows_h)
+                                .show(ui, |ui| {
+                                    ui.set_width(table_w);
+                                    if ap_econ.target_benchmarks.is_empty() {
+                                        ui.add_space(8.0);
+                                        ui.label(egui::RichText::new(self.language.t(TrKey::NoBattlesData)).font(egui::FontId::proportional(11.0)).color(c.text_muted));
+                                    } else {
+                                        for b in &ap_econ.target_benchmarks {
+                                            ui.horizontal(|ui| {
+                                                ui.spacing_mut().item_spacing.x = 4.0;
+                                                let target_color = if b.battle_count > 0 { c.canvas_tint } else { c.text_muted };
+
+                                                let display_target = localize_benchmark_target(&b.target_name, self.language);
+                                                ui.add_sized(
+                                                    [col_target, 20.0],
+                                                    egui::Label::new(egui::RichText::new(display_target).font(egui::FontId::proportional(10.5)).strong().color(target_color))
+                                                        .truncate()
+                                                        .halign(egui::Align::LEFT),
+                                                ).on_hover_text(display_target);
+
+                                                ui.add_sized([col_ap, 20.0], egui::Label::new(egui::RichText::new(format!("{} AP", b.unit_ap_cost)).font(egui::FontId::monospace(10.0)).color(c.text_muted)).truncate().halign(egui::Align::Center));
+                                                ui.add_sized([col_runs, 20.0], egui::Label::new(egui::RichText::new(format_num(b.battle_count)).font(egui::FontId::monospace(10.0)).color(target_color)).truncate().halign(egui::Align::Center));
+
+                                                let yield_str = if b.battle_count > 0 {
+                                                    format!("{:.0}m", b.speedup_mins_per_1k_ap)
+                                                } else {
+                                                    "-".to_string()
+                                                };
+                                                ui.add_sized([col_spd, 20.0], egui::Label::new(egui::RichText::new(yield_str).font(egui::FontId::monospace(10.0)).strong().color(if b.battle_count > 0 { c.crystal_cyan } else { c.text_muted })).truncate().halign(egui::Align::Center));
+
+                                                let is_fort_or_motte = b.target_name.starts_with("Fort") || b.target_name.starts_with("Motte");
+                                                let cov_str = if b.battle_count > 0 && is_fort_or_motte {
+                                                    format!("{:.1}%", b.covenant_drop_rate)
+                                                } else {
+                                                    "-".to_string()
+                                                };
+                                                ui.add_sized([col_cov, 20.0], egui::Label::new(egui::RichText::new(cov_str).font(egui::FontId::monospace(10.0)).color(if b.battle_count > 0 && is_fort_or_motte { c.accent_gold } else { c.text_muted })).truncate().halign(egui::Align::Center));
+
+                                                // Tier Badge (TierMaker classic palette)
+                                                let (badge_bg, badge_fg) = match b.tier_badge {
+                                                    "TIER S+" => (Color32::from_rgb(255, 77, 77).linear_multiply(0.22), Color32::from_rgb(255, 95, 95)),
+                                                    "TIER S" => (Color32::from_rgb(255, 127, 127).linear_multiply(0.22), Color32::from_rgb(255, 140, 140)),
+                                                    "TIER A" => (Color32::from_rgb(255, 191, 127).linear_multiply(0.22), Color32::from_rgb(255, 200, 140)),
+                                                    "TIER B" => (Color32::from_rgb(255, 255, 127).linear_multiply(0.20), Color32::from_rgb(255, 255, 140)),
+                                                    "TIER C" => (Color32::from_rgb(191, 255, 127).linear_multiply(0.20), Color32::from_rgb(200, 255, 140)),
+                                                    _ => (Color32::from_rgb(127, 191, 255).linear_multiply(0.22), Color32::from_rgb(140, 200, 255)),
+                                                };
+                                                let (badge_rect, _) = ui.allocate_exact_size(egui::vec2(col_tier, 18.0), egui::Sense::hover());
+                                                if b.battle_count > 0 {
+                                                    ui.painter().rect_filled(badge_rect, Rounding::same(3.0), badge_bg);
+                                                    ui.painter().text(
+                                                        badge_rect.center(),
+                                                        egui::Align2::CENTER_CENTER,
+                                                        b.tier_badge,
+                                                        egui::FontId::monospace(9.0),
+                                                        badge_fg,
+                                                    );
+                                                } else {
+                                                    ui.painter().text(
+                                                        badge_rect.center(),
+                                                        egui::Align2::CENTER_CENTER,
+                                                        "[-]",
+                                                        egui::FontId::monospace(9.5),
+                                                        c.text_muted,
+                                                    );
+                                                }
+                                            });
+                                        }
+                                    }
+                                });
+                        });
+                });
         });
     }
 
@@ -2388,6 +2855,7 @@ impl RoKLootWatcherApp {
 
         egui::ScrollArea::both()
             .auto_shrink([false, false])
+            .id_salt("battles_table_scroll")
             .show_rows(ui, row_height, self.cached_sorted_battle_indices.len(), |ui, row_range| {
                 ui.set_width(dimensions.table_width);
                 for idx in row_range {
@@ -3034,6 +3502,7 @@ impl RoKLootWatcherApp {
 
         egui::ScrollArea::both()
             .auto_shrink([false, false])
+            .id_salt("inventory_table_scroll")
             .show_rows(ui, row_height, filtered_items.len(), |ui, row_range| {
                 ui.set_width(inv_table_width);
                 for idx in row_range {
@@ -3628,8 +4097,8 @@ impl RoKLootWatcherApp {
 
                         // Opacity slider (0.0 to 1.0)
                         let opacity_lbl = match self.language {
-                            AppLanguage::Vietnamese => "Độ mờ nền (Opacity):",
-                            AppLanguage::English => "Background Opacity:",
+                            AppLanguage::Vietnamese => "Độ mờ:",
+                            AppLanguage::English => "Opacity:",
                         };
                         let prev_opacity = self.overlay_config.opacity;
                         ui.horizontal(|ui| {
@@ -3638,7 +4107,7 @@ impl RoKLootWatcherApp {
                                 egui::Slider::new(&mut self.overlay_config.opacity, 0.0_f32..=1.0_f32)
                                     .custom_formatter(|n, _| {
                                         if n <= 0.01 {
-                                            "0% (See-Through)".to_string()
+                                            "0%".to_string()
                                         } else {
                                             format!("{:.0}%", n * 100.0)
                                         }
@@ -4164,8 +4633,17 @@ impl RoKLootWatcherApp {
                         }
                     });
 
+                    ui.add_space(8.0);
+                    let stay_login_label = match self.language {
+                        AppLanguage::Vietnamese => "Duy trì đăng nhập",
+                        AppLanguage::English => "Stay logged in",
+                    };
+                    if ui.checkbox(&mut self.cloud_auth.stay_login, stay_login_label).changed() {
+                        self.save_config();
+                    }
+
                     if is_logged_in {
-                        ui.add_space(8.0);
+                        ui.add_space(4.0);
                         let auto_backup_label = match self.language {
                             AppLanguage::Vietnamese => "Tự động sao lưu lên Cloud khi có chiến báo mới",
                             AppLanguage::English => "Auto back-up to Cloud when new reports arrive",
@@ -5283,5 +5761,47 @@ mod tests {
         assert_eq!(cached_overlay_records.len(), 0);
 
         let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_cloud_auth_stay_login_default_state() {
+        let cfg = AppConfig::default();
+        assert!(cfg.cloud_auth.stay_login, "Cloud auth stay_login must default to true");
+    }
+
+    #[test]
+    fn test_ap_economics_empty_render_does_not_panic() {
+        let econ = crate::analyzer::compute_ap_economics(&[], &[]);
+        assert_eq!(econ.daily_timeline.len(), 7);
+        assert_eq!(econ.total_ap_consumed, 0);
+        assert_eq!(econ.total_ap_recovered, 0);
+        assert_eq!(econ.net_ap_spent, 0);
+        assert_eq!(econ.speedup_mins_per_1k_ap, 0.0);
+        assert_eq!(econ.gems_per_1k_ap, 0.0);
+        assert_eq!(econ.target_benchmarks.len(), 0);
+    }
+
+    #[test]
+    fn test_localize_benchmark_target_bilingual() {
+        assert_eq!(
+            localize_benchmark_target("Fort Lvl 11-15 (KvK)", AppLanguage::English),
+            "Fort Lvl 11-15 (KvK)"
+        );
+        assert_eq!(
+            localize_benchmark_target("Fort Lvl 11-15 (KvK)", AppLanguage::Vietnamese),
+            "Pháo Đài Cấp 11-15 (KvK)"
+        );
+        assert_eq!(
+            localize_benchmark_target("Barbarians Lvl 41-55", AppLanguage::Vietnamese),
+            "Dã Man Cấp 41-55"
+        );
+        assert_eq!(
+            localize_benchmark_target("Motte Lvl 1-10", AppLanguage::Vietnamese),
+            "Motte Cấp 1-10"
+        );
+        assert_eq!(
+            localize_benchmark_target("Custom Target", AppLanguage::Vietnamese),
+            "Custom Target"
+        );
     }
 }

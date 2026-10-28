@@ -56,6 +56,20 @@ pub enum TrKey {
     CardBattlesUnit,
     CardCrystalsUnit,
 
+    // AP Economics & Efficiency Analytics
+    ApEconomicsTitle,
+    ApConsumed,
+    ApRecovered,
+    ApSpeedupYield,
+    ApGemYield,
+    ApTimelineTitle,
+    ApBenchmarkTitle,
+    ApUnitCost,
+    ApRuns,
+    ApAvgSpeedup,
+    ApCovenantRate,
+    ApTier,
+
     // Distribution & Lists
     DistributionTitle,
     DistributionTotal,
@@ -221,6 +235,18 @@ pub static ALL_KEYS: &[TrKey] = &[
     TrKey::CardRssBreakdown,
     TrKey::CardBattlesUnit,
     TrKey::CardCrystalsUnit,
+    TrKey::ApEconomicsTitle,
+    TrKey::ApConsumed,
+    TrKey::ApRecovered,
+    TrKey::ApSpeedupYield,
+    TrKey::ApGemYield,
+    TrKey::ApTimelineTitle,
+    TrKey::ApBenchmarkTitle,
+    TrKey::ApUnitCost,
+    TrKey::ApRuns,
+    TrKey::ApAvgSpeedup,
+    TrKey::ApCovenantRate,
+    TrKey::ApTier,
     TrKey::DistributionTitle,
     TrKey::DistributionTotal,
     TrKey::TopItemsTitle,
@@ -434,6 +460,32 @@ pub fn tr(key: TrKey, lang: AppLanguage) -> &'static str {
         (TrKey::CardBattlesUnit, AppLanguage::English) => "reports",
         (TrKey::CardCrystalsUnit, AppLanguage::Vietnamese) => "viên",
         (TrKey::CardCrystalsUnit, AppLanguage::English) => "crystals",
+
+        // AP Economics & Efficiency Analytics
+        (TrKey::ApEconomicsTitle, AppLanguage::Vietnamese) => "Kinh Tế Điểm Hành Động (AP)",
+        (TrKey::ApEconomicsTitle, AppLanguage::English) => "Action Point (AP) Economics",
+        (TrKey::ApConsumed, AppLanguage::Vietnamese) => "AP Tiêu Tốn",
+        (TrKey::ApConsumed, AppLanguage::English) => "AP Consumed",
+        (TrKey::ApRecovered, AppLanguage::Vietnamese) => "AP Hồi Phục (Bình)",
+        (TrKey::ApRecovered, AppLanguage::English) => "AP Recovered (Potions)",
+        (TrKey::ApSpeedupYield, AppLanguage::Vietnamese) => "Sản Lượng Tăng Tốc / 1k AP",
+        (TrKey::ApSpeedupYield, AppLanguage::English) => "Speedup Yield / 1k AP",
+        (TrKey::ApGemYield, AppLanguage::Vietnamese) => "Sản Lượng Gems / 1k AP",
+        (TrKey::ApGemYield, AppLanguage::English) => "Gem Yield / 1k AP",
+        (TrKey::ApTimelineTitle, AppLanguage::Vietnamese) => "Xu Hướng Sản Lượng & Tiêu Tốn AP 7 Ngày",
+        (TrKey::ApTimelineTitle, AppLanguage::English) => "7-Day Output vs AP Burn Timeline",
+        (TrKey::ApBenchmarkTitle, AppLanguage::Vietnamese) => "Hiệu Suất Rơi Đồ Theo Mục Tiêu",
+        (TrKey::ApBenchmarkTitle, AppLanguage::English) => "Target ROI Benchmark Matrix",
+        (TrKey::ApUnitCost, AppLanguage::Vietnamese) => "Chi Phí AP",
+        (TrKey::ApUnitCost, AppLanguage::English) => "Unit AP",
+        (TrKey::ApRuns, AppLanguage::Vietnamese) => "Số Trận",
+        (TrKey::ApRuns, AppLanguage::English) => "Runs",
+        (TrKey::ApAvgSpeedup, AppLanguage::Vietnamese) => "Tăng Tốc TB",
+        (TrKey::ApAvgSpeedup, AppLanguage::English) => "Avg Speedup",
+        (TrKey::ApCovenantRate, AppLanguage::Vietnamese) => "Tỉ Lệ Sách",
+        (TrKey::ApCovenantRate, AppLanguage::English) => "Covenant Rate",
+        (TrKey::ApTier, AppLanguage::Vietnamese) => "Đánh Giá",
+        (TrKey::ApTier, AppLanguage::English) => "Tier",
 
         // Distribution & Lists
         (TrKey::DistributionTitle, AppLanguage::Vietnamese) => "TỶ LỆ PHÂN BỔ LOẠI BÁO CÁO",
@@ -843,5 +895,27 @@ mod tests {
         assert!(!AppLanguage::Vietnamese.t(TrKey::SettingsScanFound).is_empty());
         assert!(!AppLanguage::English.t(TrKey::SettingsScanNotFound).is_empty());
         assert!(!AppLanguage::Vietnamese.t(TrKey::SettingsScanNotFound).is_empty());
+    }
+
+    #[test]
+    fn test_ap_economics_i18n_keys() {
+        let keys = [
+            TrKey::ApEconomicsTitle,
+            TrKey::ApConsumed,
+            TrKey::ApRecovered,
+            TrKey::ApSpeedupYield,
+            TrKey::ApGemYield,
+            TrKey::ApTimelineTitle,
+            TrKey::ApBenchmarkTitle,
+            TrKey::ApUnitCost,
+            TrKey::ApRuns,
+            TrKey::ApAvgSpeedup,
+            TrKey::ApCovenantRate,
+            TrKey::ApTier,
+        ];
+        for k in keys {
+            assert!(!AppLanguage::English.t(k).is_empty());
+            assert!(!AppLanguage::Vietnamese.t(k).is_empty());
+        }
     }
 }
