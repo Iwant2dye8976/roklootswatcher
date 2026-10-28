@@ -386,6 +386,7 @@ pub fn backup_vault(
     refresh_token: Option<&str>,
     user_id: &str,
     vault_path: &Path,
+    timeout: Option<Duration>,
 ) -> Result<(usize, Option<(String, String)>), String> {
     let data = fs::read_to_string(vault_path)
         .map_err(|e| format!("Cannot read vault file {}: {}", vault_path.display(), e))?;
@@ -402,8 +403,13 @@ pub fn backup_vault(
     let url = format!("{}/rest/v1/user_vaults", supabase_url.trim_end_matches('/'));
     let now = chrono::Utc::now().to_rfc3339();
 
+    let effective_timeout = timeout.unwrap_or(Duration::from_secs(15));
+    let agent = ureq::builder()
+        .timeout(effective_timeout)
+        .build();
+
     let send_req = |tok: &str| {
-        ureq::post(&url)
+        agent.post(&url)
             .set("apikey", anon_key)
             .set("Authorization", &format!("Bearer {}", tok))
             .set("Prefer", "resolution=merge-duplicates")
@@ -595,5 +601,21 @@ mod tests {
         let req = "GET /token?app_state=safe_state_123 HTTP/1.1\r\n\r\n";
         let res = process_loopback_token_request(req, "safe_state_123");
         assert!(matches!(res, LoopbackTokenOutcome::Error { status_code: 400, .. }));
+    }
+
+    #[test]
+    fn test_backup_vault_accepts_timeout_param() {
+        let dummy_path = std::path::Path::new("dummy_nonexistent_vault.json");
+        let res = backup_vault(
+            "https://example.supabase.co",
+            "dummy_key",
+            "dummy_token",
+            None,
+            "dummy_user",
+            dummy_path,
+            Some(std::time::Duration::from_secs(4)),
+        );
+        assert!(res.is_err());
+        assert!(res.unwrap_err().contains("Cannot read vault file"));
     }
 }

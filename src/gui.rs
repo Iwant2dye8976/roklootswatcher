@@ -905,7 +905,7 @@ impl RoKLootWatcherApp {
         let _ = std::thread::Builder::new()
             .name("rok-cloud-backup".into())
             .spawn(move || {
-                match crate::cloud_sync::backup_vault(&url, &key, &token, refresh_token.as_deref(), &user_id, &vault_path) {
+                match crate::cloud_sync::backup_vault(&url, &key, &token, refresh_token.as_deref(), &user_id, &vault_path, None) {
                     Ok((cnt, new_tokens)) => {
                         let success_msg = match lang {
                             AppLanguage::Vietnamese => format!("Đã sao lưu thành công {} chiến báo lên Cloud!", cnt),
