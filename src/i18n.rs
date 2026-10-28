@@ -157,6 +157,9 @@ pub enum TrKey {
     SettingsAutostartTooltip,
     SettingsAutostartMinimized,
     SettingsAutostartMinimizedTooltip,
+    SettingsCloudAutoBackupPeriodic,
+    SettingsCloudAutoBackupMinutes,
+    SettingsCloudAutoBackupOnExit,
     SettingsCardVaultTitle,
     SettingsVaultSecured,
     SettingsBtnOpenVaultDir,
@@ -321,6 +324,9 @@ pub static ALL_KEYS: &[TrKey] = &[
     TrKey::SettingsAutostartTooltip,
     TrKey::SettingsAutostartMinimized,
     TrKey::SettingsAutostartMinimizedTooltip,
+    TrKey::SettingsCloudAutoBackupPeriodic,
+    TrKey::SettingsCloudAutoBackupMinutes,
+    TrKey::SettingsCloudAutoBackupOnExit,
     TrKey::SettingsCardVaultTitle,
     TrKey::SettingsVaultSecured,
     TrKey::SettingsBtnOpenVaultDir,
@@ -645,6 +651,14 @@ pub fn tr(key: TrKey, lang: AppLanguage) -> &'static str {
         (TrKey::SettingsAutostartMinimized, AppLanguage::English) => "↳ Start Minimized to System Tray",
         (TrKey::SettingsAutostartMinimizedTooltip, AppLanguage::Vietnamese) => "Khi khởi động cùng Windows, ứng dụng sẽ chạy ngầm dưới khay hệ thống mà không mở cửa sổ to gây vướng víu",
         (TrKey::SettingsAutostartMinimizedTooltip, AppLanguage::English) => "Start silently in system tray without opening the main window on Windows startup",
+
+        (TrKey::SettingsCloudAutoBackupPeriodic, AppLanguage::Vietnamese) => "Tự động sao lưu định kỳ mỗi",
+        (TrKey::SettingsCloudAutoBackupPeriodic, AppLanguage::English) => "Periodic auto-backup every",
+        (TrKey::SettingsCloudAutoBackupMinutes, AppLanguage::Vietnamese) => "phút",
+        (TrKey::SettingsCloudAutoBackupMinutes, AppLanguage::English) => "minutes",
+        (TrKey::SettingsCloudAutoBackupOnExit, AppLanguage::Vietnamese) => "Tự động sao lưu khi thoát ứng dụng",
+        (TrKey::SettingsCloudAutoBackupOnExit, AppLanguage::English) => "Auto-backup on exit",
+
         (TrKey::SettingsCardVaultTitle, AppLanguage::Vietnamese) => "KHO LƯU TRỮ VĨNH VIỄN (VAULT)",
         (TrKey::SettingsCardVaultTitle, AppLanguage::English) => "PERMANENT VAULT ARCHIVE",
         (TrKey::SettingsVaultSecured, AppLanguage::Vietnamese) => "Hiện đã bảo toàn an toàn: {} trận đánh",
@@ -883,5 +897,15 @@ mod tests {
             assert!(!AppLanguage::English.t(k).is_empty());
             assert!(!AppLanguage::Vietnamese.t(k).is_empty());
         }
+    }
+
+    #[test]
+    fn test_cloud_backup_schedule_localization_keys() {
+        assert!(!AppLanguage::Vietnamese.t(TrKey::SettingsCloudAutoBackupPeriodic).is_empty());
+        assert!(!AppLanguage::English.t(TrKey::SettingsCloudAutoBackupPeriodic).is_empty());
+        assert!(!AppLanguage::Vietnamese.t(TrKey::SettingsCloudAutoBackupMinutes).is_empty());
+        assert!(!AppLanguage::English.t(TrKey::SettingsCloudAutoBackupMinutes).is_empty());
+        assert!(!AppLanguage::Vietnamese.t(TrKey::SettingsCloudAutoBackupOnExit).is_empty());
+        assert!(!AppLanguage::English.t(TrKey::SettingsCloudAutoBackupOnExit).is_empty());
     }
 }
