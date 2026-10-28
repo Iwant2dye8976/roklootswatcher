@@ -1600,6 +1600,10 @@ fn default_true() -> bool {
     true
 }
 
+fn default_backup_interval_minutes() -> u32 {
+    30
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CloudAuthConfig {
     #[serde(default)]
@@ -1618,8 +1622,18 @@ pub struct CloudAuthConfig {
     pub last_synced: Option<String>,
     #[serde(default)]
     pub auto_backup: bool,
+    #[serde(default = "default_backup_interval_minutes")]
+    pub backup_interval_minutes: u32,
+    #[serde(default = "default_true")]
+    pub backup_on_exit: bool,
     #[serde(default = "default_true")]
     pub stay_login: bool,
+}
+
+impl CloudAuthConfig {
+    pub fn clamped_interval_minutes(&self) -> u32 {
+        self.backup_interval_minutes.clamp(5, 1440)
+    }
 }
 
 impl Default for CloudAuthConfig {
@@ -1633,6 +1647,8 @@ impl Default for CloudAuthConfig {
             user_email: None,
             last_synced: None,
             auto_backup: false,
+            backup_interval_minutes: 30,
+            backup_on_exit: true,
             stay_login: true,
         }
     }
@@ -2938,5 +2954,22 @@ mod tests {
         assert!(!json.contains("user@test.com"));
         assert!(!json.contains("user-123"));
         assert!(json.contains(r#""stay_login":false"#));
+    }
+
+    #[test]
+    fn test_cloud_auth_backup_schedule_config_defaults_and_clamping() {
+        let legacy_json = r#"{"auto_backup":true}"#;
+        let auth: CloudAuthConfig = serde_json::from_str(legacy_json).unwrap();
+        assert_eq!(auth.backup_interval_minutes, 30);
+        assert!(auth.backup_on_exit);
+        assert_eq!(auth.clamped_interval_minutes(), 30);
+
+        let mut auth_low = CloudAuthConfig::default();
+        auth_low.backup_interval_minutes = 2;
+        assert_eq!(auth_low.clamped_interval_minutes(), 5);
+
+        let mut auth_high = CloudAuthConfig::default();
+        auth_high.backup_interval_minutes = 2000;
+        assert_eq!(auth_high.clamped_interval_minutes(), 1440);
     }
 }
