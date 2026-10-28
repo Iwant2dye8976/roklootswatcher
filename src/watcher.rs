@@ -273,7 +273,6 @@ impl RoKMailWatcher {
         });
 
         let vault = MailVault::new(&o_dir);
-        let initial_unbacked = vault.total_count() > 0;
         let watcher = Self {
             mail_dir: Arc::new(RwLock::new(m_dir)),
             out_dir: Arc::new(RwLock::new(o_dir)),
@@ -290,7 +289,7 @@ impl RoKMailWatcher {
             vault: Arc::new(RwLock::new(vault)),
 
             vault_dirty: Arc::new(AtomicBool::new(false)),
-            has_unbacked_cloud_data: Arc::new(AtomicBool::new(initial_unbacked)),
+            has_unbacked_cloud_data: Arc::new(AtomicBool::new(false)),
             last_vault_mutation: Arc::new(Mutex::new(Instant::now())),
 
             is_watching: Arc::new(RwLock::new(false)),
@@ -488,6 +487,10 @@ impl RoKMailWatcher {
 
     pub fn mark_cloud_dirty(&self) {
         self.has_unbacked_cloud_data.store(true, Ordering::SeqCst);
+    }
+
+    pub fn set_cloud_unbacked(&self, unbacked: bool) {
+        self.has_unbacked_cloud_data.store(unbacked, Ordering::SeqCst);
     }
 
     pub fn flush_vault_if_dirty(&self) {
@@ -1163,7 +1166,6 @@ mod tests {
             tx,
         );
 
-        watcher.set_cloud_clean();
         assert!(!watcher.has_unbacked_cloud_data());
 
         watcher.mark_vault_dirty();
@@ -1173,6 +1175,12 @@ mod tests {
         assert!(!watcher.has_unbacked_cloud_data());
 
         watcher.mark_cloud_dirty();
+        assert!(watcher.has_unbacked_cloud_data());
+
+        watcher.set_cloud_unbacked(false);
+        assert!(!watcher.has_unbacked_cloud_data());
+
+        watcher.set_cloud_unbacked(true);
         assert!(watcher.has_unbacked_cloud_data());
 
         let _ = std::fs::remove_dir_all(&temp_dir);

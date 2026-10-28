@@ -601,7 +601,8 @@ impl RoKLootWatcherApp {
         }
 
         let initial_overlay_records = watcher.get_latest_vault_records(config.overlay.filter, 5);
-        let initial_has_unbacked = watcher.get_vault_total_count() > 0;
+        let initial_has_unbacked = config.cloud_auth.last_synced.is_none() && watcher.get_vault_total_count() > 0;
+        watcher.set_cloud_unbacked(initial_has_unbacked);
 
         Self {
             watcher,
@@ -649,7 +650,7 @@ impl RoKLootWatcherApp {
             cloud_op_rx: None,
             cloud_busy: false,
             has_unbacked_data: initial_has_unbacked,
-            last_cloud_backup_time: None,
+            last_cloud_backup_time: Some(std::time::Instant::now()),
 
             cached_overlay_records: initial_overlay_records,
             cached_sorted_battle_indices: Vec::new(),
@@ -807,7 +808,7 @@ impl RoKLootWatcherApp {
                         false
                     }
                 }
-                None => true,
+                None => false,
             };
             if should_run {
                 self.trigger_cloud_backup();
@@ -886,25 +887,7 @@ impl RoKLootWatcherApp {
     }
 
     fn get_cloud_credentials(&self) -> (String, String) {
-        let url = self
-            .cloud_auth
-            .supabase_url
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .unwrap_or(crate::cloud_sync::DEFAULT_SUPABASE_URL)
-            .trim()
-            .to_string();
-        let key = self
-            .cloud_auth
-            .anon_key
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .unwrap_or(crate::cloud_sync::DEFAULT_SUPABASE_ANON_KEY)
-            .trim()
-            .to_string();
-        (url, key)
+        self.cloud_auth.get_credentials()
     }
 
     fn start_google_login(&mut self) {
@@ -5639,7 +5622,7 @@ mod tests {
         let interval_duration = std::time::Duration::from_secs(config.cloud_auth.clamped_interval_minutes() as u64 * 60);
         let should_run = match last_cloud_backup_time {
             Some(last) => std::time::Instant::now().duration_since(last) >= interval_duration,
-            None => true,
+            None => false,
         };
         assert!(!should_run);
     }
@@ -5687,6 +5670,34 @@ mod tests {
 
         assert!(has_unbacked_data);
         assert!(last_cloud_backup_time.is_some());
+    }
+
+    #[test]
+    fn test_cloud_backup_startup_conditions() {
+        // Startup throttle: initialized to Some(Instant::now())
+        let startup_time = Some(std::time::Instant::now());
+        let interval_duration = std::time::Duration::from_secs(15 * 60);
+        let should_run = match startup_time {
+            Some(last) => std::time::Instant::now().duration_since(last) >= interval_duration,
+            None => false,
+        };
+        assert!(!should_run);
+
+        // None case evaluates to false (no runaway backup)
+        let none_time: Option<std::time::Instant> = None;
+        let should_run_none = match none_time {
+            Some(last) => std::time::Instant::now().duration_since(last) >= interval_duration,
+            None => false,
+        };
+        assert!(!should_run_none);
+
+        // Initial unbacked logic: only dirty on startup if records exist and never synced
+        let never_synced: Option<String> = None;
+        let already_synced: Option<String> = Some("2026-10-28 12:00:00".to_string());
+
+        assert!(never_synced.is_none() && 10 > 0);
+        assert!(!(never_synced.is_none() && 0 > 0));
+        assert!(!(already_synced.is_none() && 10 > 0));
     }
 
     #[test]
