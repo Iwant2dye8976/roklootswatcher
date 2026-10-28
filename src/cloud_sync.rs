@@ -312,9 +312,15 @@ pub fn refresh_session(
     supabase_url: &str,
     anon_key: &str,
     refresh_token: &str,
+    timeout: Option<Duration>,
 ) -> Result<(String, String), String> {
     let url = format!("{}/auth/v1/token?grant_type=refresh_token", supabase_url.trim_end_matches('/'));
-    let resp: serde_json::Value = ureq::post(&url)
+    let effective_timeout = timeout.unwrap_or(Duration::from_secs(15));
+    let agent = ureq::builder()
+        .timeout(effective_timeout)
+        .build();
+    let resp: serde_json::Value = agent
+        .post(&url)
         .set("apikey", anon_key)
         .send_json(serde_json::json!({ "refresh_token": refresh_token }))
         .map_err(|e| format_cloud_error(e, "Làm mới phiên thất bại"))?
@@ -424,7 +430,7 @@ pub fn backup_vault(
         Ok(_) => Ok((record_count, None)),
         Err(ureq::Error::Status(401, _)) if refresh_token.is_some() => {
             let ref_tok = refresh_token.unwrap();
-            let (new_acc, new_ref) = refresh_session(supabase_url, anon_key, ref_tok)?;
+            let (new_acc, new_ref) = refresh_session(supabase_url, anon_key, ref_tok, timeout)?;
             match send_req(&new_acc) {
                 Ok(_) => Ok((record_count, Some((new_acc, new_ref)))),
                 Err(e) => Err(format_cloud_error(e, "Lỗi sao lưu lên cloud")),
@@ -457,7 +463,7 @@ pub fn restore_vault(
         ),
         Err(ureq::Error::Status(401, _)) if refresh_token.is_some() => {
             let ref_tok = refresh_token.unwrap();
-            let (new_acc, new_ref) = refresh_session(supabase_url, anon_key, ref_tok)?;
+            let (new_acc, new_ref) = refresh_session(supabase_url, anon_key, ref_tok, None)?;
             let r = fetch_req(&new_acc)
                 .map_err(|e| format_cloud_error(e, "Lỗi tải dữ liệu từ cloud"))?;
             (
@@ -617,5 +623,17 @@ mod tests {
         );
         assert!(res.is_err());
         assert!(res.unwrap_err().contains("Cannot read vault file"));
+    }
+
+    #[test]
+    fn test_refresh_session_accepts_timeout_param() {
+        let res = refresh_session(
+            "https://127.0.0.1:9",
+            "dummy_key",
+            "dummy_refresh",
+            Some(Duration::from_millis(100)),
+        );
+        assert!(res.is_err());
+        assert!(res.unwrap_err().contains("Làm mới phiên thất bại"));
     }
 }

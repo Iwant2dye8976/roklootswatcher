@@ -847,7 +847,6 @@ impl RoKLootWatcherApp {
                         needs_save = true;
                     }
                     if op_res.is_backup {
-                        self.has_unbacked_data = false;
                         self.last_cloud_backup_time = Some(std::time::Instant::now());
                         self.cloud_auth.last_synced = Some(chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string());
                         needs_save = true;
@@ -858,9 +857,13 @@ impl RoKLootWatcherApp {
                     self.watcher.log("SUCCESS", &op_res.message);
                 }
                 Ok(Err(e)) => {
+                    self.last_cloud_backup_time = Some(std::time::Instant::now());
+                    self.has_unbacked_data = true;
                     self.watcher.log("ERROR", &e);
                 }
                 Err(()) => {
+                    self.last_cloud_backup_time = Some(std::time::Instant::now());
+                    self.has_unbacked_data = true;
                     let msg = match self.language {
                         AppLanguage::Vietnamese => "Thao tác cloud thất bại: luồng xử lý bị đóng bất ngờ".to_string(),
                         AppLanguage::English => "Cloud operation failed: worker thread disconnected".to_string(),
@@ -949,6 +952,8 @@ impl RoKLootWatcherApp {
         let (tx, rx) = std::sync::mpsc::channel();
         self.cloud_op_rx = Some(rx);
         self.cloud_busy = true;
+        self.last_cloud_backup_time = Some(std::time::Instant::now());
+        self.has_unbacked_data = false;
 
         let lang = self.language;
         self.watcher.log("INFO", match lang {
@@ -5607,9 +5612,13 @@ mod tests {
         assert!(has_unbacked_data);
 
         let mut last_cloud_backup_time = None;
+        assert!(last_cloud_backup_time.is_none());
+        // On backup dispatch:
+        has_unbacked_data = false;
+        last_cloud_backup_time = Some(std::time::Instant::now());
+
         let op_is_backup = true;
         if op_is_backup {
-            has_unbacked_data = false;
             last_cloud_backup_time = Some(std::time::Instant::now());
         }
         assert!(!has_unbacked_data);
@@ -5621,6 +5630,51 @@ mod tests {
             None => true,
         };
         assert!(!should_run);
+    }
+
+    #[test]
+    fn test_cloud_backup_inflight_dirty_flag_preservation() {
+        let mut has_unbacked_data = true;
+        assert!(has_unbacked_data);
+        // 1. Dispatch backup: sets has_unbacked_data = false immediately
+        has_unbacked_data = false;
+        let mut last_cloud_backup_time = Some(std::time::Instant::now());
+
+        // 2. While upload is in flight, new mail arrives:
+        let new_mail_arrived = true;
+        if new_mail_arrived {
+            has_unbacked_data = true;
+        }
+
+        // 3. Upload finishes: does NOT clear has_unbacked_data
+        let op_is_backup = true;
+        if op_is_backup {
+            last_cloud_backup_time = Some(std::time::Instant::now());
+        }
+
+        // In-flight report must not have been wiped!
+        assert!(has_unbacked_data);
+        assert!(last_cloud_backup_time.is_some());
+    }
+
+    #[test]
+    fn test_cloud_backup_error_restores_dirty_and_throttles() {
+        let mut has_unbacked_data = false;
+        let mut last_cloud_backup_time = None;
+        assert!(last_cloud_backup_time.is_none());
+
+        // Dispatch backup
+        last_cloud_backup_time = Some(std::time::Instant::now());
+
+        // Backup fails
+        let op_failed = true;
+        if op_failed {
+            last_cloud_backup_time = Some(std::time::Instant::now());
+            has_unbacked_data = true;
+        }
+
+        assert!(has_unbacked_data);
+        assert!(last_cloud_backup_time.is_some());
     }
 
     #[test]
