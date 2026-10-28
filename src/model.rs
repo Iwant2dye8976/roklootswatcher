@@ -1634,6 +1634,26 @@ impl CloudAuthConfig {
     pub fn clamped_interval_minutes(&self) -> u32 {
         self.backup_interval_minutes.clamp(5, 1440)
     }
+
+    pub fn get_credentials(&self) -> (String, String) {
+        let url = self
+            .supabase_url
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or(crate::cloud_sync::DEFAULT_SUPABASE_URL)
+            .trim()
+            .to_string();
+        let key = self
+            .anon_key
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or(crate::cloud_sync::DEFAULT_SUPABASE_ANON_KEY)
+            .trim()
+            .to_string();
+        (url, key)
+    }
 }
 
 impl Default for CloudAuthConfig {

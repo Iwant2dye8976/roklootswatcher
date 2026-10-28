@@ -687,51 +687,59 @@ impl RoKLootWatcherApp {
         };
         config.save();
     }
+}
 
-    pub fn quit_app(&self) {
-        self.watcher.flush_vault_if_dirty();
-        if self.cloud_auth.backup_on_exit && self.has_unbacked_data && self.cloud_auth.access_token.is_some() {
-            if let (Some(token), Some(user_id)) = (&self.cloud_auth.access_token, &self.cloud_auth.user_id) {
-                let (url, key) = self.get_cloud_credentials();
-                let refresh_token = self.cloud_auth.refresh_token.as_deref();
-                let vault_path = self.watcher.get_vault_file_path();
-                match crate::cloud_sync::backup_vault(
-                    &url,
-                    &key,
-                    token,
-                    refresh_token,
-                    user_id,
-                    &vault_path,
-                    Some(std::time::Duration::from_secs(4)),
-                ) {
-                    Ok((cnt, new_tokens)) => {
-                        let msg = match self.language {
-                            AppLanguage::Vietnamese => format!("Sao lưu khi thoát hoàn tất: {} chiến báo.", cnt),
-                            AppLanguage::English => format!("Exit backup completed: {} reports.", cnt),
-                        };
-                        self.watcher.log("SUCCESS", &msg);
-                        if let Some((new_acc, new_ref)) = new_tokens {
-                            let mut cfg = AppConfig::load();
-                            cfg.cloud_auth.access_token = Some(new_acc);
-                            cfg.cloud_auth.refresh_token = Some(new_ref);
-                            cfg.cloud_auth.last_synced = Some(chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string());
-                            cfg.save();
-                        } else {
-                            let mut cfg = AppConfig::load();
-                            cfg.cloud_auth.last_synced = Some(chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string());
-                            cfg.save();
-                        }
-                    }
-                    Err(e) => {
-                        let msg = match self.language {
-                            AppLanguage::Vietnamese => format!("Sao lưu khi thoát thất bại hoặc hết hạn thời gian (4s): {}", e),
-                            AppLanguage::English => format!("Exit backup failed or timed out (4s): {}", e),
-                        };
-                        self.watcher.log("WARN", &msg);
-                    }
+pub fn perform_exit_cloud_backup(watcher: &RoKMailWatcher) {
+    let cfg = AppConfig::load();
+    if !cfg.cloud_auth.backup_on_exit || !watcher.has_unbacked_cloud_data() || cfg.cloud_auth.access_token.is_none() {
+        return;
+    }
+    if let (Some(token), Some(user_id)) = (&cfg.cloud_auth.access_token, &cfg.cloud_auth.user_id) {
+        let (url, key) = cfg.cloud_auth.get_credentials();
+        let refresh_token = cfg.cloud_auth.refresh_token.as_deref();
+        let vault_path = watcher.get_vault_file_path();
+        match crate::cloud_sync::backup_vault(
+            &url,
+            &key,
+            token,
+            refresh_token,
+            user_id,
+            &vault_path,
+            Some(std::time::Duration::from_secs(4)),
+        ) {
+            Ok((cnt, new_tokens)) => {
+                watcher.set_cloud_clean();
+                let lang = watcher.get_language();
+                let msg = match lang {
+                    AppLanguage::Vietnamese => format!("Sao lưu khi thoát hoàn tất: {} chiến báo.", cnt),
+                    AppLanguage::English => format!("Exit backup completed: {} reports.", cnt),
+                };
+                watcher.log("SUCCESS", &msg);
+                let mut updated_cfg = AppConfig::load();
+                if let Some((new_acc, new_ref)) = new_tokens {
+                    updated_cfg.cloud_auth.access_token = Some(new_acc);
+                    updated_cfg.cloud_auth.refresh_token = Some(new_ref);
                 }
+                updated_cfg.cloud_auth.last_synced = Some(chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string());
+                updated_cfg.save();
+            }
+            Err(e) => {
+                watcher.mark_cloud_dirty();
+                let lang = watcher.get_language();
+                let msg = match lang {
+                    AppLanguage::Vietnamese => format!("Sao lưu khi thoát thất bại hoặc hết hạn thời gian (4s): {}", e),
+                    AppLanguage::English => format!("Exit backup failed or timed out (4s): {}", e),
+                };
+                watcher.log("WARN", &msg);
             }
         }
+    }
+}
+
+impl RoKLootWatcherApp {
+    pub fn quit_app(&self) {
+        self.watcher.flush_vault_if_dirty();
+        perform_exit_cloud_backup(&self.watcher);
         self.watcher.stop();
         if let Some(ref t) = self.tray {
             t.hide_icon();
@@ -776,6 +784,7 @@ impl RoKLootWatcherApp {
                     self.last_mail_arrival = std::time::Instant::now();
                     if is_new {
                         self.has_unbacked_data = true;
+                        self.watcher.mark_cloud_dirty();
                     }
                     ctx.request_repaint();
                 }
@@ -859,11 +868,13 @@ impl RoKLootWatcherApp {
                 Ok(Err(e)) => {
                     self.last_cloud_backup_time = Some(std::time::Instant::now());
                     self.has_unbacked_data = true;
+                    self.watcher.mark_cloud_dirty();
                     self.watcher.log("ERROR", &e);
                 }
                 Err(()) => {
                     self.last_cloud_backup_time = Some(std::time::Instant::now());
                     self.has_unbacked_data = true;
+                    self.watcher.mark_cloud_dirty();
                     let msg = match self.language {
                         AppLanguage::Vietnamese => "Thao tác cloud thất bại: luồng xử lý bị đóng bất ngờ".to_string(),
                         AppLanguage::English => "Cloud operation failed: worker thread disconnected".to_string(),
@@ -954,6 +965,7 @@ impl RoKLootWatcherApp {
         self.cloud_busy = true;
         self.last_cloud_backup_time = Some(std::time::Instant::now());
         self.has_unbacked_data = false;
+        self.watcher.set_cloud_clean();
 
         let lang = self.language;
         self.watcher.log("INFO", match lang {

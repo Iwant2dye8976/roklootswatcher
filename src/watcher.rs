@@ -249,6 +249,7 @@ pub struct RoKMailWatcher {
     vault: Arc<RwLock<MailVault>>,
 
     vault_dirty: Arc<AtomicBool>,
+    has_unbacked_cloud_data: Arc<AtomicBool>,
     last_vault_mutation: Arc<Mutex<Instant>>,
 
     is_watching: Arc<RwLock<bool>>,
@@ -272,6 +273,7 @@ impl RoKMailWatcher {
         });
 
         let vault = MailVault::new(&o_dir);
+        let initial_unbacked = vault.total_count() > 0;
         let watcher = Self {
             mail_dir: Arc::new(RwLock::new(m_dir)),
             out_dir: Arc::new(RwLock::new(o_dir)),
@@ -288,6 +290,7 @@ impl RoKMailWatcher {
             vault: Arc::new(RwLock::new(vault)),
 
             vault_dirty: Arc::new(AtomicBool::new(false)),
+            has_unbacked_cloud_data: Arc::new(AtomicBool::new(initial_unbacked)),
             last_vault_mutation: Arc::new(Mutex::new(Instant::now())),
 
             is_watching: Arc::new(RwLock::new(false)),
@@ -469,9 +472,22 @@ impl RoKMailWatcher {
 
     pub fn mark_vault_dirty(&self) {
         self.vault_dirty.store(true, Ordering::SeqCst);
+        self.has_unbacked_cloud_data.store(true, Ordering::SeqCst);
         if let Ok(mut t) = self.last_vault_mutation.lock() {
             *t = Instant::now();
         }
+    }
+
+    pub fn has_unbacked_cloud_data(&self) -> bool {
+        self.has_unbacked_cloud_data.load(Ordering::SeqCst)
+    }
+
+    pub fn set_cloud_clean(&self) {
+        self.has_unbacked_cloud_data.store(false, Ordering::SeqCst);
+    }
+
+    pub fn mark_cloud_dirty(&self) {
+        self.has_unbacked_cloud_data.store(true, Ordering::SeqCst);
     }
 
     pub fn flush_vault_if_dirty(&self) {
@@ -1104,6 +1120,7 @@ impl RoKMailWatcher {
             catalog: Arc::clone(&self.catalog),
             vault: Arc::clone(&self.vault),
             vault_dirty: Arc::clone(&self.vault_dirty),
+            has_unbacked_cloud_data: Arc::clone(&self.has_unbacked_cloud_data),
             last_vault_mutation: Arc::clone(&self.last_vault_mutation),
             is_watching: Arc::clone(&self.is_watching),
             is_scanning: Arc::clone(&self.is_scanning),
@@ -1130,6 +1147,35 @@ mod tests {
         assert_eq!(rec.battle_type, "gathering");
         assert_eq!(rec.target_level, "6");
         assert_eq!(rec.target, "Mỏ Đá Cấp 6");
+    }
+
+    #[test]
+    fn test_watcher_cloud_unbacked_data_lifecycle() {
+        let temp_dir = std::env::temp_dir().join(format!("rok_test_cloud_dirty_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&temp_dir);
+
+        let (tx, _rx) = std::sync::mpsc::channel();
+        let watcher = RoKMailWatcher::new(
+            Some(temp_dir.clone()),
+            Some(temp_dir.clone()),
+            FilterMode::AllTargets,
+            LootCatalog::empty(),
+            tx,
+        );
+
+        watcher.set_cloud_clean();
+        assert!(!watcher.has_unbacked_cloud_data());
+
+        watcher.mark_vault_dirty();
+        assert!(watcher.has_unbacked_cloud_data());
+
+        watcher.set_cloud_clean();
+        assert!(!watcher.has_unbacked_cloud_data());
+
+        watcher.mark_cloud_dirty();
+        assert!(watcher.has_unbacked_cloud_data());
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 
     #[test]

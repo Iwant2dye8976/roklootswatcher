@@ -162,25 +162,8 @@ impl SystemTrayManager {
             } else if event.id == quit_id {
                 request_quit();
                 watcher_tray.stop();
-
-                ctx_menu.send_viewport_cmd(egui::ViewportCommand::Close);
-                ctx_menu.request_repaint();
-
-                if let Some(hwnd) = get_or_find_main_hwnd() {
-                    unsafe {
-                        windows_sys::Win32::UI::WindowsAndMessaging::PostMessageW(
-                            hwnd,
-                            windows_sys::Win32::UI::WindowsAndMessaging::WM_CLOSE,
-                            0,
-                            0,
-                        );
-                    }
-                }
-
-                std::thread::spawn(|| {
-                    std::thread::sleep(std::time::Duration::from_millis(200));
-                    std::process::exit(0);
-                });
+                crate::gui::perform_exit_cloud_backup(&watcher_tray);
+                std::process::exit(0);
             }
         }));
     }
