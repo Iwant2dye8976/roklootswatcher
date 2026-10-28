@@ -208,7 +208,8 @@ pub struct RoKLootWatcherApp {
     cloud_rx: Option<std::sync::mpsc::Receiver<Result<crate::cloud_sync::CloudAuthResult, String>>>,
     cloud_op_rx: Option<std::sync::mpsc::Receiver<Result<CloudOpResult, String>>>,
     cloud_busy: bool,
-    pending_auto_backup: Option<std::time::Instant>,
+    pub has_unbacked_data: bool,
+    pub last_cloud_backup_time: Option<std::time::Instant>,
 
     pub cached_overlay_records: Vec<BattleRecord>,
     pub cached_sorted_battle_indices: Vec<usize>,
@@ -600,6 +601,7 @@ impl RoKLootWatcherApp {
         }
 
         let initial_overlay_records = watcher.get_latest_vault_records(config.overlay.filter, 5);
+        let initial_has_unbacked = watcher.get_vault_total_count() > 0;
 
         Self {
             watcher,
@@ -646,7 +648,8 @@ impl RoKLootWatcherApp {
             cloud_rx: None,
             cloud_op_rx: None,
             cloud_busy: false,
-            pending_auto_backup: None,
+            has_unbacked_data: initial_has_unbacked,
+            last_cloud_backup_time: None,
 
             cached_overlay_records: initial_overlay_records,
             cached_sorted_battle_indices: Vec::new(),
@@ -687,6 +690,48 @@ impl RoKLootWatcherApp {
 
     pub fn quit_app(&self) {
         self.watcher.flush_vault_if_dirty();
+        if self.cloud_auth.backup_on_exit && self.has_unbacked_data && self.cloud_auth.access_token.is_some() {
+            if let (Some(token), Some(user_id)) = (&self.cloud_auth.access_token, &self.cloud_auth.user_id) {
+                let (url, key) = self.get_cloud_credentials();
+                let refresh_token = self.cloud_auth.refresh_token.as_deref();
+                let vault_path = self.watcher.get_vault_file_path();
+                match crate::cloud_sync::backup_vault(
+                    &url,
+                    &key,
+                    token,
+                    refresh_token,
+                    user_id,
+                    &vault_path,
+                    Some(std::time::Duration::from_secs(4)),
+                ) {
+                    Ok((cnt, new_tokens)) => {
+                        let msg = match self.language {
+                            AppLanguage::Vietnamese => format!("Sao lưu khi thoát hoàn tất: {} chiến báo.", cnt),
+                            AppLanguage::English => format!("Exit backup completed: {} reports.", cnt),
+                        };
+                        self.watcher.log("SUCCESS", &msg);
+                        if let Some((new_acc, new_ref)) = new_tokens {
+                            let mut cfg = AppConfig::load();
+                            cfg.cloud_auth.access_token = Some(new_acc);
+                            cfg.cloud_auth.refresh_token = Some(new_ref);
+                            cfg.cloud_auth.last_synced = Some(chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string());
+                            cfg.save();
+                        } else {
+                            let mut cfg = AppConfig::load();
+                            cfg.cloud_auth.last_synced = Some(chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string());
+                            cfg.save();
+                        }
+                    }
+                    Err(e) => {
+                        let msg = match self.language {
+                            AppLanguage::Vietnamese => format!("Sao lưu khi thoát thất bại hoặc hết hạn thời gian (4s): {}", e),
+                            AppLanguage::English => format!("Exit backup failed or timed out (4s): {}", e),
+                        };
+                        self.watcher.log("WARN", &msg);
+                    }
+                }
+            }
+        }
         self.watcher.stop();
         if let Some(ref t) = self.tray {
             t.hide_icon();
@@ -729,8 +774,8 @@ impl RoKLootWatcherApp {
                     self.ap_econ_dirty = true;
                     self.refresh_cached_overlay_records();
                     self.last_mail_arrival = std::time::Instant::now();
-                    if is_new && self.cloud_auth.auto_backup && self.cloud_auth.access_token.is_some() {
-                        self.pending_auto_backup = Some(std::time::Instant::now() + std::time::Duration::from_secs(3));
+                    if is_new {
+                        self.has_unbacked_data = true;
                     }
                     ctx.request_repaint();
                 }
@@ -741,15 +786,22 @@ impl RoKLootWatcherApp {
 
 
     fn poll_cloud_events(&mut self, ctx: &egui::Context) {
-        if let Some(deadline) = self.pending_auto_backup {
-            let now = std::time::Instant::now();
-            if now >= deadline {
-                self.pending_auto_backup = None;
-                if !self.cloud_busy && self.cloud_auth.auto_backup && self.cloud_auth.access_token.is_some() {
-                    self.trigger_cloud_backup();
+        if !self.cloud_busy && self.cloud_auth.auto_backup && self.cloud_auth.access_token.is_some() && self.has_unbacked_data {
+            let interval_duration = std::time::Duration::from_secs(self.cloud_auth.clamped_interval_minutes() as u64 * 60);
+            let should_run = match self.last_cloud_backup_time {
+                Some(last) => {
+                    let elapsed = std::time::Instant::now().duration_since(last);
+                    if elapsed >= interval_duration {
+                        true
+                    } else {
+                        ctx.request_repaint_after(interval_duration - elapsed);
+                        false
+                    }
                 }
-            } else {
-                ctx.request_repaint_after(deadline.duration_since(now));
+                None => true,
+            };
+            if should_run {
+                self.trigger_cloud_backup();
             }
         }
 
@@ -795,6 +847,8 @@ impl RoKLootWatcherApp {
                         needs_save = true;
                     }
                     if op_res.is_backup {
+                        self.has_unbacked_data = false;
+                        self.last_cloud_backup_time = Some(std::time::Instant::now());
                         self.cloud_auth.last_synced = Some(chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string());
                         needs_save = true;
                     }
@@ -4477,11 +4531,34 @@ impl RoKLootWatcherApp {
 
                     if is_logged_in {
                         ui.add_space(4.0);
-                        let auto_backup_label = match self.language {
-                            AppLanguage::Vietnamese => "Tự động sao lưu lên Cloud khi có chiến báo mới",
-                            AppLanguage::English => "Auto back-up to Cloud when new reports arrive",
-                        };
-                        if ui.checkbox(&mut self.cloud_auth.auto_backup, auto_backup_label).changed() {
+                        let mut changed = false;
+
+                        ui.horizontal(|ui| {
+                            if ui.checkbox(
+                                &mut self.cloud_auth.auto_backup,
+                                self.language.t(TrKey::SettingsCloudAutoBackupPeriodic),
+                            ).changed() {
+                                changed = true;
+                            }
+                            if ui.add_enabled(
+                                self.cloud_auth.auto_backup,
+                                egui::DragValue::new(&mut self.cloud_auth.backup_interval_minutes).range(5..=1440),
+                            ).changed() {
+                                self.cloud_auth.backup_interval_minutes = self.cloud_auth.clamped_interval_minutes();
+                                changed = true;
+                            }
+                            ui.label(self.language.t(TrKey::SettingsCloudAutoBackupMinutes));
+                        });
+
+                        ui.add_space(2.0);
+                        if ui.checkbox(
+                            &mut self.cloud_auth.backup_on_exit,
+                            self.language.t(TrKey::SettingsCloudAutoBackupOnExit),
+                        ).changed() {
+                            changed = true;
+                        }
+
+                        if changed {
                             self.save_config();
                         }
                     }
@@ -5510,6 +5587,40 @@ mod tests {
     fn test_cloud_auth_stay_login_default_state() {
         let cfg = AppConfig::default();
         assert!(cfg.cloud_auth.stay_login, "Cloud auth stay_login must default to true");
+    }
+
+    #[test]
+    fn test_cloud_auto_backup_dirty_flag_state() {
+        let mut config = AppConfig::default();
+        config.cloud_auth.auto_backup = true;
+        config.cloud_auth.backup_interval_minutes = 15;
+        config.cloud_auth.backup_on_exit = true;
+
+        assert_eq!(config.cloud_auth.clamped_interval_minutes(), 15);
+        assert!(config.cloud_auth.backup_on_exit);
+
+        let mut has_unbacked_data = false;
+        let is_new_mail = true;
+        if is_new_mail {
+            has_unbacked_data = true;
+        }
+        assert!(has_unbacked_data);
+
+        let mut last_cloud_backup_time = None;
+        let op_is_backup = true;
+        if op_is_backup {
+            has_unbacked_data = false;
+            last_cloud_backup_time = Some(std::time::Instant::now());
+        }
+        assert!(!has_unbacked_data);
+        assert!(last_cloud_backup_time.is_some());
+
+        let interval_duration = std::time::Duration::from_secs(config.cloud_auth.clamped_interval_minutes() as u64 * 60);
+        let should_run = match last_cloud_backup_time {
+            Some(last) => std::time::Instant::now().duration_since(last) >= interval_duration,
+            None => true,
+        };
+        assert!(!should_run);
     }
 
     #[test]
