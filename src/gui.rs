@@ -3929,8 +3929,9 @@ impl RoKLootWatcherApp {
                                 let btn_rst = egui::Button::new(egui::RichText::new(reset_lbl).font(egui::FontId::proportional(10.5)).color(c.canvas_tint))
                                     .fill(c.primary)
                                     .stroke(Stroke::new(1.0_f32, c.hairline))
-                                    .rounding(Rounding::same(5.0));
-                                if ui.add_sized([0.0, 24.0], btn_rst).clicked() {
+                                    .rounding(Rounding::same(5.0))
+                                    .min_size(egui::vec2(0.0, 24.0));
+                                if ui.add(btn_rst).clicked() {
                                     self.overlay_config.offset_x = 16.0;
                                     self.overlay_config.offset_y = 60.0;
                                     pos_changed = true;
