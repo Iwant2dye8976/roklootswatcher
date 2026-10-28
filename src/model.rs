@@ -145,7 +145,6 @@ pub enum SpeedupUnit {
     Dhm,
 }
 
-/// Chuyển đổi số phút tăng tốc thành chuỗi ngày, giờ, phút đầy đủ (vd: "2 ngày 5 giờ 30 phút").
 pub fn format_speedup_dhm(minutes: i64) -> String {
     if minutes <= 0 {
         return "0 phút".to_string();
@@ -168,7 +167,6 @@ pub fn format_speedup_dhm(minutes: i64) -> String {
     parts.join(" ")
 }
 
-/// Chuyển đổi số phút tăng tốc thành chuỗi viết tắt (vd: "2d 5h 30p").
 pub fn format_speedup_dhm_short(minutes: i64) -> String {
     if minutes <= 0 {
         return "0p".to_string();
@@ -562,7 +560,6 @@ impl BattleRecord {
         if sum > 0 {
             sum
         } else {
-            // Fallback for custom or synthesized item entries in item_totals
             match (itype, sub_type) {
                 (1, 9) => self.crystal_quantity(),
                 (2, 7006) => self.item_totals.get("Gói Tài Nguyên Cấp 2").copied().unwrap_or(0),
@@ -779,8 +776,6 @@ pub struct ResourceTotals {
 
 impl ResourceTotals {
     pub fn total_rss_val(&self) -> i64 {
-        // Gói tài nguyên C không có giá trị cụ thể, chỉ tính số lượng gói.
-        // Tổng tài nguyên chỉ quy đổi các loại tài nguyên cụ thể (Ngô, Gỗ, Đá, Vàng).
         self.food_val + self.wood_val + self.stone_val + self.gold_val
     }
 
@@ -792,24 +787,24 @@ impl ResourceTotals {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MaterialKind {
-    Leather,     // Da
-    IronOre,     // Quặng sắt
-    Ebony,       // Gỗ mun
-    AnimalBone,  // Xương động vật
+    Leather,
+    IronOre,
+    Ebony,
+    AnimalBone,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct MaterialTotals {
-    pub leather_normal: i64,   // (2, 412) Da BT
-    pub leather_advanced: i64, // (2, 419) Da NC
-    pub iron_normal: i64,      // (2, 413) Sắt BT
-    pub iron_advanced: i64,    // (2, 420) Sắt NC
-    pub ebony_normal: i64,     // (2, 417) Gỗ BT
-    pub ebony_advanced: i64,   // (2, 424) Gỗ NC
-    pub bone_normal: i64,      // (2, 414) Xương BT
-    pub bone_advanced: i64,    // (2, 421) Xương NC
-    pub bone_elite: i64,       // (2, 428) Xương TN
-    pub bone_epic: i64,        // (2, 435) Xương ST
+    pub leather_normal: i64,
+    pub leather_advanced: i64,
+    pub iron_normal: i64,
+    pub iron_advanced: i64,
+    pub ebony_normal: i64,
+    pub ebony_advanced: i64,
+    pub bone_normal: i64,
+    pub bone_advanced: i64,
+    pub bone_elite: i64,
+    pub bone_epic: i64,
 }
 
 impl MaterialTotals {
@@ -854,10 +849,10 @@ impl MaterialTotals {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ApTotals {
-    pub ap_50: i64,   // (2, 182) Khôi phục nhanh 50 AP
-    pub ap_100: i64,  // (2, 124) Khôi phục cơ bản 100 AP
-    pub ap_500: i64,  // (2, 125) Khôi phục trung bình 500 AP
-    pub ap_1000: i64, // (2, 126) Khôi phục cao cấp 1000 AP
+    pub ap_50: i64,
+    pub ap_100: i64,
+    pub ap_500: i64,
+    pub ap_1000: i64,
 }
 
 impl ApTotals {
@@ -900,7 +895,6 @@ pub fn get_item_conversion(itype: u32, isub: u32) -> ConvertedValue {
         ConvertedValue::AllianceChest
     } else if itype == 2 {
         match isub {
-            // Thực phẩm (Food)
             141 => ConvertedValue::Resource { kind: ResourceKind::Food, multiplier: 1_000 },
             2 => ConvertedValue::Resource { kind: ResourceKind::Food, multiplier: 50_000 },
             3 => ConvertedValue::Resource { kind: ResourceKind::Food, multiplier: 150_000 },
@@ -908,7 +902,6 @@ pub fn get_item_conversion(itype: u32, isub: u32) -> ConvertedValue {
             5 => ConvertedValue::Resource { kind: ResourceKind::Food, multiplier: 1_500_000 },
             6 => ConvertedValue::Resource { kind: ResourceKind::Food, multiplier: 5_000_000 },
 
-            // Gỗ (Wood)
             142 => ConvertedValue::Resource { kind: ResourceKind::Wood, multiplier: 1_000 },
             8 => ConvertedValue::Resource { kind: ResourceKind::Wood, multiplier: 50_000 },
             9 => ConvertedValue::Resource { kind: ResourceKind::Wood, multiplier: 150_000 },
@@ -916,7 +909,6 @@ pub fn get_item_conversion(itype: u32, isub: u32) -> ConvertedValue {
             11 => ConvertedValue::Resource { kind: ResourceKind::Wood, multiplier: 1_500_000 },
             12 => ConvertedValue::Resource { kind: ResourceKind::Wood, multiplier: 5_000_000 },
 
-            // Đá (Stone)
             143 => ConvertedValue::Resource { kind: ResourceKind::Stone, multiplier: 750 },
             14 => ConvertedValue::Resource { kind: ResourceKind::Stone, multiplier: 37_500 },
             15 => ConvertedValue::Resource { kind: ResourceKind::Stone, multiplier: 112_500 },
@@ -924,18 +916,14 @@ pub fn get_item_conversion(itype: u32, isub: u32) -> ConvertedValue {
             17 => ConvertedValue::Resource { kind: ResourceKind::Stone, multiplier: 1_125_000 },
             18 => ConvertedValue::Resource { kind: ResourceKind::Stone, multiplier: 3_750_000 },
 
-            // Vàng (Gold)
             144 => ConvertedValue::Resource { kind: ResourceKind::Gold, multiplier: 500 },
             21 => ConvertedValue::Resource { kind: ResourceKind::Gold, multiplier: 50_000 },
             22 => ConvertedValue::Resource { kind: ResourceKind::Gold, multiplier: 200_000 },
             23 => ConvertedValue::Resource { kind: ResourceKind::Gold, multiplier: 600_000 },
             24 => ConvertedValue::Resource { kind: ResourceKind::Gold, multiplier: 2_000_000 },
 
-            // Gói Tài Nguyên Tùy Chọn (Choice Packs)
-            // Không có giá trị cụ thể quy đổi ra RSS cố định, chỉ cần số lượng gói
             7003..=7009 => ConvertedValue::Resource { kind: ResourceKind::ChoicePack, multiplier: 0 },
 
-            // Sách EXP Tướng: 1 sách kinh nghiệm cấp 3 = 1000 kinh nghiệm
             128 => ConvertedValue::Exp(100),
             129 => ConvertedValue::Exp(500),
             130 => ConvertedValue::Exp(1_000),
@@ -944,7 +932,6 @@ pub fn get_item_conversion(itype: u32, isub: u32) -> ConvertedValue {
             149 => ConvertedValue::Exp(200_000),
             150 => ConvertedValue::Exp(500_000),
 
-            // Tăng tốc Huấn luyện
             71 => ConvertedValue::Speedup { category: "Huấn Luyện", minutes: 1 },
             72 => ConvertedValue::Speedup { category: "Huấn Luyện", minutes: 5 },
             74 => ConvertedValue::Speedup { category: "Huấn Luyện", minutes: 15 },
@@ -953,7 +940,6 @@ pub fn get_item_conversion(itype: u32, isub: u32) -> ConvertedValue {
             78 => ConvertedValue::Speedup { category: "Huấn Luyện", minutes: 480 },
             79 => ConvertedValue::Speedup { category: "Huấn Luyện", minutes: 900 },
 
-            // Tăng tốc Chữa lành
             91 => ConvertedValue::Speedup { category: "Chữa Lành", minutes: 1 },
             92 => ConvertedValue::Speedup { category: "Chữa Lành", minutes: 5 },
             94 => ConvertedValue::Speedup { category: "Chữa Lành", minutes: 15 },
@@ -962,7 +948,6 @@ pub fn get_item_conversion(itype: u32, isub: u32) -> ConvertedValue {
             98 => ConvertedValue::Speedup { category: "Chữa Lành", minutes: 480 },
             99 => ConvertedValue::Speedup { category: "Chữa Lành", minutes: 900 },
 
-            // Tăng tốc Đa năng
             34 => ConvertedValue::Speedup { category: "Đa Năng", minutes: 1 },
             58 => ConvertedValue::Speedup { category: "Đa Năng", minutes: 5 },
             35 => ConvertedValue::Speedup { category: "Đa Năng", minutes: 15 },
@@ -974,7 +959,6 @@ pub fn get_item_conversion(itype: u32, isub: u32) -> ConvertedValue {
             40 => ConvertedValue::Speedup { category: "Đa Năng", minutes: 1440 },
             41 => ConvertedValue::Speedup { category: "Đa Năng", minutes: 4320 },
 
-            // Tăng tốc Xây dựng & Nghiên cứu
             65 => ConvertedValue::Speedup { category: "Xây Dựng", minutes: 30 },
             84 => ConvertedValue::Speedup { category: "Nghiên Cứu", minutes: 15 },
             85 => ConvertedValue::Speedup { category: "Nghiên Cứu", minutes: 30 },
@@ -983,7 +967,6 @@ pub fn get_item_conversion(itype: u32, isub: u32) -> ConvertedValue {
             88 => ConvertedValue::Speedup { category: "Nghiên Cứu", minutes: 480 },
             89 => ConvertedValue::Speedup { category: "Nghiên Cứu", minutes: 900 },
 
-            // Đá quý
             26 => ConvertedValue::Gem(10),
             27 => ConvertedValue::Gem(50),
             28 => ConvertedValue::Gem(100),
@@ -992,20 +975,16 @@ pub fn get_item_conversion(itype: u32, isub: u32) -> ConvertedValue {
             31 => ConvertedValue::Gem(1000),
             32 => ConvertedValue::Gem(2000),
 
-            // Vật phẩm pháo đài & tháp canh
             145 => ConvertedValue::ArrowOfResistance,
             109 => ConvertedValue::BookOfCovenant,
 
-            // Đèn sao
             9996..=10004 => ConvertedValue::Starlight,
 
-            // Điểm hành động AP
             182 => ConvertedValue::ApRecovery(50),
             124 => ConvertedValue::ApRecovery(100),
             125 => ConvertedValue::ApRecovery(500),
             126 => ConvertedValue::ApRecovery(1000),
 
-            // Nguyên liệu trang bị (Vật liệu: da, sắt, gỗ, xương động vật)
             412 => ConvertedValue::EquipmentMaterial { kind: MaterialKind::Leather, tier_mult: 1 },
             419 => ConvertedValue::EquipmentMaterial { kind: MaterialKind::Leather, tier_mult: 4 },
             413 => ConvertedValue::EquipmentMaterial { kind: MaterialKind::IronOre, tier_mult: 1 },
@@ -1722,7 +1701,6 @@ mod secret_store {
             pb_data: std::ptr::null_mut(),
         };
 
-        // CRYPTPROTECT_UI_FORBIDDEN = 0x1
         unsafe {
             if CryptProtectData(
                 &in_blob,
@@ -1867,7 +1845,6 @@ impl AppConfig {
             }
         };
 
-        // Load securely encrypted OAuth credentials from Windows DPAPI store
         let (acc, ref_) = secret_store::load_secure_tokens(&p);
         if cfg.cloud_auth.stay_login && (acc.is_some() || ref_.is_some()) {
             cfg.cloud_auth.access_token = acc;
@@ -1910,7 +1887,6 @@ impl AppConfig {
                     let _ = std::fs::remove_file(&p);
                     let _ = std::fs::rename(&tmp, &p);
                 }
-                // Save encrypted OAuth credentials via Windows DPAPI only when stay_login is active
                 let (acc_to_save, ref_to_save) = if self.cloud_auth.stay_login {
                     (
                         self.cloud_auth.access_token.as_deref(),
@@ -2115,7 +2091,7 @@ mod tests {
         assert_eq!(cfg.speedup_unit, SpeedupUnit::Hours);
         assert_eq!(cfg.mail_dir, Some(PathBuf::from(r"C:\test\mail")));
         assert_eq!(cfg.mode, Some(FilterMode::AllTargets));
-        assert_eq!(cfg.theme, AppTheme::Dark); // Defaults to Dark when not in JSON
+        assert_eq!(cfg.theme, AppTheme::Dark);
         assert!(cfg.autostart);
         assert!(cfg.autostart_minimized);
 
@@ -2127,7 +2103,6 @@ mod tests {
         assert!(serialized.contains(r#""autostart":true"#));
         assert!(serialized.contains(r#""autostart_minimized":true"#));
 
-        // Test theme toggle and serialization
         let toggled_theme = cfg.theme.toggle();
         assert_eq!(toggled_theme, AppTheme::Light);
         assert_eq!(toggled_theme.toggle(), AppTheme::Dark);
@@ -2140,13 +2115,11 @@ mod tests {
         let deserialized_light: AppConfig = serde_json::from_str(&light_json).unwrap();
         assert_eq!(deserialized_light.theme, AppTheme::Light);
 
-        // Test label and description
         assert_eq!(CloseBehavior::Tray.label(), "Thu nhỏ vào Khay (Tray icon)");
         assert_eq!(CloseBehavior::Close.label(), "Thoát ứng dụng (Close)");
         assert!(CloseBehavior::Tray.description().contains("ẩn vào khay"));
         assert!(CloseBehavior::Close.description().contains("tắt ứng dụng"));
 
-        // Test DateFilterPreset AllTime label
         assert_eq!(DateFilterPreset::AllTime.label(), "Từ trước đến nay");
     }
 
@@ -2171,7 +2144,7 @@ mod tests {
             items: vec![
                 ItemDrop {
                     itype: 2,
-                    sub_type: 141, // 1k Food
+                    sub_type: 141,
                     value: 10,
                     pic: "".into(),
                     name_vi: "Thực phẩm 1.000".into(),
@@ -2181,7 +2154,7 @@ mod tests {
                 },
                 ItemDrop {
                     itype: 2,
-                    sub_type: 142, // 1k Wood
+                    sub_type: 142,
                     value: 20,
                     pic: "".into(),
                     name_vi: "Gỗ 1.000".into(),
@@ -2191,7 +2164,7 @@ mod tests {
                 },
                 ItemDrop {
                     itype: 2,
-                    sub_type: 143, // 750 Stone
+                    sub_type: 143,
                     value: 30,
                     pic: "".into(),
                     name_vi: "Đá 750".into(),
@@ -2201,7 +2174,7 @@ mod tests {
                 },
                 ItemDrop {
                     itype: 2,
-                    sub_type: 144, // 500 Gold
+                    sub_type: 144,
                     value: 40,
                     pic: "".into(),
                     name_vi: "Vàng 500".into(),
@@ -2211,7 +2184,7 @@ mod tests {
                 },
                 ItemDrop {
                     itype: 2,
-                    sub_type: 7005, // 1k Choice
+                    sub_type: 7005,
                     value: 50,
                     pic: "".into(),
                     name_vi: "Gói C Cấp 1".into(),
@@ -2225,53 +2198,43 @@ mod tests {
         };
 
         let res = rec.total_resources_breakdown();
-        // Food: 10 * 1,000 = 10,000
         assert_eq!(res.food_val, 10_000);
         assert_eq!(res.food_packs, 10);
 
-        // Wood: 20 * 1,000 = 20,000
         assert_eq!(res.wood_val, 20_000);
         assert_eq!(res.wood_packs, 20);
 
-        // Stone: 30 * 750 = 22,500
         assert_eq!(res.stone_val, 22_500);
         assert_eq!(res.stone_packs, 30);
 
-        // Gold: 40 * 500 = 20,000
         assert_eq!(res.gold_val, 20_000);
         assert_eq!(res.gold_packs, 40);
 
-        // Choice: không có giá trị cụ thể quy đổi sang M RSS, chỉ đếm số lượng gói
         assert_eq!(res.choice_val, 0);
         assert_eq!(res.choice_packs, 50);
 
-        // Total: 10k + 20k + 22.5k + 20k = 72,500
         assert_eq!(res.total_rss_val(), 72_500);
         assert_eq!(rec.total_resource_value(), 72_500);
 
-        // Millions formatting
         assert_eq!(format_in_millions_vietnamese(16_344_000), "16.34M");
         assert_eq!(format_in_millions_vietnamese(1_200_000_000), "1.20 tỷ");
         assert_eq!(format_in_millions_vietnamese(500_000), "500.0k");
 
-        // Display string formatting for items
         assert_eq!(get_item_converted_display(2, 141, 16344), Some("16.34M Ngô".into()));
         assert_eq!(get_item_converted_display(2, 142, 15908), Some("15.91M Gỗ".into()));
         assert_eq!(get_item_converted_display(2, 143, 15015), Some("11.26M Đá".into()));
         assert_eq!(get_item_converted_display(2, 144, 14920), Some("7.46M Vàng".into()));
         assert_eq!(get_item_converted_display(2, 7005, 50), Some("50 gói".into()));
-        // 1 sách kinh nghiệm cấp 3 = 1000 kinh nghiệm
         assert_eq!(get_item_converted_display(2, 130, 10), Some("10,000 EXP".into()));
 
-        // Materials & AP
         let mats = MaterialTotals {
             leather_normal: 84,
-            leather_advanced: 3, // 3 * 4 = 12
+            leather_advanced: 3,
             iron_normal: 87,
-            iron_advanced: 6, // 6 * 4 = 24
+            iron_advanced: 6,
             ebony_normal: 89,
             bone_normal: 41,
-            bone_advanced: 4, // 4 * 4 = 16
+            bone_advanced: 4,
             ..Default::default()
         };
         assert_eq!(mats.leather_total_converted(), 96);
@@ -2298,7 +2261,6 @@ mod tests {
 
     #[test]
     fn test_exp_book_level_3_value_1000() {
-        // Yêu cầu: 1 sách kinh nghiệm cấp 3 = 1000 kinh nghiệm
         assert_eq!(get_item_conversion(2, 130), ConvertedValue::Exp(1_000));
         assert_eq!(get_item_converted_display(2, 130, 1), Some("1,000 EXP".into()));
         assert_eq!(get_item_converted_display(2, 130, 50), Some("50,000 EXP".into()));
@@ -2308,7 +2270,6 @@ mod tests {
 
     #[test]
     fn test_resource_pack_c_no_fixed_value_only_quantity() {
-        // Yêu cầu: Gói tài nguyên C không có giá trị cụ thể, chỉ cần số lượng
         assert_eq!(get_item_conversion(2, 7005), ConvertedValue::Resource { kind: ResourceKind::ChoicePack, multiplier: 0 });
         assert_eq!(get_item_conversion(2, 7006), ConvertedValue::Resource { kind: ResourceKind::ChoicePack, multiplier: 0 });
         assert_eq!(get_item_converted_display(2, 7005, 120), Some("120 gói".into()));
@@ -2321,14 +2282,12 @@ mod tests {
             choice_val: 0,
             ..Default::default()
         };
-        // Tổng RSS không cộng bừa giá trị của gói C
         assert_eq!(res.total_rss_val(), 300_000);
         assert_eq!(res.choice_packs, 50);
     }
 
     #[test]
     fn test_standard_resource_pack_conversions() {
-        // Food packs (2, 3, 4, 5, 6, 141)
         assert_eq!(get_item_conversion(2, 141), ConvertedValue::Resource { kind: ResourceKind::Food, multiplier: 1_000 });
         assert_eq!(get_item_conversion(2, 2), ConvertedValue::Resource { kind: ResourceKind::Food, multiplier: 50_000 });
         assert_eq!(get_item_conversion(2, 3), ConvertedValue::Resource { kind: ResourceKind::Food, multiplier: 150_000 });
@@ -2336,7 +2295,6 @@ mod tests {
         assert_eq!(get_item_conversion(2, 5), ConvertedValue::Resource { kind: ResourceKind::Food, multiplier: 1_500_000 });
         assert_eq!(get_item_conversion(2, 6), ConvertedValue::Resource { kind: ResourceKind::Food, multiplier: 5_000_000 });
 
-        // Wood packs (8, 9, 10, 11, 12, 142)
         assert_eq!(get_item_conversion(2, 142), ConvertedValue::Resource { kind: ResourceKind::Wood, multiplier: 1_000 });
         assert_eq!(get_item_conversion(2, 8), ConvertedValue::Resource { kind: ResourceKind::Wood, multiplier: 50_000 });
         assert_eq!(get_item_conversion(2, 9), ConvertedValue::Resource { kind: ResourceKind::Wood, multiplier: 150_000 });
@@ -2344,7 +2302,6 @@ mod tests {
         assert_eq!(get_item_conversion(2, 11), ConvertedValue::Resource { kind: ResourceKind::Wood, multiplier: 1_500_000 });
         assert_eq!(get_item_conversion(2, 12), ConvertedValue::Resource { kind: ResourceKind::Wood, multiplier: 5_000_000 });
 
-        // Stone packs (14, 15, 16, 17, 18, 143)
         assert_eq!(get_item_conversion(2, 143), ConvertedValue::Resource { kind: ResourceKind::Stone, multiplier: 750 });
         assert_eq!(get_item_conversion(2, 14), ConvertedValue::Resource { kind: ResourceKind::Stone, multiplier: 37_500 });
         assert_eq!(get_item_conversion(2, 15), ConvertedValue::Resource { kind: ResourceKind::Stone, multiplier: 112_500 });
@@ -2352,7 +2309,6 @@ mod tests {
         assert_eq!(get_item_conversion(2, 17), ConvertedValue::Resource { kind: ResourceKind::Stone, multiplier: 1_125_000 });
         assert_eq!(get_item_conversion(2, 18), ConvertedValue::Resource { kind: ResourceKind::Stone, multiplier: 3_750_000 });
 
-        // Gold packs (21, 22, 23, 24, 144)
         assert_eq!(get_item_conversion(2, 144), ConvertedValue::Resource { kind: ResourceKind::Gold, multiplier: 500 });
         assert_eq!(get_item_conversion(2, 21), ConvertedValue::Resource { kind: ResourceKind::Gold, multiplier: 50_000 });
         assert_eq!(get_item_conversion(2, 22), ConvertedValue::Resource { kind: ResourceKind::Gold, multiplier: 200_000 });
@@ -2362,7 +2318,6 @@ mod tests {
 
     #[test]
     fn test_all_speedups_and_gems_conversions() {
-        // Universal Speedups
         assert_eq!(get_item_conversion(2, 34), ConvertedValue::Speedup { category: "Đa Năng", minutes: 1 });
         assert_eq!(get_item_conversion(2, 58), ConvertedValue::Speedup { category: "Đa Năng", minutes: 5 });
         assert_eq!(get_item_conversion(2, 35), ConvertedValue::Speedup { category: "Đa Năng", minutes: 15 });
@@ -2374,13 +2329,11 @@ mod tests {
         assert_eq!(get_item_conversion(2, 40), ConvertedValue::Speedup { category: "Đa Năng", minutes: 1440 });
         assert_eq!(get_item_conversion(2, 41), ConvertedValue::Speedup { category: "Đa Năng", minutes: 4320 });
 
-        // Building Speedup (65) & Not teleports/keys (45, 47, 48)
         assert_eq!(get_item_conversion(2, 65), ConvertedValue::Speedup { category: "Xây Dựng", minutes: 30 });
         assert_eq!(get_item_conversion(2, 45), ConvertedValue::Other);
         assert_eq!(get_item_conversion(2, 47), ConvertedValue::Other);
         assert_eq!(get_item_conversion(2, 48), ConvertedValue::Other);
 
-        // Research Speedups (84..=89)
         assert_eq!(get_item_conversion(2, 84), ConvertedValue::Speedup { category: "Nghiên Cứu", minutes: 15 });
         assert_eq!(get_item_conversion(2, 85), ConvertedValue::Speedup { category: "Nghiên Cứu", minutes: 30 });
         assert_eq!(get_item_conversion(2, 86), ConvertedValue::Speedup { category: "Nghiên Cứu", minutes: 60 });
@@ -2388,33 +2341,28 @@ mod tests {
         assert_eq!(get_item_conversion(2, 88), ConvertedValue::Speedup { category: "Nghiên Cứu", minutes: 480 });
         assert_eq!(get_item_conversion(2, 89), ConvertedValue::Speedup { category: "Nghiên Cứu", minutes: 900 });
 
-        // Training Speedups
         assert_eq!(get_item_conversion(2, 71), ConvertedValue::Speedup { category: "Huấn Luyện", minutes: 1 });
         assert_eq!(get_item_conversion(2, 72), ConvertedValue::Speedup { category: "Huấn Luyện", minutes: 5 });
         assert_eq!(get_item_conversion(2, 74), ConvertedValue::Speedup { category: "Huấn Luyện", minutes: 15 });
         assert_eq!(get_item_conversion(2, 76), ConvertedValue::Speedup { category: "Huấn Luyện", minutes: 60 });
         assert_eq!(get_item_conversion(2, 77), ConvertedValue::Speedup { category: "Huấn Luyện", minutes: 180 });
         assert_eq!(get_item_conversion(2, 78), ConvertedValue::Speedup { category: "Huấn Luyện", minutes: 480 });
-        assert_eq!(get_item_conversion(2, 79), ConvertedValue::Speedup { category: "Huấn Luyện", minutes: 900 }); // 15 hours
+        assert_eq!(get_item_conversion(2, 79), ConvertedValue::Speedup { category: "Huấn Luyện", minutes: 900 });
 
-        // Healing Speedups
         assert_eq!(get_item_conversion(2, 92), ConvertedValue::Speedup { category: "Chữa Lành", minutes: 5 });
         assert_eq!(get_item_conversion(2, 94), ConvertedValue::Speedup { category: "Chữa Lành", minutes: 15 });
         assert_eq!(get_item_conversion(2, 96), ConvertedValue::Speedup { category: "Chữa Lành", minutes: 60 });
         assert_eq!(get_item_conversion(2, 97), ConvertedValue::Speedup { category: "Chữa Lành", minutes: 180 });
         assert_eq!(get_item_conversion(2, 98), ConvertedValue::Speedup { category: "Chữa Lành", minutes: 480 });
-        assert_eq!(get_item_conversion(2, 99), ConvertedValue::Speedup { category: "Chữa Lành", minutes: 900 }); // 15 hours
+        assert_eq!(get_item_conversion(2, 99), ConvertedValue::Speedup { category: "Chữa Lành", minutes: 900 });
 
-        // Gems
         assert_eq!(get_item_conversion(2, 32), ConvertedValue::Gem(2_000));
     }
 
     #[test]
     fn test_tomes_of_knowledge_and_talent_reset() {
-        // 131 is Talent Reset, not EXP
         assert_eq!(get_item_conversion(2, 131), ConvertedValue::Other);
 
-        // Tomes of Knowledge: 128 (100), 129 (500), 130 (1000), 147 (10k), 148 (50k), 149 (200k), 150 (500k)
         assert_eq!(get_item_conversion(2, 128), ConvertedValue::Exp(100));
         assert_eq!(get_item_conversion(2, 129), ConvertedValue::Exp(500));
         assert_eq!(get_item_conversion(2, 130), ConvertedValue::Exp(1_000));
@@ -2426,7 +2374,6 @@ mod tests {
 
     #[test]
     fn test_barbarian_speedup_calculation() {
-        // Yêu cầu: Báo cáo man rợ thống kê đầy đủ tăng tốc (Đa năng, Huấn luyện, Chữa lành)
         let rec = BattleRecord {
             filename: "barb_spd".into(),
             mail_id: "barb1".into(),
@@ -2444,7 +2391,7 @@ mod tests {
             items: vec![
                 ItemDrop {
                     itype: 2,
-                    sub_type: 34, // Tăng tốc 1 phút (Đa năng)
+                    sub_type: 34,
                     value: 15,
                     pic: "".into(),
                     name_vi: "Tăng tốc 1 phút".into(),
@@ -2454,7 +2401,7 @@ mod tests {
                 },
                 ItemDrop {
                     itype: 2,
-                    sub_type: 71, // Tăng tốc huấn luyện 1 phút
+                    sub_type: 71,
                     value: 20,
                     pic: "".into(),
                     name_vi: "Tăng tốc huấn luyện 1 phút".into(),
@@ -2464,7 +2411,7 @@ mod tests {
                 },
                 ItemDrop {
                     itype: 2,
-                    sub_type: 92, // Tăng tốc chữa lành 5 phút
+                    sub_type: 92,
                     value: 4,
                     pic: "".into(),
                     name_vi: "Tăng tốc chữa lành 5 phút".into(),
@@ -2479,7 +2426,7 @@ mod tests {
 
         assert_eq!(rec.univ_speedup_minutes(), 15);
         assert_eq!(rec.training_speedup_minutes(), 20);
-        assert_eq!(rec.heal_speedup_minutes(), 20); // 4 * 5 = 20 phút
+        assert_eq!(rec.heal_speedup_minutes(), 20);
         assert_eq!(rec.total_speedup_minutes(), 55);
     }
 
@@ -2585,7 +2532,6 @@ mod tests {
         assert_eq!(item_vi_only.display_name(AppLanguage::Vietnamese), "Vật phẩm lạ");
         assert_eq!(item_vi_only.display_name(AppLanguage::English), "Vật phẩm lạ");
 
-        // Gathering items with itype = 1
         let gather_food = ItemDrop {
             itype: 1,
             sub_type: 1,
@@ -2599,7 +2545,6 @@ mod tests {
         assert_eq!(gather_food.display_name(AppLanguage::Vietnamese), "Thực phẩm");
         assert_eq!(gather_food.display_name(AppLanguage::English), "Food");
 
-        // Legacy gathering item where name_en was saved as Vietnamese in vault
         let legacy_gather_wood = ItemDrop {
             itype: 1,
             sub_type: 2,
@@ -2613,7 +2558,6 @@ mod tests {
         assert_eq!(legacy_gather_wood.display_name(AppLanguage::Vietnamese), "Gỗ");
         assert_eq!(legacy_gather_wood.display_name(AppLanguage::English), "Wood");
 
-        // ItemStat display_name for gathering
         let gather_stat = ItemStat {
             itype: 1,
             sub_type: 3,
@@ -2656,21 +2600,18 @@ mod tests {
         assert_eq!(rec.display_target(AppLanguage::Vietnamese), "Pháo Đài Cấp 10");
         assert_eq!(rec.display_target(AppLanguage::English), "Barbarian Fort Level 10");
 
-        // Chained Barbarians with count suffix
         rec.battle_type = "barbarian".into();
         rec.target = "Dã Man Cấp 47-52 (x27)".into();
         rec.target_level = "47-52".into();
         assert_eq!(rec.display_target(AppLanguage::Vietnamese), "Dã Man Cấp 47-52 (x27)");
         assert_eq!(rec.display_target(AppLanguage::English), "Barbarian Level 47-52 (x27)");
 
-        // Motte target
         rec.battle_type = "motte".into();
         rec.target = "Motte 13".into();
         rec.target_level = "13".into();
         assert_eq!(rec.display_target(AppLanguage::Vietnamese), "Motte 13");
         assert_eq!(rec.display_target(AppLanguage::English), "Motte 13");
 
-        // Gathering deposits
         rec.battle_type = "gathering".into();
         rec.target = "Mỏ Đá Cấp 6 tại X:120 Y:340".into();
         rec.target_level = "6".into();
@@ -2697,7 +2638,6 @@ mod tests {
         rec.target_level = "3".into();
         assert_eq!(rec.display_target(AppLanguage::English), "Resource Tile Level 3");
 
-        // Fallback reward
         rec.battle_type = "reward".into();
         rec.target = "Phần thưởng".into();
         rec.target_level = "".into();
@@ -2722,7 +2662,6 @@ mod tests {
 
     #[test]
     fn test_get_item_converted_display_for_lang_bilingual() {
-        // Choice pack (itype 2, sub 7005)
         assert_eq!(
             get_item_converted_display_for_lang(2, 7005, 12, AppLanguage::Vietnamese),
             Some("12 gói".to_string())
@@ -2732,7 +2671,6 @@ mod tests {
             Some("12 packs".to_string())
         );
 
-        // Food pack 50k (itype 2, sub 2)
         assert_eq!(
             get_item_converted_display_for_lang(2, 2, 10, AppLanguage::Vietnamese),
             Some("0.50M Ngô".to_string())
@@ -2742,7 +2680,6 @@ mod tests {
             Some("0.50M Food".to_string())
         );
 
-        // Wood pack 50k (itype 2, sub 8)
         assert_eq!(
             get_item_converted_display_for_lang(2, 8, 20, AppLanguage::Vietnamese),
             Some("1.00M Gỗ".to_string())
@@ -2752,7 +2689,6 @@ mod tests {
             Some("1.00M Wood".to_string())
         );
 
-        // Speedup under 1h (itype 2, sub 58: 5 min)
         assert_eq!(
             get_item_converted_display_for_lang(2, 58, 3, AppLanguage::Vietnamese),
             Some("15p".to_string())
@@ -2762,7 +2698,6 @@ mod tests {
             Some("15m".to_string())
         );
 
-        // Crystal (itype 1, sub 9)
         assert_eq!(
             get_item_converted_display_for_lang(1, 9, 50, AppLanguage::Vietnamese),
             Some("50 Pha Lê".to_string())
@@ -2772,7 +2707,6 @@ mod tests {
             Some("50 Crystals".to_string())
         );
 
-        // AP potion (itype 2, sub 182: 50 AP)
         assert_eq!(
             get_item_converted_display_for_lang(2, 182, 4, AppLanguage::Vietnamese),
             Some("4 bình (200 AP)".to_string())
@@ -2782,7 +2716,6 @@ mod tests {
             Some("4 pots (200 AP)".to_string())
         );
 
-        // Material Leather (itype 2, sub 412: Tier 1)
         assert_eq!(
             get_item_converted_display_for_lang(2, 412, 10, AppLanguage::Vietnamese),
             Some("10 Da".to_string())
@@ -2811,28 +2744,20 @@ mod tests {
             by_battle_type: HashMap::new(),
         };
 
-        // Resource: Food pack 50k (multiplier 50_000)
         assert_eq!(make_item(2, 2, 10).raw_converted_value(), 500_000);
 
-        // Resource: Choice Pack (returns total_quantity without multiplier)
         assert_eq!(make_item(2, 7005, 12).raw_converted_value(), 12);
 
-        // Speedup: 5m speedup (sub 58)
         assert_eq!(make_item(2, 58, 6).raw_converted_value(), 30);
 
-        // Gem: itype 1, sub 5
         assert_eq!(make_item(1, 5, 20).raw_converted_value(), 20);
 
-        // AP recovery: 50 AP (sub 182)
         assert_eq!(make_item(2, 182, 4).raw_converted_value(), 200);
 
-        // Equipment material: sub 412 (tier_mult 1)
         assert_eq!(make_item(2, 412, 10).raw_converted_value(), 10);
 
-        // Exp Tome: Tome lvl 3 (1,000 exp) -> itype 2, sub 130
         assert_eq!(make_item(2, 130, 5).raw_converted_value(), 5_000);
 
-        // Other / Crystal: raw quantity fallback
         assert_eq!(make_item(1, 9, 75).raw_converted_value(), 75);
     }
 
@@ -2924,7 +2849,6 @@ mod tests {
         let loaded = AppConfig::load();
         assert_eq!(loaded.overlay.width, 1337.0);
 
-        // Atomic replace onto existing destination
         let mut cfg2 = loaded;
         cfg2.overlay.width = 1448.0;
         cfg2.save();
@@ -2963,16 +2887,13 @@ mod tests {
             original: orig,
         };
 
-        // Remove the primary config file so it doesn't exist
         let _ = std::fs::remove_file(&path);
 
-        // Write a valid config into .tmp file
         let mut tmp_cfg = AppConfig::default();
         tmp_cfg.overlay.width = 9999.0;
         let serialized = serde_json::to_string_pretty(&tmp_cfg).unwrap();
         std::fs::write(&tmp_path, serialized.as_bytes()).unwrap();
 
-        // Load should fallback to the .tmp file
         let loaded = AppConfig::load();
         assert_eq!(loaded.overlay.width, 9999.0, "AppConfig::load must fallback to .tmp if main config missing");
     }
@@ -2983,7 +2904,6 @@ mod tests {
         let cfg: AppConfig = serde_json::from_str(json_str).expect("Must deserialize with cloud_auth");
         assert_eq!(cfg.cloud_auth.user_email.as_deref(), Some("test@example.com"));
         assert_eq!(cfg.cloud_auth.user_id.as_deref(), Some("uid-123"));
-        // Tokens must be skipped by serde
         assert_eq!(cfg.cloud_auth.access_token, None);
         assert_eq!(cfg.cloud_auth.refresh_token, None);
         assert_eq!(cfg.cloud_auth.auto_backup, false);

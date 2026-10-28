@@ -30,9 +30,6 @@ pub fn format_timestamp(raw_time: i64) -> (String, String) {
         return ("N/A".to_string(), "N/A".to_string());
     }
 
-    // In Rise of Kingdoms mail caches, timestamps > 100_000_000_000 (10^11) represent
-    // microsecond precision timestamps, so convert them to seconds by dividing by 1_000_000.
-    // Standard unix epoch timestamps in seconds for modern dates are ~1.7 * 10^9.
     let secs = if raw_time > 100_000_000_000 {
         raw_time / 1_000_000
     } else {
@@ -83,18 +80,15 @@ pub fn is_barbarian_battle_report(mail: &LilithValue) -> bool {
 }
 
 pub fn classify_mail(mail: &LilithValue) -> Option<&'static str> {
-    // Only classify and process mails from "Report" or "Archive" boxes
     let box_name = mail.get("box").and_then(|v| v.as_str()).unwrap_or("");
     if box_name != "Report" && box_name != "Archive" {
         return None;
     }
 
-    // 1. Detect Barbarian Battle Reports (type: "Battle")
     if is_barbarian_battle_report(mail) {
         return Some("barbarian");
     }
 
-    // 2. Detect Gathering Reports (type: "Rss")
     if mail.get("type").and_then(|v| v.as_str()) == Some("Rss") {
         return Some("gathering");
     }
@@ -111,7 +105,6 @@ pub fn classify_mail(mail: &LilithValue) -> Option<&'static str> {
     let sub = body.get("subTitle").and_then(|v| v.as_str()).unwrap_or("");
     let content_raw = body.get("content").and_then(|v| v.as_str()).unwrap_or("");
 
-    // Quick check for canceled rally without regex or lowercase allocations
     let is_canceled = |s: &str| {
         s.contains("canceled") || s.contains("đã bị hủy") || s.contains("Canceled")
     };
@@ -125,7 +118,6 @@ pub fn classify_mail(mail: &LilithValue) -> Option<&'static str> {
         .map(|t| !t.is_empty())
         .unwrap_or(false);
 
-    // Fast Path 1: Motte Destroyed (subType 11, subParam 4)
     if sub_t == 11
         && sub_p == 4
         && (has_attachments
@@ -137,7 +129,6 @@ pub fn classify_mail(mail: &LilithValue) -> Option<&'static str> {
         return Some("motte");
     }
 
-    // Fast Path 2: Barbarian Fort Destroyed (subType 11, subParam 1)
     if sub_t == 11
         && sub_p == 1
         && (has_attachments
@@ -149,7 +140,6 @@ pub fn classify_mail(mail: &LilithValue) -> Option<&'static str> {
         return Some("fort");
     }
 
-    // Fallback Path: only allocate and clean text if fast paths didn't match
     let tgt = body
         .get("targetName")
         .and_then(|v| v.as_str())
@@ -157,12 +147,10 @@ pub fn classify_mail(mail: &LilithValue) -> Option<&'static str> {
     let content = clean_text(content_raw);
     let all_txt = format!("{} {} {} {}", title, sub, content, tgt).to_lowercase();
 
-    // Exclude canceled rallies
     if all_txt.contains("canceled") || all_txt.contains("đã bị hủy") {
         return None;
     }
 
-    // Motte Destroyed fallback
     if all_txt.contains("motte")
         && (has_attachments
             || all_txt.contains("destroyed")
@@ -171,7 +159,6 @@ pub fn classify_mail(mail: &LilithValue) -> Option<&'static str> {
         return Some("motte");
     }
 
-    // Barbarian Fort Destroyed fallback
     if (all_txt.contains("barbarian fort")
         || (all_txt.contains("pháo đài")
             && (all_txt.contains("dã man") || all_txt.contains("barbarian") || all_txt.contains("barbaria"))))
@@ -182,7 +169,6 @@ pub fn classify_mail(mail: &LilithValue) -> Option<&'static str> {
         return Some("fort");
     }
 
-    // Any other report with attachments (e.g. Pass First Occupation, Holy Sites, Events)
     if has_attachments {
         return Some("reward_other");
     }
@@ -237,8 +223,6 @@ pub fn extract_barbarian_battle_details(
                 .and_then(|v| v.as_f64())
                 .unwrap_or(0.0) as i64;
 
-            // In Rise of Kingdoms, barbarians never exceed level 55 and are never forts (npcbtype == 1).
-            // Barbarian forts (is_fort = true, npcbtype = 2, level 40-60) must NOT be counted as barbarians.
             if !is_fort && npcbtype == 1 {
                 if let Some(cidt) = cidt {
                     if let Some(hlv) = cidt.get("HLv").and_then(|v| v.as_u32()) {
@@ -249,10 +233,8 @@ pub fn extract_barbarian_battle_details(
                 }
             }
 
-            // Coordinates from valid barbarian target or loot attack
             let is_valid_target = !is_fort && (npcbtype == 1 || atk.get("NpcKillLoot").is_some());
             if is_valid_target || (pos_x == 0 && pos_y == 0) {
-                // Coordinates fallback from CastlePos
                 if let Some(cidt) = cidt {
                     if let Some(cpos) = cidt.get("CastlePos") {
                         let x = cpos.get("X").and_then(|v| v.as_f64()).unwrap_or(0.0);
@@ -264,7 +246,6 @@ pub fn extract_barbarian_battle_details(
                     }
                 }
 
-                // Coordinates from Pos (tile coords = pos / 6)
                 if let Some(pos) = atk.get("Pos") {
                     let x = pos.get("X").and_then(|v| v.as_f64()).unwrap_or(0.0);
                     let y = pos.get("Y").and_then(|v| v.as_f64()).unwrap_or(0.0);
@@ -275,7 +256,6 @@ pub fn extract_barbarian_battle_details(
                 }
             }
 
-            // Loot
             if let Some(loots_map) = atk.get("NpcKillLoot").and_then(|l| l.as_table()) {
                 for (_loot_id, item_val) in loots_map {
                     let itype = item_val.get("Type").and_then(|v| v.as_u32()).unwrap_or(0);
@@ -310,7 +290,6 @@ pub fn extract_barbarian_battle_details(
         }
     }
 
-    // Target label and level string
     let (motte_level, target) = if !levels.is_empty() {
         let min_lvl = *levels.iter().min().unwrap();
         let max_lvl = *levels.iter().max().unwrap();
@@ -492,21 +471,18 @@ pub fn extract_motte_details(
         None => target_raw.to_string(),
     };
 
-    // Damage %
     let damage_pct = DMG_REGEX
         .captures(&content)
         .and_then(|c| c.get(1))
         .and_then(|m| m.as_str().parse().ok())
         .unwrap_or(0);
 
-    // Plunder tier
     let plunder_tier = PLUNDER_REGEX
         .captures(&content)
         .and_then(|c| c.get(1).or_else(|| c.get(2)).or_else(|| c.get(3)))
         .and_then(|m| m.as_str().parse().ok())
         .unwrap_or(0);
 
-    // Position
     let mut pos_x = 0;
     let mut pos_y = 0;
     if let Some(caps) = POS_REGEX.captures(&content) {
@@ -516,7 +492,6 @@ pub fn extract_motte_details(
         }
     }
 
-    // Display target label
     let display_target = match btype {
         "motte" => {
             if !motte_level_str.is_empty() {
@@ -564,7 +539,6 @@ pub fn extract_motte_details(
                 .unwrap_or_default()
         });
 
-    // Loot extraction
     let mut items = Vec::new();
     let mut item_totals: HashMap<String, i64> = HashMap::new();
 
@@ -776,7 +750,6 @@ mod tests {
             let catalog = LootCatalog::load_from_candidates(None);
             let rec = extract_motte_details(&mail, "Persistent.Mail.95953682179264410425", &catalog, btype)
                 .expect("Should extract mixed fort barbarian battle");
-            // Must NOT contain Fort Level 60! Barbarian is strictly level 52.
             assert_eq!(rec.target, "Dã Man Cấp 52");
             assert_eq!(rec.target_level, "52");
             assert_eq!(rec.pos_x, 772);

@@ -113,9 +113,6 @@ pub mod windows {
         format!("Local\\ROK_Loot_Watcher_{}_Event", get_app_instance_id())
     }
 
-    /// Kiểm tra nếu ứng dụng đã mở sẵn trên hệ thống.
-    /// Nếu đã mở sẵn: Đưa cửa sổ đang chạy lên tiền cảnh (foreground), unhide từ tray nếu cần, và trả về AlreadyExists.
-    /// Nếu chưa mở: Khởi tạo Mutex và Event lắng nghe, trả về Running(SingleInstanceGuard).
     pub fn check_or_acquire() -> CheckResult {
         check_or_acquire_named(&default_mutex_name(), &default_event_name())
     }
@@ -127,15 +124,10 @@ pub mod windows {
 
             let err = GetLastError();
             if err == ERROR_ALREADY_EXISTS {
-                // 1. Tín hiệu cho tiến trình đang chạy khôi phục cửa sổ từ tray và focus lại
                 let event_signaled = signal_activate_event_named(event_name_str);
 
-                // 2. Trực tiếp tìm cửa sổ và đưa lên tiền cảnh (foreground)
                 let window_found = activate_existing_window();
 
-                // 3. Nếu không có cửa sổ nào và không thể gửi tín hiệu:
-                // Có thể do tiến trình khác squatting mutex hoặc tiến trình cũ bị crash đột ngột.
-                // Không chặn khởi động một cách mù quáng! Tiếp tục khởi chạy ứng dụng.
                 if !event_signaled && !window_found {
                     let event_wide = to_wide_null(event_name_str);
                     let event = CreateEventW(std::ptr::null(), 0, 0, event_wide.as_ptr());
@@ -152,7 +144,6 @@ pub mod windows {
                 return CheckResult::AlreadyExists;
             }
 
-            // Tạo Event (auto-reset) để nhận tín hiệu kích hoạt khi có phiên bản khác cố mở
             let event_wide = to_wide_null(event_name_str);
             let event = CreateEventW(std::ptr::null(), 0, 0, event_wide.as_ptr());
 
@@ -163,7 +154,6 @@ pub mod windows {
         }
     }
 
-    /// Gửi tín hiệu kích hoạt đến tiến trình đang chạy
     #[allow(dead_code)]
     pub fn signal_activate_event() -> bool {
         signal_activate_event_named(&default_event_name())
@@ -183,14 +173,12 @@ pub mod windows {
         }
     }
 
-    /// Tìm và kích hoạt cửa sổ của phiên bản đang chạy
     pub fn activate_existing_window() -> bool {
         let title = to_wide_null("Rise of Kingdoms - Motte, Fort & Barbarian Loot Watcher");
 
         unsafe {
             let mut hwnd = FindWindowW(std::ptr::null(), title.as_ptr());
 
-            // Dự phòng: Tìm theo từ khóa trong tiêu đề cửa sổ nếu tiêu đề chính xác không khớp
             if hwnd == 0 {
                 struct EnumData {
                     found: isize,
@@ -237,7 +225,6 @@ pub mod windows {
         }
     }
 
-    /// Hiển thị thông báo khi ứng dụng đã chạy nhưng không thể khôi phục tự động
     #[allow(dead_code)]
     pub fn show_already_running_message() {
         let msg = to_wide_null(
@@ -254,7 +241,6 @@ pub mod windows {
         }
     }
 
-    /// Lắng nghe tín hiệu kích hoạt từ các lần mở app sau trong suốt vòng đời ứng dụng
     pub fn start_activation_listener(
         guard: &SingleInstanceGuard,
         egui_ctx: egui::Context,
@@ -318,29 +304,24 @@ mod tests {
         let mutex_name = format!("Local\\ROK_Test_Mutex_{}", pid);
         let event_name = format!("Local\\ROK_Test_Event_{}", pid);
 
-        // Lần đầu mở: Phải thành công nhận SingleInstanceGuard
         let first = check_or_acquire_named(&mutex_name, &event_name);
         let guard = match first {
             CheckResult::Running(g) => g,
             CheckResult::AlreadyExists => panic!("Lần đầu tiên mở phải là Running"),
         };
 
-        // Lần thứ hai mở khi lần 1 đang chạy: Phải phát hiện AlreadyExists để tránh mở thêm
         let second = check_or_acquire_named(&mutex_name, &event_name);
         match second {
             CheckResult::AlreadyExists => {
-                // Đúng như mong đợi!
             }
             CheckResult::Running(_) => panic!("Lần thứ hai phải bị chặn với AlreadyExists"),
         }
 
-        // Sau khi lần 1 thoát (drop guard): Lần sau phải mở lại được bình thường
         drop(guard);
 
         let third = check_or_acquire_named(&mutex_name, &event_name);
         match third {
             CheckResult::Running(_g) => {
-                // Thành công!
             }
             CheckResult::AlreadyExists => panic!("Sau khi guard được giải phóng, phải mở lại được"),
         }
@@ -358,7 +339,6 @@ mod tests {
             CheckResult::AlreadyExists => panic!("Không thể khởi tạo guard thử nghiệm"),
         };
 
-        // Gửi tín hiệu kích hoạt từ tiến trình giả lập
         let signaled = signal_activate_event_named(&event_name);
         assert!(signaled, "Phải gửi được tín hiệu kích hoạt đến Event của tiến trình đang chạy");
 
@@ -371,7 +351,6 @@ mod tests {
         let mutex_name = format!("Local\\ROK_Squat_Mutex_{}", pid);
         let event_name = format!("Local\\ROK_Squat_Event_{}", pid);
 
-        // Simulate an external squatter holding the mutex WITHOUT an activation event or window
         let mutex_wide: Vec<u16> = mutex_name.encode_utf16().chain(std::iter::once(0)).collect();
         let rogue_mutex = unsafe {
             #[link(name = "kernel32")]
@@ -381,13 +360,9 @@ mod tests {
             CreateMutexW(std::ptr::null(), 1, mutex_wide.as_ptr())
         };
 
-        // When application starts, it encounters ERROR_ALREADY_EXISTS on the mutex,
-        // but since no activation event responds and no window is found,
-        // it must NOT exit, but rather fall back to Running!
         let result = check_or_acquire_named(&mutex_name, &event_name);
         match result {
             CheckResult::Running(guard) => {
-                // Succeeded! Launch denial prevented.
                 drop(guard);
             }
             CheckResult::AlreadyExists => {

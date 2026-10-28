@@ -4,7 +4,6 @@ use crate::model::{AppLanguage, DateFilterPreset, FilterMode, SpeedupUnit};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TrKey {
-    // Navigation Sidebar
     NavDashboardTitle,
     NavDashboardDesc,
     NavBattlesTitle,
@@ -14,7 +13,6 @@ pub enum TrKey {
     NavSettingsTitle,
     NavSettingsDesc,
 
-    // Mini status card & Controls
     ThemeToggleLight,
     ThemeToggleDark,
     ThemeToggleTooltip,
@@ -29,7 +27,6 @@ pub enum TrKey {
     BtnPause,
     BtnResume,
 
-    // Dashboard View
     DashboardTitle,
     DashboardSubtitle,
     FilterReportType,
@@ -45,7 +42,6 @@ pub enum TrKey {
     SpeedupUnitDays,
     SpeedupUnitDhm,
 
-    // Metric Cards
     CardTotalBattles,
     CardTotalCrystals,
     CardTotalSpeedups,
@@ -56,7 +52,6 @@ pub enum TrKey {
     CardBattlesUnit,
     CardCrystalsUnit,
 
-    // AP Economics & Efficiency Analytics
     ApEconomicsTitle,
     ApConsumed,
     ApRecovered,
@@ -70,7 +65,6 @@ pub enum TrKey {
     ApCovenantRate,
     ApTier,
 
-    // Distribution & Lists
     DistributionTitle,
     DistributionTotal,
     TopItemsTitle,
@@ -81,7 +75,6 @@ pub enum TrKey {
     NoBattlesData,
     BtnDetail,
 
-    // Battles Table & Columns
     SearchLabel,
     SearchPlaceholder,
     BtnExportJson,
@@ -108,7 +101,6 @@ pub enum TrKey {
     ColArrow,
     ColActions,
 
-    // Side Inspector
     InspectorTitle,
     InspectorClose,
     InspectorCloseTooltip,
@@ -126,7 +118,6 @@ pub enum TrKey {
     InspectorEbony,
     InspectorBone,
 
-    // Inventory View
     InvSearchLabel,
     InvSearchPlaceholder,
     InvCategoryLabel,
@@ -143,7 +134,6 @@ pub enum TrKey {
     InvColConverted,
     InvColBattles,
 
-    // Settings View
     SettingsCardMailTitle,
     SettingsCardMailDesc,
     SettingsBtnBrowse,
@@ -167,9 +157,6 @@ pub enum TrKey {
     SettingsAutostartTooltip,
     SettingsAutostartMinimized,
     SettingsAutostartMinimizedTooltip,
-    SettingsArmorOn,
-    SettingsArmorOff,
-    SettingsArmorTooltip,
     SettingsCardVaultTitle,
     SettingsVaultSecured,
     SettingsBtnOpenVaultDir,
@@ -182,7 +169,6 @@ pub enum TrKey {
     LogsAutoScroll,
     LogsEmpty,
 
-    // System Tray Menu
     TrayMenuOpen,
     TrayMenuRescan,
     TrayMenuToggle,
@@ -335,9 +321,6 @@ pub static ALL_KEYS: &[TrKey] = &[
     TrKey::SettingsAutostartTooltip,
     TrKey::SettingsAutostartMinimized,
     TrKey::SettingsAutostartMinimizedTooltip,
-    TrKey::SettingsArmorOn,
-    TrKey::SettingsArmorOff,
-    TrKey::SettingsArmorTooltip,
     TrKey::SettingsCardVaultTitle,
     TrKey::SettingsVaultSecured,
     TrKey::SettingsBtnOpenVaultDir,
@@ -365,7 +348,6 @@ impl TrKey {
 
 pub fn tr(key: TrKey, lang: AppLanguage) -> &'static str {
     match (key, lang) {
-        // Navigation Sidebar
         (TrKey::NavDashboardTitle, AppLanguage::Vietnamese) => "Tổng quan",
         (TrKey::NavDashboardTitle, AppLanguage::English) => "Dashboard",
         (TrKey::NavDashboardDesc, AppLanguage::Vietnamese) => "Dashboard KPI & phân bổ",
@@ -383,7 +365,6 @@ pub fn tr(key: TrKey, lang: AppLanguage) -> &'static str {
         (TrKey::NavSettingsDesc, AppLanguage::Vietnamese) => "Cấu hình, quét & nhật ký",
         (TrKey::NavSettingsDesc, AppLanguage::English) => "Config, scans & event logs",
 
-        // Mini status card & Controls
         (TrKey::ThemeToggleLight, AppLanguage::Vietnamese) => "Sáng",
         (TrKey::ThemeToggleLight, AppLanguage::English) => "Light",
         (TrKey::ThemeToggleDark, AppLanguage::Vietnamese) => "Tối",
@@ -411,7 +392,6 @@ pub fn tr(key: TrKey, lang: AppLanguage) -> &'static str {
         (TrKey::BtnResume, AppLanguage::Vietnamese) => "Bật",
         (TrKey::BtnResume, AppLanguage::English) => "Resume",
 
-        // Dashboard View
         (TrKey::DashboardTitle, AppLanguage::Vietnamese) => "Tổng Quan Hoạt Động & Chiến Lợi Phẩm",
         (TrKey::DashboardTitle, AppLanguage::English) => "Activity & Loot Overview",
         (TrKey::DashboardSubtitle, AppLanguage::Vietnamese) => "Theo dõi và phân tích dữ liệu phần thưởng thời gian thực từ game Rise of Kingdoms",
@@ -441,7 +421,6 @@ pub fn tr(key: TrKey, lang: AppLanguage) -> &'static str {
         (TrKey::SpeedupUnitDhm, AppLanguage::Vietnamese) => "Ngày/Giờ/Phút (DHM)",
         (TrKey::SpeedupUnitDhm, AppLanguage::English) => "Days/Hours/Min (DHM)",
 
-        // Metric Cards
         (TrKey::CardTotalBattles, AppLanguage::Vietnamese) => "TỔNG SỐ BÁO CÁO",
         (TrKey::CardTotalBattles, AppLanguage::English) => "TOTAL REPORTS",
         (TrKey::CardTotalCrystals, AppLanguage::Vietnamese) => "PHA LÊ THU HOẠCH",
@@ -461,7 +440,6 @@ pub fn tr(key: TrKey, lang: AppLanguage) -> &'static str {
         (TrKey::CardCrystalsUnit, AppLanguage::Vietnamese) => "viên",
         (TrKey::CardCrystalsUnit, AppLanguage::English) => "crystals",
 
-        // AP Economics & Efficiency Analytics
         (TrKey::ApEconomicsTitle, AppLanguage::Vietnamese) => "Kinh Tế Điểm Hành Động (AP)",
         (TrKey::ApEconomicsTitle, AppLanguage::English) => "Action Point (AP) Economics",
         (TrKey::ApConsumed, AppLanguage::Vietnamese) => "AP Tiêu Tốn",
@@ -487,7 +465,6 @@ pub fn tr(key: TrKey, lang: AppLanguage) -> &'static str {
         (TrKey::ApTier, AppLanguage::Vietnamese) => "Đánh Giá",
         (TrKey::ApTier, AppLanguage::English) => "Tier",
 
-        // Distribution & Lists
         (TrKey::DistributionTitle, AppLanguage::Vietnamese) => "TỶ LỆ PHÂN BỔ LOẠI BÁO CÁO",
         (TrKey::DistributionTitle, AppLanguage::English) => "REPORT TYPE DISTRIBUTION",
         (TrKey::DistributionTotal, AppLanguage::Vietnamese) => "Tổng: {} báo cáo",
@@ -507,7 +484,6 @@ pub fn tr(key: TrKey, lang: AppLanguage) -> &'static str {
         (TrKey::BtnDetail, AppLanguage::Vietnamese) => "Chi tiết →",
         (TrKey::BtnDetail, AppLanguage::English) => "Details →",
 
-        // Battles Table & Columns
         (TrKey::SearchLabel, AppLanguage::Vietnamese) => "Tìm kiếm:",
         (TrKey::SearchLabel, AppLanguage::English) => "Search:",
         (TrKey::SearchPlaceholder, AppLanguage::Vietnamese) => "Tên quái, ngày giờ...",
@@ -559,7 +535,6 @@ pub fn tr(key: TrKey, lang: AppLanguage) -> &'static str {
         (TrKey::ColActions, AppLanguage::Vietnamese) => "Chi Tiết",
         (TrKey::ColActions, AppLanguage::English) => "Actions",
 
-        // Side Inspector
         (TrKey::InspectorTitle, AppLanguage::Vietnamese) => "CHI TIẾT BÁO CÁO",
         (TrKey::InspectorTitle, AppLanguage::English) => "REPORT DETAILS",
         (TrKey::InspectorClose, AppLanguage::Vietnamese) => " Đóng ",
@@ -593,7 +568,6 @@ pub fn tr(key: TrKey, lang: AppLanguage) -> &'static str {
         (TrKey::InspectorBone, AppLanguage::Vietnamese) => "Xương",
         (TrKey::InspectorBone, AppLanguage::English) => "Bone",
 
-        // Inventory View
         (TrKey::InvSearchLabel, AppLanguage::Vietnamese) => "Tìm vật phẩm:",
         (TrKey::InvSearchLabel, AppLanguage::English) => "Search items:",
         (TrKey::InvSearchPlaceholder, AppLanguage::Vietnamese) => "Tên tiếng Việt, Anh...",
@@ -625,7 +599,6 @@ pub fn tr(key: TrKey, lang: AppLanguage) -> &'static str {
         (TrKey::InvColBattles, AppLanguage::Vietnamese) => "Số Trận",
         (TrKey::InvColBattles, AppLanguage::English) => "Battles",
 
-        // Settings View
         (TrKey::SettingsCardMailTitle, AppLanguage::Vietnamese) => "THƯ MỤC MAILCACHE GAME ROK",
         (TrKey::SettingsCardMailTitle, AppLanguage::English) => "ROK GAME MAILCACHE FOLDER",
         (TrKey::SettingsCardMailDesc, AppLanguage::Vietnamese) => "Thư mục chứa các file nhị phân báo cáo chiến đấu từ bản cài đặt Rise of Kingdoms PC.",
@@ -672,12 +645,6 @@ pub fn tr(key: TrKey, lang: AppLanguage) -> &'static str {
         (TrKey::SettingsAutostartMinimized, AppLanguage::English) => "↳ Start Minimized to System Tray",
         (TrKey::SettingsAutostartMinimizedTooltip, AppLanguage::Vietnamese) => "Khi khởi động cùng Windows, ứng dụng sẽ chạy ngầm dưới khay hệ thống mà không mở cửa sổ to gây vướng víu",
         (TrKey::SettingsAutostartMinimizedTooltip, AppLanguage::English) => "Start silently in system tray without opening the main window on Windows startup",
-        (TrKey::SettingsArmorOn, AppLanguage::Vietnamese) => "[Khóa Chống Xóa: ĐANG BẬT]",
-        (TrKey::SettingsArmorOn, AppLanguage::English) => "[Anti-Deletion Armor: ENABLED]",
-        (TrKey::SettingsArmorOff, AppLanguage::Vietnamese) => "[Khóa Chống Xóa: ĐANG TẮT]",
-        (TrKey::SettingsArmorOff, AppLanguage::English) => "[Anti-Deletion Armor: DISABLED]",
-        (TrKey::SettingsArmorTooltip, AppLanguage::Vietnamese) => "Ngăn game tự động xóa thư trong mailcache khi mở xem trong game (Yêu cầu Run as Administrator)",
-        (TrKey::SettingsArmorTooltip, AppLanguage::English) => "Prevent game client from auto-deleting mail files in mailcache (Requires Run as Administrator)",
         (TrKey::SettingsCardVaultTitle, AppLanguage::Vietnamese) => "KHO LƯU TRỮ VĨNH VIỄN (VAULT)",
         (TrKey::SettingsCardVaultTitle, AppLanguage::English) => "PERMANENT VAULT ARCHIVE",
         (TrKey::SettingsVaultSecured, AppLanguage::Vietnamese) => "Hiện đã bảo toàn an toàn: {} trận đánh",
@@ -701,7 +668,6 @@ pub fn tr(key: TrKey, lang: AppLanguage) -> &'static str {
         (TrKey::LogsEmpty, AppLanguage::Vietnamese) => "Chưa có sự kiện nào trong phiên làm việc này.",
         (TrKey::LogsEmpty, AppLanguage::English) => "No log events recorded in this session.",
 
-        // System Tray Menu
         (TrKey::TrayMenuOpen, AppLanguage::Vietnamese) => "Hiện giao diện chính",
         (TrKey::TrayMenuOpen, AppLanguage::English) => "Open Main Window",
         (TrKey::TrayMenuRescan, AppLanguage::Vietnamese) => "Quét lại dữ liệu",

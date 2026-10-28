@@ -84,12 +84,10 @@ pub fn export_individual_mails_json(
 
     for r in records {
         let out_file = mails_json_dir.join(format!("{}.json", r.filename));
-        // Nếu file json đã tồn tại và hợp lệ, giữ nguyên không cần ghi lại
         if out_file.is_file() {
             continue;
         }
 
-        // Tìm nguồn nhị phân: ưu tiên mailcache, nếu game đã xóa thì lấy từ mail_vault
         let mut src_path = mail_dir.join(&r.filename);
         if !src_path.is_file() {
             src_path = binary_vault_dir.join(&r.filename);
@@ -115,8 +113,6 @@ pub fn export_individual_mails_json(
                 }
             }
         } else {
-            // Trường hợp file nhị phân đã bị game xóa và chưa kịp vào vault,
-            // xuất bản ghi từ dữ liệu cấu trúc BattleRecord đã lưu trong RAM/Vault
             if let Ok(s) = serde_json::to_string_pretty(r) {
                 let _ = fs::write(&out_file, s);
             }

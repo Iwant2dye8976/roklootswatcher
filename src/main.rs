@@ -1,7 +1,6 @@
 #![windows_subsystem = "windows"]
 
 mod analyzer;
-mod armor;
 mod autostart;
 mod classifier;
 pub mod cloud_sync;
@@ -43,7 +42,6 @@ fn attach_parent_console() {
             fn SetConsoleOutputCP(wCodePageID: u32) -> i32;
             fn SetConsoleCP(wCodePageID: u32) -> i32;
         }
-        // ATTACH_PARENT_PROCESS = (DWORD)-1 = 0xFFFFFFFF
         if AttachConsole(0xFFFFFFFF) != 0 {
             SetConsoleOutputCP(65001);
             SetConsoleCP(65001);
@@ -54,7 +52,6 @@ fn attach_parent_console() {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
 
-    // Check if help was requested
     if args.iter().any(|a| a == "--help" || a == "-h") {
         #[cfg(windows)]
         attach_parent_console();
@@ -62,7 +59,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    // Check if CLI mode was requested
     if args.iter().any(|a| a == "--cli" || a == "-c") {
         #[cfg(windows)]
         attach_parent_console();
@@ -107,7 +103,6 @@ fn run_cli_mode(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     while i < args.len() {
         match args[i].as_str() {
             "--cli" | "-c" => {
-                // Already checked
             }
             "--mail-dir" => {
                 if i + 1 < args.len() {
@@ -194,7 +189,6 @@ fn run_cli_mode(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     println!("[*] Đang khởi động ROK Analyzer Engine (Rust) với Persistent Vault...");
     let catalog = LootCatalog::load_from_candidates(loot_yaml.as_deref());
 
-    // Khởi tạo MailVault để lưu trữ bền vững
     let mut vault = crate::vault::MailVault::new(&out_dir);
     let vault_dir = vault.get_binary_dir().to_path_buf();
     let _ = std::fs::create_dir_all(&vault_dir);
@@ -215,7 +209,6 @@ fn run_cli_mode(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // Quét bổ sung từ mail_vault (các file nhị phân đã lưu mà game đã xóa)
     if let Ok(entries) = std::fs::read_dir(&vault_dir) {
         for entry in entries.flatten() {
             let p = entry.path();
@@ -258,7 +251,6 @@ fn run_cli_mode(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         scanned_records.extend(chunk_records);
     }
 
-    // Upsert vào Persistent Vault
     let new_recs_count = vault.upsert_batch(scanned_records);
     let all_records = vault.get_records();
     let total_records = all_records.len();
@@ -303,7 +295,6 @@ fn run_cli_mode(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
 
     let stats = generate_statistics(&active_records);
 
-    // Export files
     if export_json_flag {
         let json_path = out_dir.join("motte_filtered_mails.json");
         export_json(&active_records, &stats, &json_path)?;
@@ -322,7 +313,6 @@ fn run_cli_mode(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         stats.min_damage_pct, stats.max_damage_pct, stats.avg_damage_pct
     );
 
-    // Detailed Resource Breakdown in Millions
     let res = stats.compute_resources();
     if res.total_rss_val() > 0 {
         println!("{}", "-".repeat(88));
@@ -420,7 +410,6 @@ fn run_cli_mode(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         );
     }
 
-    // Speedups & Other Drops
     let (t_min, h_min, u_min) = stats.compute_speedups_by_category();
     println!("{}", "-".repeat(88));
     println!("THỐNG KÊ TĂNG TỐC & VẬT PHẨM GIÁ TRỊ CAO:");
@@ -453,7 +442,6 @@ fn run_cli_mode(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         println!("  • Đá quý (Gems):       {}", format_num(gems));
     }
 
-    // Materials (Da, Sắt, Gỗ, Xương) & Action Points (AP)
     let mats = stats.compute_materials();
     let ap = stats.compute_ap();
     if mats.total_pieces() > 0 || ap.total_bottles() > 0 {
@@ -535,13 +523,11 @@ fn run_cli_mode(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn run_gui_mode(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
-    // Đảm bảo thư mục làm việc luôn là thư mục chứa file .exe (tránh lỗi khi Windows Autostart chạy từ C:\Windows\System32)
     let _ = crate::autostart::ensure_working_dir_is_exe_dir();
 
     let allow_multiple = args.iter().any(|a| a == "--multi-instance");
     let start_minimized = args.iter().any(|a| a == "--minimized" || a == "--tray");
 
-    // Kiểm tra nếu app đã mở sẵn hay chưa để tránh mở thêm
     let single_instance = if !allow_multiple {
         match crate::single_instance::windows::check_or_acquire() {
             crate::single_instance::windows::CheckResult::AlreadyExists => {
@@ -600,7 +586,6 @@ fn run_gui_mode(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         tx_ui,
     ));
 
-    // Load window icon for eframe (từ file ngoài hoặc fallback dữ liệu nhúng sẵn)
     const EMBEDDED_ICON_BYTES: &[u8] = include_bytes!("../rok_icon.png");
     let window_icon = icon_path.as_ref().and_then(|p| {
         if let Ok(img) = image::open(p) {
@@ -679,7 +664,6 @@ mod tests {
         let start = std::time::Instant::now();
         let vault = crate::vault::MailVault::new(&root_dir);
         let elapsed = start.elapsed();
-        // Warm vault init should complete in well under 1000ms even in debug mode (was >670ms prior to optimization)
         assert!(elapsed.as_millis() < 1000, "MailVault::init took too long: {:?}", elapsed);
         assert!(vault.total_count() > 0);
     }

@@ -13,11 +13,11 @@ pub struct CardDisplayData {
 
 pub fn accent_color_for_battle_type(btype: &str) -> Color32 {
     match btype {
-        "fort" => Color32::from_rgb(245, 158, 11),       // Gold / Amber
-        "motte" => Color32::from_rgb(239, 68, 68),       // Crimson
-        "barbarian" => Color32::from_rgb(59, 130, 246),  // Steel Blue
-        "gathering" => Color32::from_rgb(16, 185, 129),  // Emerald
-        _ => Color32::from_rgb(148, 163, 184),           // Slate
+        "fort" => Color32::from_rgb(245, 158, 11),
+        "motte" => Color32::from_rgb(239, 68, 68),
+        "barbarian" => Color32::from_rgb(59, 130, 246),
+        "gathering" => Color32::from_rgb(16, 185, 129),
+        _ => Color32::from_rgb(148, 163, 184),
     }
 }
 
@@ -98,12 +98,10 @@ pub fn compute_idle_dim_factor(last_arrival: std::time::Instant) -> f32 {
     } else if elapsed >= 23.0 {
         0.65
     } else {
-        // Linear transition from 1.0 down to 0.65 over 3 seconds
         let progress = (elapsed - 20.0) / 3.0;
         1.0 - (progress * 0.35)
     }
 }
-
 
 pub fn compute_overlay_card_style(
     opacity: f32,
@@ -184,7 +182,6 @@ pub fn render_overlay_viewport(
                         bottom: pad_v,
                     })
                     .show(ui, |ui| {
-                        // Line 1: [TAG] Target (left) ... Time (right)
                         ui.horizontal(|ui| {
                             ui.spacing_mut().item_spacing = egui::vec2(4.0, 0.0);
                             ui.label(
@@ -211,7 +208,6 @@ pub fn render_overlay_viewport(
                             });
                         });
 
-                        // Line 2: Coordinates, % Damage, and top loot
                         ui.horizontal(|ui| {
                             ui.spacing_mut().item_spacing = egui::vec2(3.0, 0.0);
                             ui.label(
@@ -239,7 +235,6 @@ pub fn render_overlay_viewport(
                         });
                     });
 
-                // Vertical 3px left accent bar matching battle type
                 let r = card_resp.response.rect;
                 let accent_rect = egui::Rect::from_min_max(
                     egui::pos2(r.min.x, r.min.y),
@@ -319,13 +314,10 @@ mod tests {
     #[test]
     fn test_compute_idle_dim_factor() {
         let now = std::time::Instant::now();
-        // Fresh report (under 20s) -> 1.0 full opacity
         assert_eq!(compute_idle_dim_factor(now), 1.0);
-        // Old report (> 20s) -> 0.65 dimmed opacity
         let past = now - std::time::Duration::from_secs(30);
         assert!((compute_idle_dim_factor(past) - 0.65).abs() < 0.01);
     }
-
 
     #[test]
     fn test_card_accent_color_mapping() {
@@ -345,31 +337,25 @@ mod tests {
 
     #[test]
     fn test_compute_overlay_card_style_transparency_scaling() {
-        // Zero opacity is completely transparent
         let (bg_0, _, _) = compute_overlay_card_style(0.0, 1.0);
         assert_eq!(bg_0.a(), 0);
 
-        // 30% opacity has translucent alpha
         let (bg_30, stroke_30, _) = compute_overlay_card_style(0.3, 1.0);
         assert!(bg_30.a() > 50 && bg_30.a() < 100, "Alpha at 0.3 should be ~72, got {}", bg_30.a());
         assert!(stroke_30.color.a() > 50 && stroke_30.color.a() < 100);
 
-        // 50% opacity has medium alpha
         let (bg_50, stroke_50, _) = compute_overlay_card_style(0.5, 1.0);
         assert!(bg_50.a() > 100 && bg_50.a() < 140, "Alpha at 0.5 should be ~120, got {}", bg_50.a());
         assert!(stroke_50.color.a() > 100 && stroke_50.color.a() < 140);
 
-        // 100% opacity is solid dark card
         let (bg_100, stroke_100, _) = compute_overlay_card_style(1.0, 1.0);
         assert_eq!(bg_100.a(), 240);
         assert_eq!(stroke_100.color.a(), 255);
 
-        // Monotonic scaling: 0.0 < 0.3 < 0.5 < 1.0
         assert!(bg_0.a() < bg_30.a());
         assert!(bg_30.a() < bg_50.a());
         assert!(bg_50.a() < bg_100.a());
 
-        // Idle dimming scales alpha downward
         let (bg_dimmed, _, _) = compute_overlay_card_style(1.0, 0.65);
         assert!(bg_dimmed.a() < bg_100.a(), "Dimmed alpha {} should be less than active alpha {}", bg_dimmed.a(), bg_100.a());
     }

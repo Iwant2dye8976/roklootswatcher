@@ -13,7 +13,6 @@ use crate::model::{
 use crate::tray::SystemTrayManager;
 use crate::watcher::{detect_default_mail_dir, RoKMailWatcher, WatcherStatus, WatcherUiEvent};
 
-// Slate & Charcoal Minimalist Analytics Design System Theme Colors
 #[derive(Clone, Copy, Debug)]
 pub struct ThemeColors {
     #[allow(dead_code)]
@@ -54,70 +53,70 @@ impl ThemeColors {
     pub fn dark() -> Self {
         Self {
             is_dark: true,
-            ink: Color32::from_rgb(0x11, 0x13, 0x17),              // #111317 - App deep base ground
-            ink_deep: Color32::from_rgb(0x18, 0x1b, 0x20),         // #181b20 - Content panel surface
-            card_surface: Color32::from_rgb(0x1e, 0x22, 0x2a),     // #1e222a - Elevated card surface
-            sidebar_bg: Color32::from_rgb(0x14, 0x16, 0x1b),       // #14161b - Sleek sidebar
-            primary: Color32::from_rgb(0x25, 0x2a, 0x34),          // #252a34 - Action button
-            primary_pressed: Color32::from_rgb(0x32, 0x38, 0x46),  // #323846 - Active action
-            brand_mark: Color32::from_rgb(0xf4, 0x3f, 0x5e),       // #f43f5e - Vibrant Ruby Rose
-            canvas_tint: Color32::from_rgb(0xf1, 0xf5, 0xf9),      // #f1f5f9 - Clean crisp text
-            hairline: Color32::from_rgb(0x28, 0x2d, 0x37),         // #282d37 - Subtle rule / border
-            field_border: Color32::from_rgb(0x38, 0x3f, 0x4e),     // #383f4e - Input border
-            accent_gold: Color32::from_rgb(0xf5, 0x9e, 0x0b),      // #f59e0b - Amber gold for Fort / Gems
-            accent_gold_soft: Color32::from_rgb(0xfb, 0xbf, 0x24), // #fbbf24 - Soft amber
-            focus_teal: Color32::from_rgb(0x06, 0xb6, 0xd4),       // #06b6d4 - Cyan focus & links
-            status_green: Color32::from_rgb(0x10, 0xb9, 0x81),     // #10b981 - Emerald active status
-            text_muted: Color32::from_rgb(0x94, 0xa3, 0xb8),       // #94a3b8 - Slate-400 secondary text
-            error: Color32::from_rgb(0xef, 0x44, 0x44),            // #ef4444 - Coral error
-            motte_accent: Color32::from_rgb(0xf4, 0x3f, 0x5e),     // Rose-500 Motte
-            fort_accent: Color32::from_rgb(0xf5, 0x9e, 0x0b),      // Amber-500 Fort
-            barb_accent: Color32::from_rgb(0x10, 0xb9, 0x81),      // Emerald-500 Barbarian
-            crystal_cyan: Color32::from_rgb(0x06, 0xb6, 0xd4),     // Cyan Crystal
-            speedup_purple: Color32::from_rgb(0xa8, 0x55, 0xf7),   // Purple Speedups
-            train_orange: Color32::from_rgb(0xfb, 0x92, 0x3c),     // Orange-400 Training Speedup
-            heal_blue: Color32::from_rgb(0x38, 0xbd, 0xf8),        // Sky-400 Healing Speedup
-            log_bg: Color32::from_rgb(0x0d, 0x0f, 0x14),           // Deep terminal black
-            mat_iron: Color32::from_rgb(0x94, 0xa3, 0xb8),         // Slate-400 Iron Ore
-            mat_ebony: Color32::from_rgb(0x34, 0xd3, 0x99),        // Emerald-400 Ebony
-            mat_bone: Color32::from_rgb(0xf4, 0x72, 0xb6),         // Pink-400 Bone
-            rank_silver: Color32::from_rgb(0xc0, 0xc0, 0xc0),      // Silver
-            rank_bronze: Color32::from_rgb(0xcd, 0x7f, 0x32),      // Bronze
+            ink: Color32::from_rgb(0x11, 0x13, 0x17),
+            ink_deep: Color32::from_rgb(0x18, 0x1b, 0x20),
+            card_surface: Color32::from_rgb(0x1e, 0x22, 0x2a),
+            sidebar_bg: Color32::from_rgb(0x14, 0x16, 0x1b),
+            primary: Color32::from_rgb(0x25, 0x2a, 0x34),
+            primary_pressed: Color32::from_rgb(0x32, 0x38, 0x46),
+            brand_mark: Color32::from_rgb(0xf4, 0x3f, 0x5e),
+            canvas_tint: Color32::from_rgb(0xf1, 0xf5, 0xf9),
+            hairline: Color32::from_rgb(0x28, 0x2d, 0x37),
+            field_border: Color32::from_rgb(0x38, 0x3f, 0x4e),
+            accent_gold: Color32::from_rgb(0xf5, 0x9e, 0x0b),
+            accent_gold_soft: Color32::from_rgb(0xfb, 0xbf, 0x24),
+            focus_teal: Color32::from_rgb(0x06, 0xb6, 0xd4),
+            status_green: Color32::from_rgb(0x10, 0xb9, 0x81),
+            text_muted: Color32::from_rgb(0x94, 0xa3, 0xb8),
+            error: Color32::from_rgb(0xef, 0x44, 0x44),
+            motte_accent: Color32::from_rgb(0xf4, 0x3f, 0x5e),
+            fort_accent: Color32::from_rgb(0xf5, 0x9e, 0x0b),
+            barb_accent: Color32::from_rgb(0x10, 0xb9, 0x81),
+            crystal_cyan: Color32::from_rgb(0x06, 0xb6, 0xd4),
+            speedup_purple: Color32::from_rgb(0xa8, 0x55, 0xf7),
+            train_orange: Color32::from_rgb(0xfb, 0x92, 0x3c),
+            heal_blue: Color32::from_rgb(0x38, 0xbd, 0xf8),
+            log_bg: Color32::from_rgb(0x0d, 0x0f, 0x14),
+            mat_iron: Color32::from_rgb(0x94, 0xa3, 0xb8),
+            mat_ebony: Color32::from_rgb(0x34, 0xd3, 0x99),
+            mat_bone: Color32::from_rgb(0xf4, 0x72, 0xb6),
+            rank_silver: Color32::from_rgb(0xc0, 0xc0, 0xc0),
+            rank_bronze: Color32::from_rgb(0xcd, 0x7f, 0x32),
         }
     }
 
     pub fn light() -> Self {
         Self {
             is_dark: false,
-            ink: Color32::from_rgb(0xf8, 0xfa, 0xfc),              // Slate-50 clean light background
-            ink_deep: Color32::from_rgb(0xff, 0xff, 0xff),         // Crisp pure white cards
-            card_surface: Color32::from_rgb(0xff, 0xff, 0xff),     // Pure white for elevated cards
-            sidebar_bg: Color32::from_rgb(0xf1, 0xf5, 0xf9),       // Slate-100 sidebar
-            primary: Color32::from_rgb(0xf1, 0xf5, 0xf9),          // Slate-100 button background
-            primary_pressed: Color32::from_rgb(0xe2, 0xe8, 0xf0),  // Slate-200 active button
-            brand_mark: Color32::from_rgb(0xbe, 0x12, 0x3c),       // Rose-700 vibrant brand (>5.5:1)
-            canvas_tint: Color32::from_rgb(0x0f, 0x17, 0x2a),      // Slate-900 crisp high-contrast text (>16:1)
-            hairline: Color32::from_rgb(0xe2, 0xe8, 0xf0),         // Slate-200 clean border
-            field_border: Color32::from_rgb(0xcb, 0xd5, 0xe1),     // Slate-300 input border
-            accent_gold: Color32::from_rgb(0xb4, 0x53, 0x09),      // Amber-700 rich gold (>5.2:1)
-            accent_gold_soft: Color32::from_rgb(0x92, 0x40, 0x0e), // Amber-800 deep amber
-            focus_teal: Color32::from_rgb(0x03, 0x69, 0xa1),       // Sky-700 deep cyan/teal (>6.2:1)
-            status_green: Color32::from_rgb(0x04, 0x78, 0x57),     // Emerald-700 crisp status (>5.1:1)
-            text_muted: Color32::from_rgb(0x47, 0x55, 0x69),       // Slate-600 readable secondary text (>7.5:1)
-            error: Color32::from_rgb(0xb9, 0x1c, 0x1c),            // Red-700 authoritative error (>6.1:1)
-            motte_accent: Color32::from_rgb(0xbe, 0x12, 0x3c),     // Rose-700 Motte (>5.5:1)
-            fort_accent: Color32::from_rgb(0xb4, 0x53, 0x09),      // Amber-700 Fort (>5.2:1)
-            barb_accent: Color32::from_rgb(0x04, 0x78, 0x57),      // Emerald-700 Barbarian (>5.1:1)
-            crystal_cyan: Color32::from_rgb(0x0e, 0x74, 0x90),     // Cyan-700 Crystal (>5.2:1)
-            speedup_purple: Color32::from_rgb(0x7e, 0x22, 0xce),   // Purple-700 Speedups (>5.6:1)
-            train_orange: Color32::from_rgb(0xc2, 0x41, 0x0c),     // Orange-700 Training (>5.8:1)
-            heal_blue: Color32::from_rgb(0x03, 0x69, 0xa1),        // Sky-700 Healing (>6.2:1)
-            log_bg: Color32::from_rgb(0xff, 0xff, 0xff),           // Pure white terminal card
-            mat_iron: Color32::from_rgb(0x47, 0x55, 0x69),         // Slate-600 Iron Ore (>7.5:1)
-            mat_ebony: Color32::from_rgb(0x04, 0x78, 0x57),        // Emerald-700 Ebony (>5.1:1)
-            mat_bone: Color32::from_rgb(0xbe, 0x18, 0x5d),         // Pink-700 Bone (>5.5:1)
-            rank_silver: Color32::from_rgb(0x47, 0x55, 0x69),      // Slate-600 Silver rank (>7.5:1)
-            rank_bronze: Color32::from_rgb(0x9a, 0x34, 0x12),      // Amber-800 Bronze rank (>6.0:1)
+            ink: Color32::from_rgb(0xf8, 0xfa, 0xfc),
+            ink_deep: Color32::from_rgb(0xff, 0xff, 0xff),
+            card_surface: Color32::from_rgb(0xff, 0xff, 0xff),
+            sidebar_bg: Color32::from_rgb(0xf1, 0xf5, 0xf9),
+            primary: Color32::from_rgb(0xf1, 0xf5, 0xf9),
+            primary_pressed: Color32::from_rgb(0xe2, 0xe8, 0xf0),
+            brand_mark: Color32::from_rgb(0xbe, 0x12, 0x3c),
+            canvas_tint: Color32::from_rgb(0x0f, 0x17, 0x2a),
+            hairline: Color32::from_rgb(0xe2, 0xe8, 0xf0),
+            field_border: Color32::from_rgb(0xcb, 0xd5, 0xe1),
+            accent_gold: Color32::from_rgb(0xb4, 0x53, 0x09),
+            accent_gold_soft: Color32::from_rgb(0x92, 0x40, 0x0e),
+            focus_teal: Color32::from_rgb(0x03, 0x69, 0xa1),
+            status_green: Color32::from_rgb(0x04, 0x78, 0x57),
+            text_muted: Color32::from_rgb(0x47, 0x55, 0x69),
+            error: Color32::from_rgb(0xb9, 0x1c, 0x1c),
+            motte_accent: Color32::from_rgb(0xbe, 0x12, 0x3c),
+            fort_accent: Color32::from_rgb(0xb4, 0x53, 0x09),
+            barb_accent: Color32::from_rgb(0x04, 0x78, 0x57),
+            crystal_cyan: Color32::from_rgb(0x0e, 0x74, 0x90),
+            speedup_purple: Color32::from_rgb(0x7e, 0x22, 0xce),
+            train_orange: Color32::from_rgb(0xc2, 0x41, 0x0c),
+            heal_blue: Color32::from_rgb(0x03, 0x69, 0xa1),
+            log_bg: Color32::from_rgb(0xff, 0xff, 0xff),
+            mat_iron: Color32::from_rgb(0x47, 0x55, 0x69),
+            mat_ebony: Color32::from_rgb(0x04, 0x78, 0x57),
+            mat_bone: Color32::from_rgb(0xbe, 0x18, 0x5d),
+            rank_silver: Color32::from_rgb(0x47, 0x55, 0x69),
+            rank_bronze: Color32::from_rgb(0x9a, 0x34, 0x12),
         }
     }
 }
@@ -203,8 +202,6 @@ pub struct RoKLootWatcherApp {
     overlay_last_opacity: Option<f32>,
     pending_overlay_save: bool,
     pending_start_minimized_frames: u32,
-    is_armored: bool,
-    pending_armor_check: Option<std::sync::mpsc::Receiver<bool>>,
     _single_instance: Option<crate::single_instance::windows::SingleInstanceGuard>,
 
     pub cloud_auth: crate::model::CloudAuthConfig,
@@ -213,7 +210,6 @@ pub struct RoKLootWatcherApp {
     cloud_busy: bool,
     pending_auto_backup: Option<std::time::Instant>,
 
-    // UI Frame-Rate Caching (Audit Items #7, #8, #11)
     pub cached_overlay_records: Vec<BattleRecord>,
     pub cached_sorted_battle_indices: Vec<usize>,
     pub reports_sort_dirty: bool,
@@ -441,23 +437,6 @@ pub fn resolve_status_badge(
     }
 }
 
-pub(crate) fn poll_armor_check_channel(
-    pending_armor_check: &mut Option<std::sync::mpsc::Receiver<bool>>,
-    is_armored: &mut bool,
-) {
-    if let Some(ref rx) = pending_armor_check {
-        match rx.try_recv() {
-            Ok(armored) => {
-                *is_armored = armored;
-                *pending_armor_check = None;
-            }
-            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                *pending_armor_check = None;
-            }
-            Err(std::sync::mpsc::TryRecvError::Empty) => {}
-        }
-    }
-}
 
 pub(crate) fn poll_cloud_receiver<T>(
     rx_opt: &mut Option<std::sync::mpsc::Receiver<T>>,
@@ -491,7 +470,6 @@ impl RoKLootWatcherApp {
             .unwrap_or_else(|_| r"C:\Windows".to_string());
         let fonts_dir = PathBuf::from(win_dir).join("Fonts");
 
-        // 1. Phông chữ Proportional chính (Segoe UI - chuẩn Windows với đầy đủ dấu tiếng Việt)
         let proportional_candidates = [
             ("segoe_ui", fonts_dir.join("segoeui.ttf")),
             ("arial", fonts_dir.join("arial.ttf")),
@@ -518,7 +496,6 @@ impl RoKLootWatcherApp {
                 .insert(0, name);
         }
 
-        // 2. Phông chữ Monospace (Consolas / Lucida Console)
         let mono_candidates = [
             ("consolas", fonts_dir.join("consola.ttf")),
             ("lucida_console", fonts_dir.join("lucon.ttf")),
@@ -538,7 +515,6 @@ impl RoKLootWatcherApp {
             }
         }
 
-        // 3. Phông chữ biểu tượng hệ thống (Segoe UI Symbol / Emoji nếu có)
         let emoji_path = fonts_dir.join("seguiemj.ttf");
         if let Ok(font_bytes) = std::fs::read(&emoji_path) {
             fonts.font_data.insert(
@@ -579,7 +555,6 @@ impl RoKLootWatcherApp {
         let initial_path = watcher.get_mail_dir().to_string_lossy().to_string();
         let initial_mode = watcher.get_mode();
 
-        // Start watcher initial scan
         watcher.start(true);
 
         let config = AppConfig::load();
@@ -587,16 +562,6 @@ impl RoKLootWatcherApp {
         let initial_close_behavior = config.close_behavior;
         let initial_theme = config.theme;
         let initial_language = config.language;
-
-        // Kiểm tra quyền khóa ghi mailcache ở luồng nền để tránh block main thread (icacls) khi khởi động
-        let (armor_tx, armor_rx) = std::sync::mpsc::channel();
-        let mail_dir_clone = watcher.get_mail_dir();
-        let _ = std::thread::Builder::new()
-            .name("rok-armor-check".into())
-            .spawn(move || {
-                let armored = crate::armor::is_mailcache_armored(&mail_dir_clone);
-                let _ = armor_tx.send(armored);
-            });
 
         if let Some(ref tray_mgr) = tray {
             tray_mgr.setup_event_handlers(cc.egui_ctx.clone(), Arc::clone(&watcher));
@@ -675,8 +640,6 @@ impl RoKLootWatcherApp {
             overlay_last_opacity: None,
             pending_overlay_save: false,
             pending_start_minimized_frames: if start_minimized { 5 } else { 0 },
-            is_armored: false,
-            pending_armor_check: Some(armor_rx),
             _single_instance: single_instance,
 
             cloud_auth: config.cloud_auth.clone(),
@@ -776,9 +739,6 @@ impl RoKLootWatcherApp {
         had_events
     }
 
-    fn poll_armor_check(&mut self) {
-        poll_armor_check_channel(&mut self.pending_armor_check, &mut self.is_armored);
-    }
 
     fn poll_cloud_events(&mut self, ctx: &egui::Context) {
         if let Some(deadline) = self.pending_auto_backup {
@@ -1122,7 +1082,6 @@ impl RoKLootWatcherApp {
     fn render_sidebar(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         let c = self.colors();
 
-        // 1. App Logo & Brand Header
         ui.add_space(4.0);
         ui.horizontal(|ui| {
             ui.vertical(|ui| {
@@ -1160,7 +1119,6 @@ impl RoKLootWatcherApp {
         ui.separator();
         ui.add_space(8.0);
 
-        // 2. Navigation Items
         let nav_items = [
             (0, self.language.t(TrKey::NavDashboardTitle), self.language.t(TrKey::NavDashboardDesc)),
             (1, self.language.t(TrKey::NavBattlesTitle), self.language.t(TrKey::NavBattlesDesc)),
@@ -1213,11 +1171,9 @@ impl RoKLootWatcherApp {
             ui.add_space(4.0);
         }
 
-        // 3. Bottom Widget: Watcher Status & Unified Control Dock
         ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
             ui.add_space(4.0);
 
-            // Elevated Control Dock Card
             egui::Frame::none()
                 .fill(c.card_surface)
                 .rounding(Rounding::same(8.0))
@@ -1234,7 +1190,6 @@ impl RoKLootWatcherApp {
                     let vault_count = self.watcher.get_vault_total_count();
                     let vault_txt = self.language.t(TrKey::StatusVaultCount).replace("{}", &format_num(vault_count));
 
-                    // Header row: Live status badge (left) & Vault counter (right)
                     ui.horizontal(|ui| {
                         ui.label(
                             egui::RichText::new(&badge_text)
@@ -1263,12 +1218,10 @@ impl RoKLootWatcherApp {
 
                     ui.add_space(6.0);
 
-                    // 2x2 Control Grid
                     let col_gap = 4.0;
                     let btn_w = ((ui.available_width() - col_gap) / 2.0).max(40.0);
                     let btn_h = 26.0;
 
-                    // Row 1: Scan & Pause/Resume
                     ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = col_gap;
 
@@ -1332,7 +1285,6 @@ impl RoKLootWatcherApp {
 
                     ui.add_space(4.0);
 
-                    // Row 2: Light/Dark Theme & Minimize to Tray
                     ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = col_gap;
 
@@ -1389,7 +1341,6 @@ impl RoKLootWatcherApp {
             .auto_shrink([false, false])
             .id_salt("dashboard_main_scroll")
             .show(ui, |ui| {
-            // Dashboard Header
             ui.vertical(|ui| {
                 ui.label(
                     egui::RichText::new(self.language.t(TrKey::DashboardTitle))
@@ -1407,14 +1358,12 @@ impl RoKLootWatcherApp {
 
             ui.add_space(10.0);
 
-            // Dashboard Inline Filter Toolbar: Report Type, Speedup Unit & Date Filter
             egui::Frame::none()
                 .fill(c.card_surface)
                 .stroke(Stroke::new(1.0_f32, c.hairline))
                 .rounding(Rounding::same(6.0))
                 .inner_margin(Margin::symmetric(12.0, 8.0))
                 .show(ui, |ui| {
-                    // Row 1: Loại báo cáo & Thời gian
                     ui.horizontal(|ui| {
                         ui.label(egui::RichText::new(self.language.t(TrKey::FilterReportType)).strong().color(c.canvas_tint));
                         let prev_mode = self.selected_mode;
@@ -1487,7 +1436,6 @@ impl RoKLootWatcherApp {
 
                     ui.add_space(6.0);
 
-                    // Row 2: Chuyển đổi đơn vị Tăng tốc (Phút / Giờ / Ngày / DHM)
                     ui.horizontal(|ui| {
                         ui.label(egui::RichText::new(self.language.t(TrKey::SpeedupUnitChange)).strong().color(c.canvas_tint));
                         let prev_unit = self.speedup_unit;
@@ -1527,7 +1475,6 @@ impl RoKLootWatcherApp {
 
             ui.add_space(12.0);
 
-            // Compute statistics with guaranteed up-to-date filter mode and speedup unit
             let stats = self.watcher.get_stats();
             let total_battles = stats.total_battles;
             let res = stats.compute_resources();
@@ -1538,7 +1485,6 @@ impl RoKLootWatcherApp {
             let (univ_spd_val, univ_spd_unit) =
                 self.speedup_unit.format_kpi(total_spd_mins, self.language);
 
-            // 4 Primary KPI Cards
             let filter_prefix = match self.language {
                 AppLanguage::Vietnamese => "Bộ lọc",
                 AppLanguage::English => "Filter",
@@ -1619,7 +1565,6 @@ impl RoKLootWatcherApp {
 
             ui.add_space(14.0);
 
-            // Distribution Stacked Bar
             let active_records = self.watcher.get_active_records();
             let mut motte_cnt = 0usize;
             let mut fort_cnt = 0usize;
@@ -1697,7 +1642,6 @@ impl RoKLootWatcherApp {
 
             ui.add_space(10.0);
 
-            // AP Economics & Efficiency Analytics Section
             let need_ap_recompute = self.ap_econ_dirty
                 || self.cached_ap_econ.is_none()
                 || active_records.len() != self.last_ap_records_count
@@ -1719,9 +1663,7 @@ impl RoKLootWatcherApp {
 
             ui.add_space(10.0);
 
-            // 2-Column Grid: Top 10 High-value Items (Left) + 5 Latest Battles (Right)
             ui.columns(2, |cols| {
-                // Col 0: Top 10 Items
                 egui::Frame::none()
                     .fill(c.card_surface)
                     .stroke(Stroke::new(1.0_f32, c.hairline))
@@ -1774,7 +1716,6 @@ impl RoKLootWatcherApp {
 
                                     ui.add_space(2.0);
 
-                                    // Segmented progress bar showing source distribution
                                     let pct = (it.total_quantity as f32 / max_qty as f32).clamp(0.04, 1.0);
                                     let bar_height = 5.0;
                                     let (bar_rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), bar_height), egui::Sense::hover());
@@ -1833,7 +1774,6 @@ impl RoKLootWatcherApp {
                                         }
                                     }
 
-                                    // Micro distribution breakdown badges under bar
                                     if !type_breakdown.is_empty() {
                                         ui.add_space(2.0);
                                         ui.horizontal(|ui| {
@@ -1902,7 +1842,6 @@ impl RoKLootWatcherApp {
                         }
                     });
 
-                // Col 1: 5 Latest Battles (Realtime Feed)
                 egui::Frame::none()
                     .fill(c.card_surface)
                     .stroke(Stroke::new(1.0_f32, c.hairline))
@@ -2029,7 +1968,6 @@ impl RoKLootWatcherApp {
         ap_econ: &crate::analyzer::ApEconomics,
         c: &ThemeColors,
     ) {
-        // Section Header Badge
         ui.horizontal(|ui| {
             ui.label(
                 egui::RichText::new("[AP ECONOMY]")
@@ -2046,7 +1984,6 @@ impl RoKLootWatcherApp {
         });
         ui.add_space(6.0);
 
-        // 1. AP Economics 4-Card Metric Strip
         let (rebate_str, net_ap_str, spd_rate_sub, gem_sub) = match self.language {
             AppLanguage::Vietnamese => (
                 format!("+{:.1}% hoàn lại", ap_econ.rebate_pct),
@@ -2131,11 +2068,9 @@ impl RoKLootWatcherApp {
 
         ui.add_space(6.0);
 
-        // 2. Visual Analytics 2-Column Grid: 7-Day Timeline Chart (Left) + Target ROI Matrix (Right)
         const BENCHMARK_CARD_HEIGHT: f32 = 160.0;
 
         ui.columns(2, |cols| {
-            // Col 0: 7-Day Parallel Activity Timeline Bar Chart
             egui::Frame::none()
                 .fill(c.card_surface)
                 .stroke(Stroke::new(1.0_f32, c.hairline))
@@ -2188,7 +2123,6 @@ impl RoKLootWatcherApp {
                     let bar_w = (slot_w * 0.30).clamp(4.0, 16.0);
                     let baseline_y = chart_rect.max.y - 18.0;
 
-                    // Baseline stroke
                     painter.line_segment(
                         [
                             egui::pos2(chart_rect.min.x + 4.0, baseline_y),
@@ -2242,7 +2176,6 @@ impl RoKLootWatcherApp {
                             );
                         }
 
-                        // Speedup Bar (Cyan)
                         let spd_bar_h = ((d.speedup_hours / max_spd_h) as f32 * (baseline_y - chart_rect.min.y - 6.0))
                             .max(if d.speedup_hours > 0.0 { 2.0 } else { 0.0 });
                         if spd_bar_h > 0.0 {
@@ -2253,7 +2186,6 @@ impl RoKLootWatcherApp {
                             painter.rect_filled(spd_rect, Rounding::same(2.0), c.crystal_cyan);
                         }
 
-                        // AP Burn Bar (Orange)
                         let ap_bar_h = ((d.ap_consumed as f64 / max_ap) as f32 * (baseline_y - chart_rect.min.y - 6.0))
                             .max(if d.ap_consumed > 0 { 2.0 } else { 0.0 });
                         if ap_bar_h > 0.0 {
@@ -2264,7 +2196,6 @@ impl RoKLootWatcherApp {
                             painter.rect_filled(ap_rect, Rounding::same(2.0), c.train_orange);
                         }
 
-                        // Date label below baseline
                         let display_date = if d.date_label == "Today" {
                             match self.language {
                                 AppLanguage::Vietnamese => "Hôm nay",
@@ -2283,7 +2214,6 @@ impl RoKLootWatcherApp {
                         );
                     }
 
-                    // Tooltip on hover
                     if let Some(idx) = hovered_day {
                         let d = &ap_econ.daily_timeline[idx];
                         let display_date = if d.date_label == "Today" {
@@ -2310,7 +2240,6 @@ impl RoKLootWatcherApp {
                     }
                 });
 
-            // Col 1: Target ROI Benchmark Matrix Table
             egui::Frame::none()
                 .fill(c.card_surface)
                 .stroke(Stroke::new(1.0_f32, c.hairline))
@@ -2351,7 +2280,6 @@ impl RoKLootWatcherApp {
                         .show(ui, |ui| {
                             ui.set_width(table_w);
 
-                            // Table Header
                             ui.horizontal(|ui| {
                                 ui.spacing_mut().item_spacing.x = 4.0;
                                 ui.add_sized([col_target, 18.0], egui::Label::new(egui::RichText::new(hdr_target).font(egui::FontId::proportional(10.0)).strong().color(c.text_muted)).truncate().halign(egui::Align::LEFT));
@@ -2363,7 +2291,6 @@ impl RoKLootWatcherApp {
                             });
                             ui.add_space(2.0);
 
-                            // Scrollable Benchmark Rows
                             let rows_h = (BENCHMARK_CARD_HEIGHT - 44.0).max(80.0);
                             egui::ScrollArea::vertical()
                                 .id_salt("benchmark_rows_vscroll")
@@ -2406,7 +2333,6 @@ impl RoKLootWatcherApp {
                                                 };
                                                 ui.add_sized([col_cov, 20.0], egui::Label::new(egui::RichText::new(cov_str).font(egui::FontId::monospace(10.0)).color(if b.battle_count > 0 && is_fort_or_motte { c.accent_gold } else { c.text_muted })).truncate().halign(egui::Align::Center));
 
-                                                // Tier Badge (TierMaker classic palette)
                                                 let (badge_bg, badge_fg) = match b.tier_badge {
                                                     "TIER S+" => (Color32::from_rgb(255, 77, 77).linear_multiply(0.22), Color32::from_rgb(255, 95, 95)),
                                                     "TIER S" => (Color32::from_rgb(255, 127, 127).linear_multiply(0.22), Color32::from_rgb(255, 140, 140)),
@@ -2446,14 +2372,12 @@ impl RoKLootWatcherApp {
     fn render_view_battles(&mut self, ui: &mut egui::Ui) {
         let c = self.colors();
 
-        // 1. Inline Toolbar
         egui::Frame::none()
             .fill(c.card_surface)
             .stroke(Stroke::new(1.0_f32, c.hairline))
             .rounding(Rounding::same(6.0))
             .inner_margin(Margin::symmetric(12.0, 8.0))
             .show(ui, |ui| {
-                // Row 1: Target Mode & Date Filter
                 ui.horizontal(|ui| {
                     ui.label(egui::RichText::new(self.language.t(TrKey::FilterReportType)).strong().color(c.canvas_tint));
                     let prev_mode = self.selected_mode;
@@ -2527,7 +2451,6 @@ impl RoKLootWatcherApp {
 
                 ui.add_space(6.0);
 
-                // Row 2: Search, Speedup Unit & Export Actions
                 ui.horizontal(|ui| {
                     ui.label(egui::RichText::new(self.language.t(TrKey::SearchLabel)).strong().color(c.canvas_tint));
                     ui.add_sized([220.0, 22.0], egui::TextEdit::singleline(&mut self.battle_search).hint_text(self.language.t(TrKey::SearchPlaceholder)));
@@ -2564,7 +2487,6 @@ impl RoKLootWatcherApp {
         let is_barb = self.selected_mode == FilterMode::Barbarian;
         let is_gathering = self.selected_mode == FilterMode::Gathering;
 
-        // Precise Responsive Layout Metrics
         const TABLE_PAD_X: f32 = 8.0;
         const ITEM_SPACING_X: f32 = 6.0;
 
@@ -2572,13 +2494,11 @@ impl RoKLootWatcherApp {
         const COL_TIME: f32 = 116.0;
         const COL_DMG: f32 = 48.0;
 
-        // Gathering specific columns
         const COL_GATHER_LVL: f32 = 60.0;
         const COL_GATHER_RES: f32 = 80.0;
         const COL_GATHER_TOTAL: f32 = 110.0;
         const COL_GATHER_BONUS: f32 = 100.0;
 
-        // Barbarian specific columns (NOW INCLUDES PHA LÊ!)
         const COL_BARB_CRY: f32 = 100.0;
         const COL_BARB_RES: f32 = 100.0;
         const COL_BARB_EXP: f32 = 58.0;
@@ -2587,7 +2507,6 @@ impl RoKLootWatcherApp {
         const COL_BARB_HEAL: f32 = 100.0;
         const COL_BARB_ARROW: f32 = 60.0;
 
-        // Motte / Fort columns
         const COL_TIER: f32 = 48.0;
         const COL_CRY: f32 = 100.0;
         const COL_PACKS: f32 = 70.0;
@@ -2611,7 +2530,6 @@ impl RoKLootWatcherApp {
         let col_target = dimensions.target_width;
         let extra_per_column = dimensions.extra_per_column;
 
-        // Table Header
         let mut toggle_sort_col = None;
 
         egui::Frame::none()
@@ -3034,7 +2952,6 @@ impl RoKLootWatcherApp {
         let stats = self.watcher.get_stats();
         let total_battles = stats.total_battles.max(1);
 
-        // 1. Inventory Toolbar
         egui::Frame::none()
             .fill(c.card_surface)
             .stroke(Stroke::new(1.0_f32, c.hairline))
@@ -3069,7 +2986,6 @@ impl RoKLootWatcherApp {
 
         ui.add_space(8.0);
 
-        // 2. Resource breakdown banner if resources exist
         let res = stats.compute_resources();
         if res.total_rss_val() > 0 {
             egui::Frame::none()
@@ -3174,7 +3090,6 @@ impl RoKLootWatcherApp {
             ui.add_space(8.0);
         }
 
-        // 3. Material & AP breakdown banner if materials or AP exist
         let mats = stats.compute_materials();
         let ap = stats.compute_ap();
         if mats.total_pieces() > 0 || ap.total_bottles() > 0 {
@@ -3358,7 +3273,6 @@ impl RoKLootWatcherApp {
             });
         }
 
-        // Inventory Table Responsive Metrics
         const INV_PAD_X: f32 = 8.0;
         const INV_SPACING_X: f32 = 6.0;
 
@@ -3371,7 +3285,6 @@ impl RoKLootWatcherApp {
         const COL_MAX: f32 = 62.0;
 
         let avail_w = ui.available_width();
-        // 8 items total, 7 gaps
         let inv_fixed_w = COL_CAT
             + COL_TOTAL
             + COL_CONV
@@ -3525,7 +3438,6 @@ impl RoKLootWatcherApp {
                             Stroke::new(1.0_f32, c.focus_teal.linear_multiply(0.40)),
                         );
                     } else if idx % 2 == 1 {
-                        // Subtle alternating row zebra stripe for scanning wide tables
                         ui.painter().rect_filled(
                             row_rect,
                             Rounding::same(4.0),
@@ -3661,9 +3573,7 @@ impl RoKLootWatcherApp {
             .inner_margin(Margin::symmetric(16.0, 14.0));
 
         ui.columns(2, |cols| {
-            // Left Column: Configuration & Controls
             egui::ScrollArea::vertical().auto_shrink([false, false]).show(&mut cols[0], |ui| {
-                // Card 1: Mail Folder
                 card_frame.show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.label(
@@ -3681,7 +3591,6 @@ impl RoKLootWatcherApp {
                     );
                     ui.add_space(10.0);
 
-                    // TextEdit path input with custom frame
                     let text_edit = ui.add_sized(
                         [ui.available_width(), 26.0],
                         egui::TextEdit::singleline(&mut self.mail_path_input)
@@ -3695,7 +3604,6 @@ impl RoKLootWatcherApp {
 
                     ui.add_space(10.0);
 
-                    // Action buttons in a clean 2-row layout
                     ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = 8.0;
 
@@ -3776,7 +3684,6 @@ impl RoKLootWatcherApp {
 
                 ui.add_space(12.0);
 
-                // Card 2: Scan Actions
                 card_frame.show(ui, |ui| {
                     ui.label(
                         egui::RichText::new(format!("{}", self.language.t(TrKey::SettingsCardScanTitle)))
@@ -3833,7 +3740,6 @@ impl RoKLootWatcherApp {
 
                 ui.add_space(12.0);
 
-                // Card 3: In-Game Overlay (Rise of Kingdoms)
                 card_frame.show(ui, |ui| {
                     let title = match self.language {
                         AppLanguage::Vietnamese => "HIỂN THỊ ĐÈ TRONG GAME",
@@ -3854,7 +3760,6 @@ impl RoKLootWatcherApp {
                     ui.label(egui::RichText::new(desc).font(egui::FontId::proportional(10.5)).color(c.text_muted));
                     ui.add_space(10.0);
 
-                    // Toggle row with visual badge
                     ui.horizontal(|ui| {
                         let prev_enabled = self.overlay_config.enabled;
                         let toggle_lbl = match self.language {
@@ -3884,7 +3789,6 @@ impl RoKLootWatcherApp {
                         ui.separator();
                         ui.add_space(10.0);
 
-                        // Filter selection
                         let filter_lbl = match self.language {
                             AppLanguage::Vietnamese => "Loại báo cáo:",
                             AppLanguage::English => "Report Filter:",
@@ -3922,7 +3826,6 @@ impl RoKLootWatcherApp {
 
                         ui.add_space(10.0);
 
-                        // D-Pad and Position Controls
                         let pos_lbl = match self.language {
                             AppLanguage::Vietnamese => "Vị trí & Di chuyển:",
                             AppLanguage::English => "Position & Movement:",
@@ -3940,7 +3843,6 @@ impl RoKLootWatcherApp {
                         let mut pos_changed = false;
                         let nudge_step = 0.5_f32;
                         ui.horizontal(|ui| {
-                            // Styled 3x3 D-Pad
                             let dpad_size = [32.0, 26.0];
                             let dpad_btn = |text: &str| {
                                 egui::Button::new(
@@ -3958,7 +3860,6 @@ impl RoKLootWatcherApp {
                             egui::Grid::new("overlay_dpad_grid")
                                 .spacing([4.0, 4.0])
                                 .show(ui, |ui| {
-                                    // Row 1: [ empty ] [  ▲  ] [ empty ]
                                     ui.allocate_space(egui::vec2(dpad_size[0], dpad_size[1]));
                                     let btn_up = ui.add_sized(dpad_size, dpad_btn("▲"));
                                     if btn_up.is_pointer_button_down_on() || btn_up.dragged() || (btn_up.hovered() && ui.input(|i| i.pointer.primary_down())) {
@@ -3968,7 +3869,6 @@ impl RoKLootWatcherApp {
                                     ui.allocate_space(egui::vec2(dpad_size[0], dpad_size[1]));
                                     ui.end_row();
 
-                                    // Row 2: [   ◄   ] [ RoK ] [   ►   ]
                                     let btn_left = ui.add_sized(dpad_size, dpad_btn("◄"));
                                     if btn_left.is_pointer_button_down_on() || btn_left.dragged() || (btn_left.hovered() && ui.input(|i| i.pointer.primary_down())) {
                                         self.overlay_config.offset_x = (self.overlay_config.offset_x - nudge_step).max(0.0);
@@ -3990,7 +3890,6 @@ impl RoKLootWatcherApp {
                                     }
                                     ui.end_row();
 
-                                    // Row 3: [ empty ] [  ▼  ] [ empty ]
                                     ui.allocate_space(egui::vec2(dpad_size[0], dpad_size[1]));
                                     let btn_down = ui.add_sized(dpad_size, dpad_btn("▼"));
                                     if btn_down.is_pointer_button_down_on() || btn_down.dragged() || (btn_down.hovered() && ui.input(|i| i.pointer.primary_down())) {
@@ -4003,7 +3902,6 @@ impl RoKLootWatcherApp {
 
                             ui.add_space(16.0);
 
-                            // Numeric coordinates and reset button
                             ui.vertical(|ui| {
                                 ui.horizontal(|ui| {
                                     ui.label(egui::RichText::new("X:").color(c.text_muted).strong());
@@ -4055,7 +3953,6 @@ impl RoKLootWatcherApp {
 
                         ui.add_space(10.0);
 
-                        // Width slider
                         let width_lbl = match self.language {
                             AppLanguage::Vietnamese => "Chiều rộng lớp phủ:",
                             AppLanguage::English => "Overlay Width:",
@@ -4075,7 +3972,6 @@ impl RoKLootWatcherApp {
 
                         ui.add_space(8.0);
 
-                        // Font size slider
                         let font_lbl = match self.language {
                             AppLanguage::Vietnamese => "Cỡ chữ hiển thị:",
                             AppLanguage::English => "Font Size:",
@@ -4095,7 +3991,6 @@ impl RoKLootWatcherApp {
 
                         ui.add_space(8.0);
 
-                        // Opacity slider (0.0 to 1.0)
                         let opacity_lbl = match self.language {
                             AppLanguage::Vietnamese => "Độ mờ:",
                             AppLanguage::English => "Opacity:",
@@ -4121,7 +4016,6 @@ impl RoKLootWatcherApp {
 
                         ui.add_space(10.0);
 
-                        // Color theme swatches as interactive chip buttons
                         let color_lbl = match self.language {
                             AppLanguage::Vietnamese => "Màu chữ:",
                             AppLanguage::English => "Text Color:",
@@ -4164,7 +4058,6 @@ impl RoKLootWatcherApp {
 
                 ui.add_space(12.0);
 
-                // Card 4: App Behavior & Protection
                 card_frame.show(ui, |ui| {
                     ui.label(
                         egui::RichText::new(format!("{}", self.language.t(TrKey::SettingsCardSystemTitle)))
@@ -4174,7 +4067,6 @@ impl RoKLootWatcherApp {
                     );
                     ui.add_space(10.0);
 
-                    // Language Selector as segmented pills
                     ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = 8.0;
                         ui.label(egui::RichText::new(self.language.t(TrKey::SettingsLanguageLabel)).strong().color(c.canvas_tint));
@@ -4217,7 +4109,6 @@ impl RoKLootWatcherApp {
                     ui.separator();
                     ui.add_space(10.0);
 
-                    // Close behavior segmented pills
                     ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = 8.0;
                         ui.label(egui::RichText::new(self.language.t(TrKey::SettingsCloseBehavior)).strong().color(c.canvas_tint));
@@ -4267,7 +4158,6 @@ impl RoKLootWatcherApp {
                     ui.separator();
                     ui.add_space(10.0);
 
-                    // Autostart setting
                     ui.horizontal(|ui| {
                         let mut autostart = self.autostart;
                         if ui.checkbox(&mut autostart, egui::RichText::new(self.language.t(TrKey::SettingsAutostart)).strong().color(c.canvas_tint))
@@ -4299,7 +4189,6 @@ impl RoKLootWatcherApp {
                         }
                     });
 
-                    // Sub-option: Start minimized
                     if self.autostart {
                         ui.add_space(4.0);
                         ui.horizontal(|ui| {
@@ -4322,65 +4211,10 @@ impl RoKLootWatcherApp {
                             }
                         });
                     }
-
-                    ui.add_space(10.0);
-                    ui.separator();
-                    ui.add_space(10.0);
-
-                    // Deny-Delete Mailcache Armor as an interactive security badge
-                    let armor_label = if self.is_armored {
-                        self.language.t(TrKey::SettingsArmorOn)
-                    } else {
-                        self.language.t(TrKey::SettingsArmorOff)
-                    };
-                    let (armor_stroke, armor_color) = if self.is_armored {
-                        (Stroke::new(1.0_f32, c.status_green.linear_multiply(0.4)), c.status_green)
-                    } else {
-                        (Stroke::new(1.0_f32, c.hairline), c.text_muted)
-                    };
-
-                    let armor_btn = egui::Button::new(
-                        egui::RichText::new(armor_label)
-                            .font(egui::FontId::proportional(11.0))
-                            .strong()
-                            .color(armor_color),
-                    )
-                    .fill(c.primary)
-                    .stroke(armor_stroke)
-                    .rounding(Rounding::same(6.0));
-
-                    if ui.add_sized([ui.available_width(), 30.0], armor_btn)
-                        .on_hover_text(self.language.t(TrKey::SettingsArmorTooltip))
-                        .clicked()
-                    {
-                        let mail_dir = self.watcher.get_mail_dir();
-                        if self.is_armored {
-                            match crate::armor::disable_mailcache_armor(&mail_dir, self.language) {
-                                Ok(msg) => {
-                                    self.watcher.log("SUCCESS", &msg);
-                                    self.is_armored = false;
-                                }
-                                Err(err) => {
-                                    self.watcher.log("ERROR", &err);
-                                }
-                            }
-                        } else {
-                            match crate::armor::enable_mailcache_armor(&mail_dir, self.language) {
-                                Ok(msg) => {
-                                    self.watcher.log("SUCCESS", &msg);
-                                    self.is_armored = true;
-                                }
-                                Err(err) => {
-                                    self.watcher.log("ERROR", &err);
-                                }
-                            }
-                        }
-                    }
                 });
 
                 ui.add_space(12.0);
 
-                // Card 5: Persistent Vault
                 card_frame.show(ui, |ui| {
                     let vault_total = self.watcher.get_vault_total_count();
                     ui.label(
@@ -4391,7 +4225,6 @@ impl RoKLootWatcherApp {
                     );
                     ui.add_space(4.0);
 
-                    // Stat badge
                     let secured_str = self.language.t(TrKey::SettingsVaultSecured).replace("{}", &format_num(vault_total));
                     ui.horizontal(|ui| {
                         ui.label(
@@ -4461,7 +4294,6 @@ impl RoKLootWatcherApp {
 
                 ui.add_space(12.0);
 
-                // Card 6: Cloud Backup & Migration (Supabase + Google OAuth)
                 card_frame.show(ui, |ui| {
                     let title = match self.language {
                         AppLanguage::Vietnamese => "ĐỒNG BỘ CLOUD VỚI GOOGLE & SUPABASE",
@@ -4657,7 +4489,6 @@ impl RoKLootWatcherApp {
                 ui.add_space(8.0);
             });
 
-            // Right Column: Terminal Log Viewer
             egui::Frame::none()
                 .fill(c.log_bg)
                 .stroke(Stroke::new(1.0_f32, c.hairline))
@@ -4757,7 +4588,6 @@ impl RoKLootWatcherApp {
         ui.add_space(8.0);
 
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-            // Target Name & Type
             egui::Frame::none()
                 .fill(c.card_surface)
                 .stroke(Stroke::new(1.0_f32, c.hairline))
@@ -4846,7 +4676,6 @@ impl RoKLootWatcherApp {
 
             ui.add_space(10.0);
 
-            // Summary Badges
             let res = record.total_resources_breakdown();
             if res.total_rss_val() > 0 || res.choice_packs > 0 {
                 egui::Frame::none()
@@ -4956,7 +4785,6 @@ impl RoKLootWatcherApp {
                 ui.add_space(8.0);
             }
 
-            // Items List
             let items_list_label = self.language.t(TrKey::InspectorItemsList).replace("{}", &record.items.len().to_string());
             ui.label(egui::RichText::new(items_list_label).font(egui::FontId::proportional(11.5)).strong().color(c.canvas_tint));
             ui.add_space(6.0);
@@ -5001,30 +4829,23 @@ impl eframe::App for RoKLootWatcherApp {
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Cache native HWND if not yet done
         let _ = crate::tray::get_or_find_main_hwnd();
 
-        // Nhận kết quả kiểm tra trạng thái armor từ luồng nền nếu có
-        self.poll_armor_check();
         self.poll_cloud_events(ctx);
 
-        // Check if an external restore was requested (tray icon clicked, second instance opened, etc.)
         if crate::tray::check_and_clear_restore_request() {
             self.pending_start_minimized_frames = 0;
         }
 
-        // Handle initial autostart minimization
         if self.pending_start_minimized_frames > 0 {
             self.pending_start_minimized_frames -= 1;
             crate::tray::hide_main_window();
         }
 
-        // 1. If exit was requested from tray menu or background signal, terminate cleanly
         if crate::tray::is_quit_requested() {
             self.quit_app();
         }
 
-        // 2. Intercept window close request based on user setting
         if ctx.input(|i| i.viewport().close_requested()) {
             if crate::tray::is_quit_requested() {
                 self.quit_app();
@@ -5045,14 +4866,12 @@ impl eframe::App for RoKLootWatcherApp {
             }
         }
 
-        // 3. Escape key closes side inspector if open
         if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
             self.selected_battle_detail = None;
         }
 
         let had_events = self.poll_watcher_events(ctx);
 
-        // Slate & Charcoal Minimalist Visuals
         let c = self.colors();
         if self.last_applied_theme != Some(self.theme) {
             self.last_applied_theme = Some(self.theme);
@@ -5108,7 +4927,6 @@ impl eframe::App for RoKLootWatcherApp {
         }
 
         if !crate::tray::is_hidden_to_tray() {
-            // Left Sidebar Navigation
             egui::SidePanel::left("left_sidebar_panel")
                 .exact_width(220.0)
                 .resizable(false)
@@ -5117,7 +4935,6 @@ impl eframe::App for RoKLootWatcherApp {
                     self.render_sidebar(ui, ctx);
                 });
 
-            // Slide-over Side Inspector Panel (if battle detail is selected)
             let mut close_inspector = false;
             let inspector_record = self.selected_battle_detail.clone();
             if let Some(ref record) = inspector_record {
@@ -5133,7 +4950,6 @@ impl eframe::App for RoKLootWatcherApp {
                 self.selected_battle_detail = None;
             }
 
-            // Central Content Area
             egui::CentralPanel::default()
                 .frame(egui::Frame::none().fill(c.ink).inner_margin(Margin::same(16.0)))
                 .show(ctx, |ui| {
@@ -5148,7 +4964,6 @@ impl eframe::App for RoKLootWatcherApp {
 
         }
 
-        // In-game overlay multi-viewport handling
         let overlay_id = egui::ViewportId::from_hash_of("rok_overlay_viewport");
         let rok_hwnd = if self.overlay_config.enabled {
             crate::overlay_tracker::find_rok_window()
@@ -5191,7 +5006,6 @@ impl eframe::App for RoKLootWatcherApp {
                             crate::overlay_ui::render_overlay_viewport(ctx, overlay_records, &overlay_cfg, last_mail);
                         });
 
-                        // Ensure viewport size & position update smoothly when sliders or D-pad are used
                         ctx.send_viewport_cmd_to(
                             overlay_id,
                             egui::ViewportCommand::InnerSize(egui::vec2(geom.width.round(), geom.height.round())),
@@ -5404,17 +5218,14 @@ mod tests {
 
         let status = WatcherStatus::Running("running".into());
 
-        // In Dark theme, Watching status produces green badge and "● ĐANG THEO DÕI"
         let (dark_text, dark_color) = resolve_status_badge(&status, true, AppLanguage::Vietnamese, &dark_colors);
         assert_eq!(dark_text, format!("● {}", AppLanguage::Vietnamese.t(TrKey::StatusWatching)));
         assert_eq!(dark_color, dark_colors.status_green);
 
-        // When toggling to Light theme, status text MUST stay the exact same (not flip to Paused!)
         let (light_text, light_color) = resolve_status_badge(&status, true, AppLanguage::Vietnamese, &light_colors);
         assert_eq!(light_text, dark_text);
         assert_eq!(light_color, light_colors.status_green);
 
-        // Stopped status
         let stopped_status = WatcherStatus::Stopped("paused".into());
         let (stop_text, stop_color) = resolve_status_badge(&stopped_status, false, AppLanguage::English, &dark_colors);
         assert_eq!(stop_text, format!("● {}", AppLanguage::English.t(TrKey::StatusPaused)));
@@ -5429,20 +5240,15 @@ mod tests {
         assert!(!light.is_dark);
         assert!(dark.is_dark);
 
-        // Light mode card surface is pure white for elevation over Slate-50 background
         assert_eq!(light.card_surface, Color32::from_rgb(0xff, 0xff, 0xff));
         assert_eq!(light.ink, Color32::from_rgb(0xf8, 0xfa, 0xfc));
 
-        // Terminal Log viewer background in Light mode is pure white, not black
         assert_eq!(light.log_bg, Color32::from_rgb(0xff, 0xff, 0xff));
         assert_eq!(dark.log_bg, Color32::from_rgb(0x0d, 0x0f, 0x14));
 
-        // Text colors: canvas_tint is dark Slate-900 for >16:1 contrast ratio
         assert_eq!(light.canvas_tint, Color32::from_rgb(0x0f, 0x17, 0x2a));
-        // text_muted is Slate-600 for >7.5:1 contrast ratio against white cards
         assert_eq!(light.text_muted, Color32::from_rgb(0x47, 0x55, 0x69));
 
-        // Accent colors: light mode uses deepened shades (700-level) for WCAG AA compliance
         assert_eq!(light.train_orange, Color32::from_rgb(0xc2, 0x41, 0x0c));
         assert_eq!(light.heal_blue, Color32::from_rgb(0x03, 0x69, 0xa1));
         assert_eq!(light.status_green, Color32::from_rgb(0x04, 0x78, 0x57));
@@ -5450,7 +5256,6 @@ mod tests {
         assert_eq!(light.speedup_purple, Color32::from_rgb(0x7e, 0x22, 0xce));
         assert_eq!(light.crystal_cyan, Color32::from_rgb(0x0e, 0x74, 0x90));
 
-        // Material badges
         assert_eq!(category_badge_color("Vật liệu", &light), light.heal_blue);
         assert_eq!(category_badge_color("Vật liệu", &dark), dark.heal_blue);
     }
@@ -5476,27 +5281,17 @@ mod tests {
             by_battle_type: HashMap::new(),
         };
 
-        // Item 1: Crystals (itype 1, sub 9, category "Pha Lê")
         let item_crystals = make_item(1, 9, 100, "Pha Lê");
-        // Item 2: Resources - 150k Food (itype 2, sub 2, qty 3 -> 3 * 50k = 150k, category "Tài nguyên")
         let item_resources_150k = make_item(2, 2, 3, "Tài nguyên");
-        // Item 3: Resources - 2.00M Food (itype 2, sub 2, qty 40 -> 40 * 50k = 2,000,000, category "Tài nguyên")
         let item_resources_2m = make_item(2, 2, 40, "Tài nguyên");
-        // Item 4: Resources - 50k Food (itype 2, sub 2, qty 1 -> 50,000, category "Tài nguyên")
         let item_resources_50k = make_item(2, 2, 1, "Tài nguyên");
-        // Item 5: Speedups (itype 2, sub 58, qty 10 -> 10 * 5m = 50m, category "Tăng tốc")
         let item_speedups = make_item(2, 58, 10, "Tăng tốc");
 
-        // Verify category translations in English:
-        // "Pha Lê" -> "Crystals"
-        // "Tài nguyên" -> "Resources"
-        // "Tăng tốc" -> "Speedups"
         let lang = AppLanguage::English;
         assert_eq!(category_name(&item_crystals.category, lang), "Crystals");
         assert_eq!(category_name(&item_resources_150k.category, lang), "Resources");
         assert_eq!(category_name(&item_speedups.category, lang), "Speedups");
 
-        // Verify English category sorting orders "Crystals" before "Resources" and "Speedups"
         let mut items = [&item_speedups, &item_resources_150k, &item_crystals];
         items.sort_by(|a, b| {
             category_name(&a.category, lang).cmp(category_name(&b.category, lang))
@@ -5505,13 +5300,11 @@ mod tests {
         assert_eq!(category_name(&items[1].category, lang), "Resources");
         assert_eq!(category_name(&items[2].category, lang), "Speedups");
 
-        // Verify converted numerical sorting: 2,000,000 Food sorts above 150,000 Food (descending)
         assert_eq!(item_resources_50k.raw_converted_value(), 50_000);
         assert_eq!(item_resources_150k.raw_converted_value(), 150_000);
         assert_eq!(item_resources_2m.raw_converted_value(), 2_000_000);
 
         let mut converted_items = [&item_resources_150k, &item_resources_2m];
-        // Descending sort by raw_converted_value: 2,000,000 Food sorts above 150,000 Food
         converted_items.sort_by(|a, b| {
             b.raw_converted_value().cmp(&a.raw_converted_value())
         });
@@ -5520,7 +5313,6 @@ mod tests {
         assert_eq!(converted_items[0].total_quantity, 40);
         assert_eq!(converted_items[1].total_quantity, 3);
 
-        // All 3 items descending: 2,000,000 > 150,000 > 50,000
         let mut all_res = [&item_resources_150k, &item_resources_50k, &item_resources_2m];
         all_res.sort_by(|a, b| {
             b.raw_converted_value().cmp(&a.raw_converted_value())
@@ -5529,7 +5321,6 @@ mod tests {
         assert_eq!(all_res[1].raw_converted_value(), 150_000);
         assert_eq!(all_res[2].raw_converted_value(), 50_000);
 
-        // Ascending sort by raw_converted_value
         converted_items.sort_by(|a, b| {
             a.raw_converted_value().cmp(&b.raw_converted_value())
         });
@@ -5537,40 +5328,6 @@ mod tests {
         assert_eq!(converted_items[1].raw_converted_value(), 2_000_000);
     }
 
-    #[test]
-    fn test_pending_armor_check_disconnect_clears_receiver() {
-        let (tx, rx) = std::sync::mpsc::channel::<bool>();
-        drop(tx); // sender drops, causing Disconnected
-
-        let mut pending = Some(rx);
-        let mut armored = false;
-        poll_armor_check_channel(&mut pending, &mut armored);
-        assert!(pending.is_none());
-        assert!(!armored);
-    }
-
-    #[test]
-    fn test_pending_armor_check_ok_sets_armored_and_clears_receiver() {
-        let (tx, rx) = std::sync::mpsc::channel::<bool>();
-        tx.send(true).unwrap();
-
-        let mut pending = Some(rx);
-        let mut armored = false;
-        poll_armor_check_channel(&mut pending, &mut armored);
-        assert!(pending.is_none());
-        assert!(armored);
-    }
-
-    #[test]
-    fn test_pending_armor_check_empty_leaves_receiver_pending() {
-        let (_tx, rx) = std::sync::mpsc::channel::<bool>();
-
-        let mut pending = Some(rx);
-        let mut armored = false;
-        poll_armor_check_channel(&mut pending, &mut armored);
-        assert!(pending.is_some());
-        assert!(!armored);
-    }
 
     #[test]
     fn test_poll_cloud_receiver_ok_clears_busy_and_receiver() {
@@ -5638,14 +5395,11 @@ mod tests {
         let mut last_applied_theme: Option<AppTheme> = None;
         let current_theme = AppTheme::Dark;
 
-        // Frame 1: Not applied yet
         assert_ne!(last_applied_theme, Some(current_theme));
         last_applied_theme = Some(current_theme);
 
-        // Frame 2: Same theme -> cached, no update needed
         assert_eq!(last_applied_theme, Some(current_theme));
 
-        // Frame 3: Toggle theme -> dirty, needs update
         let toggled = current_theme.toggle();
         assert_ne!(last_applied_theme, Some(toggled));
         last_applied_theme = Some(toggled);
@@ -5663,7 +5417,6 @@ mod tests {
         let last_battle_lang = AppLanguage::Vietnamese;
         let cached_indices = &[0, 1, 2];
 
-        // 1. Static frame: nothing changed
         let is_dirty = reports_sort_dirty
             || 10 != last_records_count
             || "motte" != last_battle_search
@@ -5674,35 +5427,27 @@ mod tests {
             || cached_indices.iter().any(|&i| i >= 10);
         assert!(!is_dirty, "Should be clean when no parameters changed");
 
-        // 2. Search changed -> dirty
         let is_dirty_search = "fort" != last_battle_search;
         assert!(is_dirty_search);
 
-        // 3. Sort column changed -> dirty
         let is_dirty_col = Some(BattleSortColumn::Damage) != last_battle_sort_col;
         assert!(is_dirty_col);
 
-        // 4. Sort dir changed -> dirty
         let is_dirty_dir = SortDirection::Ascending != last_battle_sort_dir;
         assert!(is_dirty_dir);
 
-        // 5. Records count changed -> dirty
         let is_dirty_count = 11 != last_records_count;
         assert!(is_dirty_count);
 
-        // 6. Language changed -> dirty
         let is_dirty_lang = AppLanguage::English != last_battle_lang;
         assert!(is_dirty_lang);
 
-        // 7. Mode changed -> dirty
         let is_dirty_mode = FilterMode::Barbarian != last_battle_mode;
         assert!(is_dirty_mode);
 
-        // 8. Explicit dirty flag
         reports_sort_dirty = true;
         assert!(reports_sort_dirty);
 
-        // 9. Out-of-bounds cached index -> dirty
         let invalid_indices = &[0, 1, 15];
         assert!(invalid_indices.iter().any(|&i| i >= 10));
     }
@@ -5748,15 +5493,12 @@ mod tests {
         let initial_records = watcher.get_latest_vault_records(FilterMode::AllRewards, 5);
         assert_eq!(initial_records.len(), 1);
 
-        // Cached records holds 1 record
         let mut cached_overlay_records = initial_records;
         assert_eq!(cached_overlay_records.len(), 1);
 
-        // Filter for motte (which has 0 records)
         let filtered_motte = watcher.get_latest_vault_records(FilterMode::Motte, 5);
         assert_eq!(filtered_motte.len(), 0);
 
-        // When filter changes, refresh updates the cached overlay records
         cached_overlay_records = filtered_motte;
         assert_eq!(cached_overlay_records.len(), 0);
 

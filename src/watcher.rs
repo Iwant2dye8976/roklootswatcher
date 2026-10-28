@@ -105,7 +105,6 @@ pub(crate) fn probe_directory_tree(dir: &Path, max_depth: usize) -> Option<PathB
         let name_str = name.to_string_lossy();
         let name_lower = name_str.to_lowercase();
 
-        // Skip system/hidden folders to avoid slow traversal
         if name_lower.starts_with('$')
             || name_lower == "windows"
             || name_lower == "system volume information"
@@ -121,7 +120,6 @@ pub(crate) fn probe_directory_tree(dir: &Path, max_depth: usize) -> Option<PathB
 
         let child_path = entry.path();
 
-        // Check if this directory itself contains "rise of kingdoms"
         if name_lower.contains("rise of kingdoms") {
             let direct_cache = child_path.join("save").join("mailcache");
             if probe_candidate_is_mailcache(&direct_cache) {
@@ -136,7 +134,6 @@ pub(crate) fn probe_directory_tree(dir: &Path, max_depth: usize) -> Option<PathB
             }
         }
 
-        // Shallow recursion
         if max_depth > 1 {
             if let Some(found) = probe_directory_tree(&child_path, max_depth - 1) {
                 return Some(found);
@@ -155,7 +152,6 @@ pub fn scan_drive_candidates() -> Option<PathBuf> {
             continue;
         }
 
-        // 1. Direct probe of common paths
         let fixed_candidates = [
             format!(r"{}:\Program Files (x86)\Rise of Kingdoms\Rise of Kingdoms Game\save\mailcache", drive),
             format!(r"{}:\Program Files\Rise of Kingdoms\Rise of Kingdoms Game\save\mailcache", drive),
@@ -172,7 +168,6 @@ pub fn scan_drive_candidates() -> Option<PathBuf> {
             }
         }
 
-        // 2. Shallow probe (depth <= 2) on <drive>:\Games and <drive>:\
         let games_dir = PathBuf::from(format!(r"{}:\Games", drive));
         if games_dir.is_dir() {
             if let Some(found) = probe_directory_tree(&games_dir, 2) {
@@ -276,7 +271,6 @@ impl RoKMailWatcher {
             std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
         });
 
-        // Khởi tạo Persistent Vault: tự động nạp lịch sử đã lưu trước đó
         let vault = MailVault::new(&o_dir);
         let watcher = Self {
             mail_dir: Arc::new(RwLock::new(m_dir)),
@@ -303,7 +297,6 @@ impl RoKMailWatcher {
             stop_signal: Arc::new(Mutex::new(None)),
         };
 
-        // Tính toán thống kê ban đầu từ Vault nếu có
         watcher.recompute_filtered_records_and_stats();
         watcher
     }
@@ -330,7 +323,6 @@ impl RoKMailWatcher {
         *self.vault.write().unwrap_or_else(|e| e.into_inner()) = new_vault;
         self.recompute_filtered_records_and_stats();
     }
-
 
     pub fn clean_binary_vault(&self) -> Result<(usize, u64), String> {
         self.vault.read().unwrap_or_else(|e| e.into_inner()).clean_binary_vault()
@@ -707,7 +699,6 @@ impl RoKMailWatcher {
 
         let mut all_files_map = HashMap::new();
 
-        // 1. Quét file từ mailcache của game
         if let Ok(entries) = std::fs::read_dir(&mail_dir) {
             for entry in entries.flatten() {
                 let p = entry.path();
@@ -719,7 +710,6 @@ impl RoKMailWatcher {
             }
         }
 
-        // 2. Quét bổ sung từ kho nhị phân mail_vault (các thư game đã xóa nhưng đã được vault lưu trước đó)
         if let Ok(entries) = std::fs::read_dir(&vault_dir) {
             for entry in entries.flatten() {
                 let p = entry.path();
@@ -739,7 +729,6 @@ impl RoKMailWatcher {
         };
         self.log("INFO", &cache_msg);
 
-        // FAST-SKIP: Lọc ra chỉ những file thực sự cần giải mã
         let (files_to_decode, skipped_count): (Vec<PathBuf>, usize) = if force_all {
             (all_files_map.into_values().collect(), 0)
         } else {
@@ -783,7 +772,6 @@ impl RoKMailWatcher {
         let catalog = &self.catalog;
         let mut scanned_records: Vec<BattleRecord> = Vec::new();
 
-        // Limit concurrently decoded mail trees to keep peak memory predictable.
         for chunk in files_to_decode.chunks(crate::lilith_stream::MAIL_DECODE_BATCH_SIZE) {
             let chunk_records: Vec<BattleRecord> = chunk
                 .par_iter()
@@ -805,7 +793,6 @@ impl RoKMailWatcher {
             scanned_records.extend(chunk_records);
         }
 
-        // Gộp toàn bộ chiến báo mới vào Persistent Vault (không bao giờ ghi đè làm mất lịch sử cũ)
         let new_added = if !scanned_records.is_empty() {
             let mut v = self.vault.write().unwrap_or_else(|e| e.into_inner());
             v.upsert_batch(scanned_records)
@@ -820,7 +807,6 @@ impl RoKMailWatcher {
 
         self.auto_export();
 
-        // Thu hồi ngay Working Set RAM nhàn rỗi sau khi quét hoàn tất
         crate::tray::trim_memory_working_set();
 
         let sync_msg = match lang {
@@ -897,13 +883,11 @@ impl RoKMailWatcher {
             let mut recent_events: HashMap<PathBuf, Instant> = HashMap::new();
 
             loop {
-                // Check stop signal
                 if rx_stop.try_recv().is_ok() {
                     self_clone.flush_vault_if_dirty();
                     break;
                 }
 
-                // Debounce check for vault save: flush sau 1.5s nhàn rỗi kể từ lần ghi cuối
                 self_clone.check_and_flush_vault_debounce(Duration::from_millis(1500));
 
                 if let Ok(res) = rx_notify.recv_timeout(Duration::from_millis(100)) {
@@ -925,8 +909,6 @@ impl RoKMailWatcher {
                                         recent_events.retain(|_, last_time| now.duration_since(*last_time) < Duration::from_secs(10));
                                     }
 
-                                    // Zero-Latency Snatch: Đối với file mới tạo, chỉ debounce 50ms chống duplicate event trong tích tắc.
-                                    // Đối với Modify, debounce 400ms.
                                     let debounce_threshold = if is_create {
                                         Duration::from_millis(50)
                                     } else {
@@ -965,7 +947,6 @@ impl RoKMailWatcher {
 
         let mut file_buf = Vec::new();
 
-        // Zero-Latency Shared Read: Polling nhanh với cờ chia sẻ đầy đủ của Windows
         for attempt in 0..6 {
             if let Ok(b) = read_file_shared(path) {
                 if b.len() >= 10 && b[0] == 0xFF && b[9] == 0x05 {
@@ -974,7 +955,6 @@ impl RoKMailWatcher {
                 }
             }
 
-            // Nếu file đã bị game xóa nhưng trước đó đã kịp lưu vào vault
             let vault_path = self.get_vault_binary_dir().join(&fname);
             if vault_path.is_file() {
                 if let Ok(b) = read_file_shared(&vault_path) {
@@ -985,7 +965,7 @@ impl RoKMailWatcher {
                 }
             }
 
-            let sleep_ms = 15 * (1 << attempt); // 15ms, 30ms, 60ms, 120ms, 240ms...
+            let sleep_ms = 15 * (1 << attempt);
             thread::sleep(Duration::from_millis(sleep_ms));
         }
 
@@ -993,7 +973,6 @@ impl RoKMailWatcher {
             return;
         }
 
-        // Giải mã nội dung
         let m = match crate::lilith_stream::decode_mail_bytes(&file_buf) {
             Ok(val) => val,
             Err(_) => return,
@@ -1009,7 +988,6 @@ impl RoKMailWatcher {
             None => return,
         };
 
-        // Sao lưu nhị phân vào kho mail_vault chỉ khi là thư chiến báo hoặc thu gom hợp lệ
         let vault_dir = self.get_vault_binary_dir();
         let backup_dst = vault_dir.join(&fname);
         if !backup_dst.exists() {
@@ -1021,13 +999,11 @@ impl RoKMailWatcher {
             Err(_) => return,
         };
 
-        // Lưu bản ghi vào Persistent Vault
         let is_new = {
             let mut v = self.vault.write().unwrap_or_else(|e| e.into_inner());
             v.upsert(rec.clone())
         };
 
-        // Đánh dấu dirty để debouncer ghi đĩa một cách tối ưu
         self.mark_vault_dirty();
 
         self.recompute_filtered_records_and_stats();
@@ -1170,14 +1146,11 @@ mod tests {
             tx,
         );
 
-        // Ensure watching is false (paused)
         assert!(!watcher.is_watching());
 
-        // Mark dirty
         watcher.mark_vault_dirty();
         assert!(watcher.vault_dirty.load(std::sync::atomic::Ordering::SeqCst));
 
-        // Calling stop while watching is false should still flush dirty state
         watcher.stop();
         assert!(!watcher.vault_dirty.load(std::sync::atomic::Ordering::SeqCst), "Dirty flag must be cleared by flush on stop");
         assert!(temp_dir.join("motte_filtered_mails.json").exists(), "Auto export should be executed when dirty vault is flushed on stop");
@@ -1194,7 +1167,6 @@ mod tests {
         let temp_dir = std::env::temp_dir().join(format!("rok_test_dirty_err_{}_{}", std::process::id(), unique));
         let _ = std::fs::create_dir_all(&temp_dir);
 
-        // Pre-create a corrupted vault JSON file so load_from_disk flags it as corrupted and save_to_disk refuses
         let vault_file = temp_dir.join("rok_history_vault.json");
         std::fs::write(&vault_file, b"{ corrupted_json").unwrap();
 
@@ -1207,11 +1179,9 @@ mod tests {
             tx,
         );
 
-        // Mark dirty
         watcher.mark_vault_dirty();
         assert!(watcher.vault_dirty.load(std::sync::atomic::Ordering::SeqCst));
 
-        // Flush dirty: since vault is corrupted, save_to_disk() fails, and dirty flag must be retained
         watcher.flush_vault_if_dirty();
         assert!(
             watcher.vault_dirty.load(std::sync::atomic::Ordering::SeqCst),
@@ -1232,20 +1202,17 @@ mod tests {
             tx,
         );
 
-        // Default all time
         watcher.set_language(AppLanguage::Vietnamese);
         assert_eq!(watcher.get_date_range_label(), "Tất cả thời gian");
         watcher.set_language(AppLanguage::English);
         assert_eq!(watcher.get_date_range_label(), "All time");
 
-        // 7 days rolling
         watcher.set_date_filter(None, None, Some(7));
         watcher.set_language(AppLanguage::Vietnamese);
         assert_eq!(watcher.get_date_range_label(), "7 ngày gần nhất");
         watcher.set_language(AppLanguage::English);
         assert_eq!(watcher.get_date_range_label(), "Last 7 days");
 
-        // Explicit dates
         let d1 = NaiveDate::from_ymd_opt(2026, 10, 1).unwrap();
         let d2 = NaiveDate::from_ymd_opt(2026, 10, 10).unwrap();
         watcher.set_date_filter(Some(d1), Some(d2), None);
@@ -1270,18 +1237,16 @@ mod tests {
             tx,
         );
 
-        // Dummy mail table without Report/Archive box
         let mut valid = vec![0; 10];
         valid[0] = 0xFF;
         valid[9] = 0x05;
-        valid.push(0xFF); // End of table
+        valid.push(0xFF);
 
         let mail_path = mailcache.join("Persistent.Mail.888888");
         std::fs::write(&mail_path, &valid).unwrap();
 
         watcher.process_file_async(&mail_path);
 
-        // mail_vault should NOT have Persistent.Mail.888888
         let vault_file = watcher.get_vault_binary_dir().join("Persistent.Mail.888888");
         assert!(!vault_file.exists(), "Non-report mail must NOT be backed up to mail_vault");
 
@@ -1293,11 +1258,9 @@ mod tests {
         let temp = std::env::temp_dir().join("rok_test_mailcache_valid");
         let _ = std::fs::create_dir_all(&temp);
 
-        // Valid path in env var
         std::env::set_var("ROK_MAIL_DIR", &temp);
         assert_eq!(scan_for_mailcache(), Some(temp.clone()));
 
-        // Invalid non-existent path in env var should not be returned
         std::env::set_var("ROK_MAIL_DIR", "Z:\\non_existent_folder_path_xyz_123");
         let res = scan_for_mailcache();
         assert_ne!(res, Some(PathBuf::from("Z:\\non_existent_folder_path_xyz_123")));
@@ -1351,7 +1314,6 @@ mod tests {
 
     #[test]
     fn test_detect_default_mail_dir_fallback() {
-        // With ROK_MAIL_DIR unset, it returns a non-empty path
         std::env::remove_var("ROK_MAIL_DIR");
         let p = detect_default_mail_dir();
         assert!(!p.as_os_str().is_empty());

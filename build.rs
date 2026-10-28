@@ -3,7 +3,6 @@ fn main() {
     println!("cargo:rerun-if-env-changed=ROK_SUPABASE_ANON_KEY");
     println!("cargo:rerun-if-changed=.env");
 
-    // Load .env file automatically at build time if present
     if let Ok(content) = std::fs::read_to_string(".env") {
         for line in content.lines() {
             let trimmed = line.trim();

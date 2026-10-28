@@ -6,8 +6,6 @@ use std::path::Path;
 use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
-// Baked-in credentials via compile-time environment variables (e.g. GitHub Actions Secrets or build script).
-// Keeps git repository 100% free of leaked secrets.
 pub const DEFAULT_SUPABASE_URL: &str = match option_env!("ROK_SUPABASE_URL") {
     Some(val) => val,
     None => "",
@@ -30,7 +28,6 @@ pub struct CloudAuthResult {
     pub user: CloudUserInfo,
 }
 
-/// Helper to parse URL query or hash parameters (e.g. key1=val1&key2=val2)
 pub fn parse_params(raw: &str) -> HashMap<String, String> {
     let mut map = HashMap::new();
     let trimmed = raw.trim_start_matches('?').trim_start_matches('#');
@@ -175,7 +172,6 @@ fn generate_secure_state() -> String {
     format!("{:016x}{:016x}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0), std::process::id())
 }
 
-/// Starts local loopback listener on port 8080 and opens Google OAuth in default browser.
 pub fn start_google_login(supabase_url: &str, anon_key: &str) -> Result<CloudAuthResult, String> {
     let listener = TcpListener::bind("127.0.0.1:8080")
         .or_else(|_| TcpListener::bind("127.0.0.1:0"))
@@ -192,13 +188,11 @@ pub fn start_google_login(supabase_url: &str, anon_key: &str) -> Result<CloudAut
         expected_state
     );
 
-    // Open browser for user authentication
     open::that(&auth_url).map_err(|e| format!("Failed to open browser: {}", e))?;
 
     let start_time = std::time::Instant::now();
     let timeout = Duration::from_secs(60);
 
-    // Loopback handshake with timeout
     let (access_token, refresh_token) = loop {
         if start_time.elapsed() > timeout {
             return Err("Hết thời gian chờ đăng nhập Google (60s). Vui lòng thử lại.".to_string());
@@ -286,7 +280,6 @@ pub fn start_google_login(supabase_url: &str, anon_key: &str) -> Result<CloudAut
         return Err("Không nhận được access_token từ Google OAuth".to_string());
     }
 
-    // Fetch user details from Supabase
     let user_url = format!("{}/auth/v1/user", supabase_url.trim_end_matches('/'));
     let user_resp: serde_json::Value = ureq::get(&user_url)
         .set("apikey", anon_key)
@@ -315,7 +308,6 @@ pub fn start_google_login(supabase_url: &str, anon_key: &str) -> Result<CloudAut
     })
 }
 
-/// Refreshes the access token using a stored refresh_token.
 pub fn refresh_session(
     supabase_url: &str,
     anon_key: &str,
@@ -387,7 +379,6 @@ fn format_cloud_error(err: ureq::Error, context: &str) -> String {
     }
 }
 
-/// Backs up the local vault JSON to Supabase `user_vaults` table with token refresh retry on 401.
 pub fn backup_vault(
     supabase_url: &str,
     anon_key: &str,
@@ -437,7 +428,6 @@ pub fn backup_vault(
     }
 }
 
-/// Restores the vault JSON from Supabase `user_vaults` table to local disk with token refresh retry on 401.
 pub fn restore_vault(
     supabase_url: &str,
     anon_key: &str,
@@ -488,7 +478,6 @@ pub fn restore_vault(
         .get("vault_data")
         .ok_or_else(|| "Dữ liệu bản sao lưu trống".to_string())?;
 
-    // Pre-validate schema against VaultStorageData before touching filesystem
     let storage_data: crate::vault::VaultStorageData = serde_json::from_value(vault_data.clone())
         .map_err(|e| format!("Dữ liệu đám mây không đúng định dạng Vault: {}", e))?;
 
@@ -497,13 +486,11 @@ pub fn restore_vault(
     let formatted = serde_json::to_string_pretty(vault_data)
         .map_err(|e| format!("Format JSON error: {}", e))?;
 
-    // Pre-restore backup of existing local vault to prevent irrecoverable data loss
     if vault_path.exists() {
         let bak_path = vault_path.with_extension("bak");
         let _ = fs::copy(vault_path, &bak_path);
     }
 
-    // Atomic write
     let tmp_path = vault_path.with_extension("tmp");
     fs::write(&tmp_path, formatted)
         .map_err(|e| format!("Write tmp file error: {}", e))?;
@@ -529,7 +516,6 @@ mod tests {
     fn test_urlencoding_decode() {
         assert_eq!(urlencoding_decode("hello+world"), "hello world");
         assert_eq!(urlencoding_decode("foo%20bar%21"), "foo bar!");
-        // Test UTF-8 multibyte percent decoding
         assert_eq!(urlencoding_decode("Vi%E1%BB%87t%20Nam"), "Việt Nam");
     }
 

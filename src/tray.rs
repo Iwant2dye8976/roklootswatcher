@@ -124,7 +124,6 @@ impl SystemTrayManager {
         let toggle_id = self.toggle_item.id().clone();
         let quit_id = self.quit_item.id().clone();
 
-        // Tray icon click handler (Left click up or double click)
         let ctx_tray = egui_ctx.clone();
         tray_icon::TrayIconEvent::set_event_handler(Some(move |event: tray_icon::TrayIconEvent| {
             match event {
@@ -145,7 +144,6 @@ impl SystemTrayManager {
             }
         }));
 
-        // Context menu item click handler
         let watcher_tray = Arc::clone(&watcher);
         let ctx_menu = egui_ctx;
         muda::MenuEvent::set_event_handler(Some(move |event: muda::MenuEvent| {
@@ -165,11 +163,9 @@ impl SystemTrayManager {
                 request_quit();
                 watcher_tray.stop();
 
-                // Request egui to wake up and exit
                 ctx_menu.send_viewport_cmd(egui::ViewportCommand::Close);
                 ctx_menu.request_repaint();
 
-                // Post WM_CLOSE message to main window
                 if let Some(hwnd) = get_or_find_main_hwnd() {
                     unsafe {
                         windows_sys::Win32::UI::WindowsAndMessaging::PostMessageW(
@@ -181,7 +177,6 @@ impl SystemTrayManager {
                     }
                 }
 
-                // Safety fallback: ensure process terminates cleanly within 200ms
                 std::thread::spawn(|| {
                     std::thread::sleep(std::time::Duration::from_millis(200));
                     std::process::exit(0);
@@ -215,19 +210,15 @@ impl SystemTrayManager {
         let height = 32u32;
         let mut rgba = Vec::with_capacity((width * height * 4) as usize);
         for _ in 0..(width * height) {
-            rgba.push(0xF0); // R
-            rgba.push(0xCC); // G
-            rgba.push(0x71); // B
-            rgba.push(0xFF); // A
+            rgba.push(0xF0);
+            rgba.push(0xCC);
+            rgba.push(0x71);
+            rgba.push(0xFF);
         }
         Icon::from_rgba(rgba, width, height)
             .unwrap_or_else(|_| Icon::from_rgba(vec![0xFF; 16], 2, 2).expect("2x2 icon must succeed"))
     }
 }
-
-// ---------------------------------------------------------
-// Win32 Window Visibility & Restore Helpers
-// ---------------------------------------------------------
 
 use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 
@@ -270,7 +261,6 @@ pub fn get_or_find_main_hwnd() -> Option<windows_sys::Win32::Foundation::HWND> {
         return Some(stored as _);
     }
 
-    // Try finding by exact title
     let title: Vec<u16> = "Rise of Kingdoms - Motte, Fort & Barbarian Loot Watcher"
         .encode_utf16()
         .chain(std::iter::once(0))
@@ -286,7 +276,6 @@ pub fn get_or_find_main_hwnd() -> Option<windows_sys::Win32::Foundation::HWND> {
             return Some(hwnd);
         }
 
-        // Fallback: enumerate windows for current process
         struct EnumData {
             pid: u32,
             found: windows_sys::Win32::Foundation::HWND,
@@ -313,11 +302,11 @@ pub fn get_or_find_main_hwnd() -> Option<windows_sys::Win32::Foundation::HWND> {
                     let title = String::from_utf16_lossy(&buf[..len as usize]);
                     if title.contains("Rise of Kingdoms") || title.contains("RoK") {
                         data.found = hwnd;
-                        return 0; // stop enumeration
+                        return 0;
                     }
                 }
             }
-            1 // continue
+            1
         }
 
         let mut data = EnumData {
@@ -346,12 +335,10 @@ pub fn restore_main_window() {
     if let Some(hwnd) = get_or_find_main_hwnd() {
         unsafe {
             use windows_sys::Win32::UI::WindowsAndMessaging::*;
-            // Restore normal taskbar style
             let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
             let normal_style = (ex_style & !(WS_EX_TOOLWINDOW as isize)) | (WS_EX_APPWINDOW as isize);
             SetWindowLongPtrW(hwnd, GWL_EXSTYLE, normal_style);
 
-            // Restore position
             let saved = if let Ok(lock) = PREV_RECT.lock() {
                 *lock
             } else {
@@ -402,12 +389,10 @@ pub fn hide_main_window() {
                     *lock = Some(rect);
                 }
             }
-            // Remove from taskbar by switching to WS_EX_TOOLWINDOW
             let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
             let tool_style = (ex_style & !(WS_EX_APPWINDOW as isize)) | (WS_EX_TOOLWINDOW as isize);
             SetWindowLongPtrW(hwnd, GWL_EXSTYLE, tool_style);
 
-            // Move off-screen while keeping WS_VISIBLE so Win32 message loop & overlay updates continue
             SetWindowPos(
                 hwnd,
                 0 as _,

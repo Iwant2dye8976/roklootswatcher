@@ -228,7 +228,7 @@ mod tests {
         let mut valid = vec![0; 10];
         valid[0] = 0xFF;
         valid[9] = 0x05;
-        valid.push(0xFF); // End of table
+        valid.push(0xFF);
         std::fs::write(&path, &valid).unwrap();
 
         let result = decode_mail_file(&path);
@@ -253,7 +253,7 @@ mod tests {
         let mut valid = vec![0; 10];
         valid[0] = 0xFF;
         valid[9] = 0x05;
-        valid.push(0xFF); // End of table
+        valid.push(0xFF);
         let parsed = decode_mail_bytes(&valid);
         assert!(parsed.is_ok());
         if let Ok(LilithValue::Table(m)) = parsed {
@@ -286,7 +286,6 @@ mod tests {
 
     #[test]
     fn test_recursion_depth_limit() {
-        // Deeply nested table tags (0x05) exceeding MAX_RECURSION_DEPTH
         let mut malformed = vec![0; 10];
         malformed[0] = 0xFF;
         malformed[9] = 0x05;

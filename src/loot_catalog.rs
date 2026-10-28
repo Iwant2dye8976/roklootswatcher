@@ -74,7 +74,6 @@ impl LootCatalog {
             }
         }
 
-        // Tự động nạp dữ liệu loot table nhúng sẵn trong file thực thi EXE (hoàn toàn portable độc lập)
         if let Ok(catalog) = Self::load_from_str(EMBEDDED_LOOT_JSON) {
             println!("[+] Đã nạp thành công bảng loot table tích hợp sẵn trong EXE (Embedded)!");
             return catalog;
@@ -142,29 +141,21 @@ impl LootCatalog {
             "Rương Liên Minh"
         } else if itype == 2 {
             match isub {
-                // Tài nguyên: Gói tài nguyên, Đá, Vàng, Gỗ, Ngô, Đá quý
                 2..=24 | 26..=32 | 141..=144 | 7003..=7009 | 8002..=8004 => "Tài nguyên",
 
-                // Vật liệu: Da, Quặng sắt, Gỗ mun, Xương động vật, Rương vật liệu
                 412..=435 | 7051..=7054 => "Vật liệu",
 
-                // Tăng tốc
                 34..=43 | 58..=70 | 71..=79 | 84..=89 | 91..=99 => "Tăng tốc",
 
-                // Sách Kinh Nghiệm (EXP)
                 128..=135 | 147..=150 => "Sách Kinh Nghiệm",
 
-                // Điểm Hành Động (AP)
                 124..=126 | 182 => "Điểm Hành Động (AP)",
 
-                // Vật phẩm Pháo Đài & Man Rợ đặc thù
                 109 => "Sách Giao Ước",
                 145 => "Mũi Tên Chống Trả",
 
-                // Tượng Nâng Cấp Chỉ Huy
                 9989..=10005 => "Tượng Chỉ Huy",
 
-                // Trang bị
                 21000..=22000 => "Trang Bị",
 
                 _ => "Vật phẩm khác",
@@ -276,7 +267,6 @@ mod tests {
     fn test_embedded_loot_catalog() {
         let catalog = LootCatalog::load_from_str(EMBEDDED_LOOT_JSON).expect("Embedded loot.json must be valid JSON");
         assert!(catalog.entries.len() > 100);
-        // Verify Motte items exist
         let crystal = catalog.get_item_info(1, 9, None);
         assert_eq!(crystal.name_vi, "Pha Lê");
         assert_eq!(crystal.category, "Pha Lê");
@@ -286,7 +276,6 @@ mod tests {
     fn test_item_categories() {
         let catalog = LootCatalog::load_from_str(EMBEDDED_LOOT_JSON).expect("Embedded loot.json must be valid JSON");
 
-        // Gói tài nguyên, Đá, Vàng, Gỗ, Ngô, Đá quý -> Tài nguyên
         assert_eq!(catalog.get_item_info(1, 1, None).category, "Tài nguyên");
         assert_eq!(catalog.get_item_info(1, 2, None).category, "Tài nguyên");
         assert_eq!(catalog.get_item_info(1, 3, None).category, "Tài nguyên");
@@ -296,7 +285,6 @@ mod tests {
         assert_eq!(catalog.get_item_info(2, 7006, None).category, "Tài nguyên");
         assert_eq!(catalog.get_item_info(2, 141, None).category, "Tài nguyên");
 
-        // Da, Quặng sắt, Gỗ mun, Xương -> Vật liệu
         assert_eq!(catalog.get_item_info(2, 412, None).category, "Vật liệu");
         assert_eq!(catalog.get_item_info(2, 419, None).category, "Vật liệu");
         assert_eq!(catalog.get_item_info(2, 413, None).category, "Vật liệu");
@@ -304,7 +292,6 @@ mod tests {
         assert_eq!(catalog.get_item_info(2, 417, None).category, "Vật liệu");
         assert_eq!(catalog.get_item_info(2, 414, None).category, "Vật liệu");
 
-        // Tăng tốc -> Tăng tốc
         assert_eq!(catalog.get_item_info(2, 34, None).category, "Tăng tốc");
         assert_eq!(catalog.get_item_info(2, 71, None).category, "Tăng tốc");
         assert_eq!(catalog.get_item_info(2, 92, None).category, "Tăng tốc");

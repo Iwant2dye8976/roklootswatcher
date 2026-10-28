@@ -51,19 +51,16 @@ pub fn calculate_overlay_geometry(
     let scale = if scale_factor <= 0.0 { 1.0 } else { scale_factor };
     let width = config.width.clamp(180.0, 450.0);
     
-    // Dynamic height calculation based on font size (each card has 2 lines of text + padding + card spacing)
     let card_height = (config.font_size * 3.2 + 8.0).max(36.0);
     let est_height = (card_height * 5.0 + 18.0).ceil();
     let max_allowed_h = ((bounds.height as f32 - 20.0) / scale).max(100.0);
     let height = est_height.min(max_allowed_h);
 
-    // Clamp horizontal position within game window bounds
     let min_x = bounds.x as f32 / scale;
     let max_x = ((bounds.x as f32 + bounds.width as f32) / scale - width - 8.0).max(min_x);
     let raw_pos_x = (bounds.x as f32 + config.offset_x.max(0.0)) / scale;
     let pos_x = raw_pos_x.clamp(min_x, max_x);
 
-    // Clamp vertical position so overlay never overflows past the bottom of the game window
     let min_y = bounds.y as f32 / scale;
     let max_y = ((bounds.y as f32 + bounds.height as f32) / scale - height - 8.0).max(min_y);
     let raw_pos_y = (bounds.y as f32 + config.offset_y.max(0.0)) / scale;
@@ -105,7 +102,7 @@ pub fn find_rok_window() -> Option<HWND> {
             let mut proc_id = 0;
             GetWindowThreadProcessId(hwnd, &mut proc_id);
             if proc_id == data.own_pid {
-                return 1; // Skip our own app
+                return 1;
             }
 
             if IsWindowVisible(hwnd) == 0 || IsIconic(hwnd) != 0 {
@@ -118,7 +115,7 @@ pub fn find_rok_window() -> Option<HWND> {
                 let title = String::from_utf16_lossy(&buf[..len as usize]);
                 if is_rok_window_title(&title) {
                     data.found_hwnd = Some(hwnd);
-                    return 0; // Found target, stop enumeration
+                    return 0;
                 }
             }
             1
@@ -213,11 +210,11 @@ pub fn compute_window_extended_style(current_style: isize) -> isize {
     #[cfg(not(windows))]
     {
         current_style
-            | 0x00000020 // WS_EX_TRANSPARENT
-            | 0x00080000 // WS_EX_LAYERED
-            | 0x00000080 // WS_EX_TOOLWINDOW
-            | 0x00000008 // WS_EX_TOPMOST
-            | 0x08000000 // WS_EX_NOACTIVATE
+            | 0x00000020
+            | 0x00080000
+            | 0x00000080
+            | 0x00000008
+            | 0x08000000
     }
 }
 
@@ -233,14 +230,14 @@ pub fn compute_layered_window_params(opacity: f32) -> LayeredWindowParams {
         LayeredWindowParams {
             cr_key: 0x00000000,
             b_alpha: 255,
-            flags: 1, // LWA_COLORKEY
+            flags: 1,
         }
     } else {
         let alpha = (160.0 + opacity.clamp(0.0, 1.0) * 95.0).round() as u8;
         LayeredWindowParams {
             cr_key: 0x00000000,
             b_alpha: alpha,
-            flags: 1 | 2, // LWA_COLORKEY | LWA_ALPHA
+            flags: 1 | 2,
         }
     }
 }
@@ -342,8 +339,8 @@ mod tests {
         };
         let cfg = crate::model::OverlayConfig::default();
         let geom = calculate_overlay_geometry(&bounds, &cfg, 1.0);
-        assert_eq!(geom.pos_x, 116.0); // 100 + 16 margin
-        assert_eq!(geom.pos_y, 110.0); // 50 + 60 margin
+        assert_eq!(geom.pos_x, 116.0);
+        assert_eq!(geom.pos_y, 110.0);
         assert_eq!(geom.width, 240.0);
         assert!(geom.height >= 180.0);
     }
@@ -356,16 +353,14 @@ mod tests {
             width: 1920,
             height: 1080,
         };
-        let cfg = crate::model::OverlayConfig::default(); // font_size = 10.5
+        let cfg = crate::model::OverlayConfig::default();
         let geom = calculate_overlay_geometry(&bounds, &cfg, 1.0);
-        // Default height must provide at least 220.0 px to fit all 5 cards comfortably
         assert!(
             geom.height >= 220.0,
             "Calculated overlay height {} is too small to fit 5 cards",
             geom.height
         );
 
-        // Also verify for max font size (15.0)
         let mut cfg_max = cfg;
         cfg_max.font_size = 15.0;
         let geom_max = calculate_overlay_geometry(&bounds, &cfg_max, 1.0);
@@ -385,7 +380,7 @@ mod tests {
             height: 1080,
         };
         let mut cfg = crate::model::OverlayConfig {
-            offset_y: 1000.0, // User placed overlay near bottom
+            offset_y: 1000.0,
             ..Default::default()
         };
         let geom = calculate_overlay_geometry(&bounds, &cfg, 1.0);
@@ -396,7 +391,6 @@ mod tests {
             bounds.height
         );
 
-        // Test with max font size (15.0) as well
         cfg.font_size = 15.0;
         let geom_large = calculate_overlay_geometry(&bounds, &cfg, 1.0);
         assert!(
@@ -436,37 +430,28 @@ mod tests {
     #[test]
     fn test_compute_window_extended_style_preserves_hardware_transparency() {
         let style = compute_window_extended_style(0);
-        // WS_EX_TRANSPARENT (0x00000020)
         assert_ne!(style & 0x00000020, 0, "Missing WS_EX_TRANSPARENT");
-        // WS_EX_LAYERED (0x00080000)
         assert_ne!(style & 0x00080000, 0, "Missing WS_EX_LAYERED");
-        // WS_EX_TOOLWINDOW (0x00000080)
         assert_ne!(style & 0x00000080, 0, "Missing WS_EX_TOOLWINDOW");
-        // WS_EX_TOPMOST (0x00000008)
         assert_ne!(style & 0x00000008, 0, "Missing WS_EX_TOPMOST");
-        // WS_EX_NOACTIVATE (0x08000000)
         assert_ne!(style & 0x08000000, 0, "Missing WS_EX_NOACTIVATE");
-        // WS_EX_NOREDIRECTIONBITMAP (0x00200000) must NOT be present (breaks OpenGL DWM)
         assert_eq!(style & 0x00200000, 0, "WS_EX_NOREDIRECTIONBITMAP must not be present");
     }
 
     #[test]
     fn test_determine_overlay_visibility_action_hides_when_rok_not_visible() {
-        // Overlay enabled, RoK found, but RoK is minimized/not visible or in background
         assert_eq!(
             determine_overlay_visibility_action(true, true, false),
             OverlayVisibilityAction::Hide,
             "Overlay must hide when RoK is not visible"
         );
 
-        // Overlay enabled, but RoK window closed/not found
         assert_eq!(
             determine_overlay_visibility_action(true, false, false),
             OverlayVisibilityAction::Hide,
             "Overlay must hide when RoK is not running"
         );
 
-        // Overlay disabled in settings
         assert_eq!(
             determine_overlay_visibility_action(false, true, true),
             OverlayVisibilityAction::Hide,

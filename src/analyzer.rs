@@ -3,12 +3,10 @@ use chrono::{DateTime, Duration, NaiveDate, Utc};
 
 use crate::model::{BattleRecord, ItemDrop, ItemStat, PlunderTierStat, Statistics};
 
-/// Trả về ngày hiện tại theo múi giờ Việt Nam (UTC+7)
 pub fn current_date_vn() -> NaiveDate {
     (Utc::now() + Duration::try_hours(7).unwrap_or_else(|| Duration::hours(7))).date_naive()
 }
 
-/// Trích xuất ngày NaiveDate từ bản ghi chiến báo theo giờ Việt Nam
 pub fn get_record_date_vn(r: &BattleRecord) -> Option<NaiveDate> {
     if let Some(d) = parse_date_str(&r.time_vn) {
         return Some(d);
@@ -29,7 +27,6 @@ pub fn get_record_date_vn(r: &BattleRecord) -> Option<NaiveDate> {
 fn parse_single_date_token(token: &str) -> Option<NaiveDate> {
     let parts: Vec<&str> = token.split(['-', '/', '.']).collect();
     if parts.len() == 3 {
-        // YYYY[-/.]M[-/.]D (hỗ trợ cả 1 hoặc 2 chữ số cho tháng và ngày)
         if parts[0].len() == 4 && (1..=2).contains(&parts[1].len()) && (1..=2).contains(&parts[2].len()) {
             if let (Ok(y), Ok(m), Ok(d)) = (
                 parts[0].parse::<i32>(),
@@ -41,7 +38,6 @@ fn parse_single_date_token(token: &str) -> Option<NaiveDate> {
                 }
             }
         }
-        // D[-/.]M[-/.]YYYY (hỗ trợ cả 1 hoặc 2 chữ số cho ngày và tháng)
         if parts[2].len() == 4 && (1..=2).contains(&parts[0].len()) && (1..=2).contains(&parts[1].len()) {
             if let (Ok(d), Ok(m), Ok(y)) = (
                 parts[0].parse::<u32>(),
@@ -57,22 +53,16 @@ fn parse_single_date_token(token: &str) -> Option<NaiveDate> {
     None
 }
 
-/// Parse chuỗi ngày linh hoạt hỗ trợ nhiều định dạng:
-/// - YYYY-MM-DD, YYYY-M-D (e.g. "2026-10-22", "2026-5-1", "2026-10-22 14:30:00")
-/// - YYYY/MM/DD, YYYY/M/D, YYYY.MM.DD, YYYY.M.D
-/// - DD/MM/YYYY, D/M/YYYY, DD-MM-YYYY, D-M-YYYY, DD.MM.YYYY, D.M.YYYY
 pub fn parse_date_str(d_str: &str) -> Option<NaiveDate> {
     let clean = d_str.trim();
     if clean.is_empty() {
         return None;
     }
 
-    // 1. Thử trực tiếp toàn bộ chuỗi
     if let Some(d) = parse_single_date_token(clean) {
         return Some(d);
     }
 
-    // 2. Thử từ đầu tiên nếu chuỗi chứa giờ (vd: "2026-5-1 14:30:00")
     if let Some(first_word) = clean.split_whitespace().next() {
         if first_word != clean {
             if let Some(d) = parse_single_date_token(first_word) {
@@ -81,7 +71,6 @@ pub fn parse_date_str(d_str: &str) -> Option<NaiveDate> {
         }
     }
 
-    // 3. Fallback Chrono parse
     if let Ok(d) = NaiveDate::parse_from_str(clean, "%Y-%m-%d") {
         return Some(d);
     }
@@ -92,7 +81,6 @@ pub fn parse_date_str(d_str: &str) -> Option<NaiveDate> {
         return Some(d);
     }
 
-    // 4. Tìm kiếm từ ngày nhúng trong chuỗi (ví dụ: "Ngày 1/5/2026")
     for word in clean.split_whitespace() {
         if word != clean {
             if let Some(d) = parse_single_date_token(word) {
@@ -122,7 +110,7 @@ pub fn filter_records_by_date<'a>(
         match (start_date, end_date) {
             (Some(s), Some(e)) => {
                 if s > e {
-                    (Some(e), Some(s)) // Tự động đảo chiều nếu người dùng nhập ngược
+                    (Some(e), Some(s))
                 } else {
                     (Some(s), Some(e))
                 }
@@ -154,7 +142,6 @@ pub fn filter_records_by_date<'a>(
         .collect()
 }
 
-/// Trả về N bản ghi mới nhất theo thứ tự giảm dần của thời gian (mới nhất đứng đầu).
 pub fn get_latest_records<'a>(records: &'a [BattleRecord], limit: usize) -> Vec<&'a BattleRecord> {
     let mut sorted: Vec<&'a BattleRecord> = records.iter().collect();
     sorted.sort_by(|a, b| {
@@ -175,14 +162,10 @@ pub fn generate_statistics(records: &[BattleRecord]) -> Statistics {
     let min_dmg = records.iter().map(|r| r.damage_pct).min().unwrap_or(0);
     let max_dmg = records.iter().map(|r| r.damage_pct).max().unwrap_or(0);
 
-    // Aggregates by item
     let mut item_stats: HashMap<String, ItemStat> = HashMap::new();
     let mut battle_items: HashMap<(u32, u32), (&ItemDrop, i64)> = HashMap::new();
 
     for r in records {
-        // Gom nhóm vật phẩm trong cùng 1 trận theo (itype, sub_type)
-        // để chiến báo đánh dã man chuỗi (chained barbarian) không làm thổi phồng battle_count
-        // và tính đúng tổng max_in_battle của trận đó.
         for it in &r.items {
             battle_items
                 .entry((it.itype, it.sub_type))
@@ -228,7 +211,6 @@ pub fn generate_statistics(records: &[BattleRecord]) -> Statistics {
             ((stat.total_quantity as f64) / (total_battles as f64) * 10.0).round() / 10.0;
     }
 
-    // Breakdown by Plunder Tier
     #[allow(dead_code)]
     struct TierAccum {
         tier: i32,
@@ -318,12 +300,6 @@ pub fn generate_statistics(records: &[BattleRecord]) -> Statistics {
     }
 }
 
-/// Calculates Action Point (AP) cost per battle based on target level tiers:
-/// - Barbarian Forts: Lvl 1-10 = 150 AP | Lvl 11-15 = 300 AP
-/// - Motte: Lvl 1-10 = 150 AP | Lvl 11-15 = 300 AP
-/// - Barbarians: Lvl 1-40 = 40 AP | Lvl 41-55 = 80 AP
-/// - Chained reports (AoE) count as 1 march cost
-/// - Gathering / other = 0 AP
 pub fn calculate_ap_cost(battle_type: &str, target_level: &str) -> i64 {
     let lvl: u32 = target_level
         .split(|c: char| !c.is_ascii_digit())
@@ -376,8 +352,6 @@ pub struct ApEconomics {
     pub target_benchmarks: Vec<TargetRoiBenchmark>,
 }
 
-/// Computes AP Economics and Drop Rate Analytics across active filtered records
-/// and a rolling 7-day timeline from historical vault records.
 pub fn compute_ap_economics(active_records: &[BattleRecord], vault_records: &[BattleRecord]) -> ApEconomics {
     let mut total_ap_consumed = 0i64;
     let mut total_ap_recovered = 0i64;
@@ -463,10 +437,9 @@ pub fn compute_ap_economics(active_records: &[BattleRecord], vault_records: &[Ba
         0.0
     };
 
-    // Rolling 7 calendar days timeline (today down to 6 days ago) in a single pass
     let today = current_date_vn();
     let min_date = today - Duration::days(6);
-    let mut day_stats = [(0i64, 0i64); 7]; // (speedup_mins, ap_consumed)
+    let mut day_stats = [(0i64, 0i64); 7];
 
     for r in vault_records {
         if r.battle_type == "gathering" {
@@ -498,7 +471,6 @@ pub fn compute_ap_economics(active_records: &[BattleRecord], vault_records: &[Ba
         });
     }
 
-    // Benchmark Matrix (only non-empty targets, ranked by yield)
     let mut target_benchmarks: Vec<TargetRoiBenchmark> = target_groups
         .into_iter()
         .filter(|g| g.count > 0)
@@ -614,12 +586,9 @@ mod tests {
 
     #[test]
     fn test_parse_date_str_with_multibyte_utf8() {
-        // String where byte index 10 falls in the middle of a multibyte UTF-8 char:
-        // "123456789" (9 bytes) + "ư" (0xC6 0xB0 = 2 bytes: byte 9 and 10)
         let s = "123456789ư";
         assert_eq!(parse_date_str(s), None);
 
-        // Vietnamese prefix with valid date afterwards
         assert_eq!(parse_date_str("Ngày 22/10/2026"), Some(NaiveDate::from_ymd_opt(2026, 10, 22).unwrap()));
     }
 
@@ -654,16 +623,13 @@ mod tests {
         let d20 = NaiveDate::from_ymd_opt(2026, 10, 20).unwrap();
         let d22 = NaiveDate::from_ymd_opt(2026, 10, 22).unwrap();
 
-        // Exact day
         let f20 = filter_records_by_date(&recs, Some(d20), Some(d20), None);
         assert_eq!(f20.len(), 1);
         assert_eq!(f20[0].time_vn, "2026-10-20 12:00:00");
 
-        // Range
         let f18_20 = filter_records_by_date(&recs, Some(d18), Some(d20), None);
         assert_eq!(f18_20.len(), 2);
 
-        // Auto swap reversed dates (d22 down to d20)
         let f_swap = filter_records_by_date(&recs, Some(d22), Some(d20), None);
         assert_eq!(f_swap.len(), 2);
 
@@ -698,7 +664,6 @@ mod tests {
             content: "".into(),
         };
 
-        // Danh sách lưu theo thứ tự tăng dần thời gian (cũ nhất ở đầu, giống trong Vault)
         let recs = vec![
             make_rec("old_2022", "2022-08-21 07:03:04", 1661040184654146),
             make_rec("old_2025", "2025-01-30 02:24:20", 1738178660507109),
@@ -712,21 +677,18 @@ mod tests {
         let latest = get_latest_records(&recs, 5);
         assert_eq!(latest.len(), 5);
 
-        // Phải được sắp xếp theo thời gian mới nhất đứng đầu
         assert_eq!(latest[0].mail_id, "new_5");
         assert_eq!(latest[1].mail_id, "new_4");
         assert_eq!(latest[2].mail_id, "new_3");
         assert_eq!(latest[3].mail_id, "new_2");
         assert_eq!(latest[4].mail_id, "new_1");
 
-        // Các bản ghi cũ từ 2022 và 2025 tuyệt đối không được xuất hiện
         assert!(latest.iter().all(|r| r.mail_id != "old_2022" && r.mail_id != "old_2025"));
     }
 
     #[test]
     fn test_chained_barbarian_item_aggregation_no_drop_rate_inflation() {
         let mut items = Vec::new();
-        // Giả lập 4 dã man trong 1 chiến báo cùng rớt Gems (1, 5)
         for _ in 0..4 {
             items.push(ItemDrop {
                 itype: 1,
@@ -762,13 +724,9 @@ mod tests {
         let stats = generate_statistics(&[record]);
         let gem_stat = stats.item_stats.get("1_5").expect("Must have Gems stats");
 
-        // 1 battle only, so battle_count MUST be 1 (not 4)
         assert_eq!(gem_stat.battle_count, 1, "Battle count must be 1 per battle even if chained kills drop same item");
-        // Total quantity is 4 * 10 = 40
         assert_eq!(gem_stat.total_quantity, 40);
-        // Max in battle must be the sum for this battle = 40
         assert_eq!(gem_stat.max_in_battle, 40);
-        // Min in battle is also 40
         assert_eq!(gem_stat.min_in_battle, 40);
     }
 
@@ -799,12 +757,10 @@ mod tests {
         let rec_yest = make_rec(yest);
         let recs = vec![rec_today.clone(), rec_yest.clone()];
 
-        // 1 rolling day = Today only
         let filtered_today = filter_records_by_date(&recs, None, None, Some(1));
         assert_eq!(filtered_today.len(), 1);
         assert_eq!(filtered_today[0].time_vn, rec_today.time_vn);
 
-        // 2 rolling days = Today and Yesterday
         let filtered_2days = filter_records_by_date(&recs, None, None, Some(2));
         assert_eq!(filtered_2days.len(), 2);
     }
@@ -902,12 +858,12 @@ mod tests {
             damage_pct: 20,
             plunder_tier: 1,
             items: vec![
-                make_item(1, 9, 100),    // crystals
-                make_item(2, 7005, 4),   // choice pack
-                make_item(2, 130, 10),   // tomes
-                make_item(2, 92, 5),     // heal speedup
-                make_item(2, 58, 15),    // univ speedup
-                make_item(2, 9998, 2),   // starlight
+                make_item(1, 9, 100),
+                make_item(2, 7005, 4),
+                make_item(2, 130, 10),
+                make_item(2, 92, 5),
+                make_item(2, 58, 15),
+                make_item(2, 9998, 2),
             ],
             item_totals: HashMap::new(),
             content: "".into(),
@@ -1048,16 +1004,16 @@ mod tests {
         let make_battle = |btype: &str, lvl: &str, spd_5m: i64, ap_50: i64, covenant: i64, gems_10: i64| {
             let mut items = Vec::new();
             if spd_5m > 0 {
-                items.push(mk_item(2, 58, spd_5m)); // 5m universal
+                items.push(mk_item(2, 58, spd_5m));
             }
             if ap_50 > 0 {
-                items.push(mk_item(2, 182, ap_50)); // 50 AP pot
+                items.push(mk_item(2, 182, ap_50));
             }
             if covenant > 0 {
-                items.push(mk_item(2, 109, covenant)); // Book of Covenant
+                items.push(mk_item(2, 109, covenant));
             }
             if gems_10 > 0 {
-                items.push(mk_item(2, 26, gems_10)); // 10 gems
+                items.push(mk_item(2, 26, gems_10));
             }
             BattleRecord {
                 filename: "mail1".into(),
@@ -1079,39 +1035,29 @@ mod tests {
             }
         };
 
-        // 2 x Fort 5 (150 AP each = 300 AP), 20x 5m speedups (100m total), 2x 50 AP pots (100 AP recovered), 1 book, 5x 10 gems (50 gems)
         let r1 = make_battle("fort", "5", 10, 1, 1, 3);
         let r2 = make_battle("fort", "5", 10, 1, 0, 2);
 
-        // 1 x Barb 25 (40 AP), 2x 5m speedups (10m total), 0 AP pot, 0 book, 1x 10 gems (10 gems)
         let r3 = make_battle("barbarian", "25", 2, 0, 0, 1);
 
         let records = vec![r1, r2, r3];
         let econ = compute_ap_economics(&records, &records);
 
-        // Gross AP: 150 + 150 + 40 = 340 AP
         assert_eq!(econ.total_ap_consumed, 340);
-        // AP Recovered: 2 x 50 AP = 100 AP
         assert_eq!(econ.total_ap_recovered, 100);
         assert_eq!(econ.net_ap_spent, 240);
-        // Rebate: (100 / 340) * 100 = 29.41%
         assert!((econ.rebate_pct - 29.41).abs() < 0.1);
 
-        // Total speedup: 100m + 10m = 110m.
-        // Speedup per 1k AP: 110 / 0.340 = 323.5m
         assert!((econ.speedup_mins_per_1k_ap - 323.5).abs() < 0.2);
 
-        // Total gems: 50 + 10 = 60 gems.
-        // Gems per 1k AP: 60 / 0.340 = 176.47
         assert!((econ.gems_per_1k_ap - 176.47).abs() < 0.2);
 
-        // Target benchmarks: 2 rows (Fort Lvl 1-10, Barbarians Lvl 1-40)
         assert_eq!(econ.target_benchmarks.len(), 2);
         let fort_bm = econ.target_benchmarks.iter().find(|b| b.target_name == "Fort Lvl 1-10").unwrap();
         assert_eq!(fort_bm.battle_count, 2);
         assert_eq!(fort_bm.unit_ap_cost, 150);
         assert_eq!(fort_bm.avg_speedup_mins, 50.0);
-        assert_eq!(fort_bm.covenant_drop_rate, 50.0); // 1 out of 2 battles
+        assert_eq!(fort_bm.covenant_drop_rate, 50.0);
     }
 
     #[test]
@@ -1134,7 +1080,7 @@ mod tests {
             plunder_tier: 0,
             items: vec![
                 ItemDrop {
-                    itype: 1, // gathering gem node
+                    itype: 1,
                     sub_type: 5,
                     value: 10,
                     pic: "".into(),

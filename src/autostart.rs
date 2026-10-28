@@ -65,7 +65,6 @@ pub mod windows {
         s.encode_utf16().chain(std::iter::once(0)).collect()
     }
 
-    /// Lấy đường dẫn file exe chuẩn xác của ứng dụng (loại bỏ tiền tố `\\?\` nếu có)
     pub fn get_clean_exe_path() -> Result<String, String> {
         let exe = std::env::current_exe().map_err(|e| format!("Không lấy được đường dẫn exe: {}", e))?;
         let s = exe.to_string_lossy().to_string();
@@ -73,7 +72,6 @@ pub mod windows {
         Ok(clean.to_string())
     }
 
-    /// Lấy giá trị chuỗi lệnh thô của Autostart trong Windows Registry theo subkey
     pub fn get_raw_autostart_command_with_key(subkey: &str) -> Option<String> {
         unsafe {
             let subkey_wide = to_wide_null(subkey);
@@ -123,13 +121,11 @@ pub mod windows {
         None
     }
 
-    /// Lấy giá trị chuỗi lệnh thô của Autostart trong Windows Registry nếu có
     #[allow(dead_code)]
     pub fn get_raw_autostart_command() -> Option<String> {
         get_raw_autostart_command_with_key(DEFAULT_RUN_KEY)
     }
 
-    /// Ghi hoặc xóa chuỗi lệnh thô của Autostart trong Windows Registry theo subkey
     pub fn set_raw_autostart_command_with_key(subkey: &str, cmd: Option<&str>) -> Result<(), String> {
         unsafe {
             let subkey_wide = to_wide_null(subkey);
@@ -176,7 +172,6 @@ pub mod windows {
                 let mut hkey: isize = 0;
                 let status = RegOpenKeyExW(HKEY_CURRENT_USER, subkey_wide.as_ptr(), 0, KEY_SET_VALUE, &mut hkey);
                 if status != 0 || hkey == 0 {
-                    // Nếu key không tồn tại thì giá trị coi như đã không tồn tại
                     return Ok(());
                 }
                 let _ = RegDeleteValueW(hkey, val_name.as_ptr());
@@ -186,13 +181,11 @@ pub mod windows {
         Ok(())
     }
 
-    /// Ghi hoặc xóa chuỗi lệnh thô của Autostart trong Windows Registry
     #[allow(dead_code)]
     pub fn set_raw_autostart_command(cmd: Option<&str>) -> Result<(), String> {
         set_raw_autostart_command_with_key(DEFAULT_RUN_KEY, cmd)
     }
 
-    /// Xóa toàn bộ subkey của Autostart khỏi Windows Registry (dùng cho cleanup và test)
     #[allow(dead_code)]
     pub fn delete_autostart_key(subkey: &str) -> Result<(), String> {
         if subkey == DEFAULT_RUN_KEY || subkey.ends_with(r"\Run") || subkey.ends_with(r"\run") {
@@ -201,7 +194,6 @@ pub mod windows {
         unsafe {
             let subkey_wide = to_wide_null(subkey);
             let status = RegDeleteKeyW(HKEY_CURRENT_USER, subkey_wide.as_ptr());
-            // Mã lỗi 0 là thành công, 2 (ERROR_FILE_NOT_FOUND) là key không tồn tại
             if status != 0 && status != 2 {
                 return Err(format!("Không thể xóa registry key (mã lỗi: {})", status));
             }
@@ -209,8 +201,6 @@ pub mod windows {
         Ok(())
     }
 
-    /// Kiểm tra trạng thái Autostart trong Windows Registry theo subkey
-    /// Trả về `(is_autostart_enabled, is_start_minimized)`
     pub fn get_autostart_status_with_key(subkey: &str) -> (bool, bool) {
         if let Some(val_str) = get_raw_autostart_command_with_key(subkey) {
             let is_minimized = val_str.contains("--minimized") || val_str.contains("--tray");
@@ -220,13 +210,10 @@ pub mod windows {
         }
     }
 
-    /// Kiểm tra trạng thái Autostart trong Windows Registry
-    /// Trả về `(is_autostart_enabled, is_start_minimized)`
     pub fn get_autostart_status() -> (bool, bool) {
         get_autostart_status_with_key(DEFAULT_RUN_KEY)
     }
 
-    /// Cập nhật trạng thái Autostart trong Windows Registry theo subkey
     pub fn set_autostart_with_key(subkey: &str, enabled: bool, start_minimized: bool) -> Result<(), String> {
         if enabled {
             let clean_exe = get_clean_exe_path()?;
@@ -241,7 +228,6 @@ pub mod windows {
         }
     }
 
-    /// Cập nhật trạng thái Autostart trong Windows Registry
     pub fn set_autostart(enabled: bool, start_minimized: bool) -> Result<(), String> {
         set_autostart_with_key(DEFAULT_RUN_KEY, enabled, start_minimized)
     }
@@ -300,9 +286,6 @@ pub mod windows {
 
 pub use windows::*;
 
-/// Đảm bảo thư mục làm việc hiện tại trùng với thư mục chứa file thực thi (.exe).
-/// Điều này ngăn chặn lỗi khi Windows khởi chạy từ Autostart (Registry Run key)
-/// vốn đặt working directory mặc định là C:\Windows\System32.
 pub fn ensure_working_dir_is_exe_dir() -> Result<std::path::PathBuf, String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let parent = exe.parent().ok_or_else(|| "No parent directory for executable".to_string())?;
@@ -347,7 +330,6 @@ mod tests {
     #[test]
     fn test_autostart_toggle() {
         let test_key = r"Software\RoKLootWatcher_Test";
-        // Ensure clean state before test
         let _ = delete_autostart_key(test_key);
 
         let set_res = set_autostart_with_key(test_key, true, true);

@@ -9,9 +9,6 @@ use crate::model::{BattleRecord, FilterMode};
 #[cfg(windows)]
 use std::os::windows::fs::OpenOptionsExt;
 
-/// Đọc nội dung file với cờ chia sẻ đầy đủ trên Windows:
-/// FILE_SHARE_READ (1) | FILE_SHARE_WRITE (2) | FILE_SHARE_DELETE (4) = 7.
-/// Giúp đọc được file ngay cả khi game RoK đang ghi hoặc chuẩn bị gọi DeleteFile.
 pub fn read_file_shared<P: AsRef<Path>>(path: P) -> std::io::Result<Vec<u8>> {
     let p = path.as_ref();
     let mut options = OpenOptions::new();
@@ -48,7 +45,6 @@ pub fn read_file_shared<P: AsRef<Path>>(path: P) -> std::io::Result<Vec<u8>> {
     Ok(buf)
 }
 
-/// Tạo khóa định danh duy nhất cho một chiến báo để chống trùng lặp dữ liệu (Deduplication).
 pub fn get_record_dedup_key(r: &BattleRecord) -> String {
     if !r.mail_id.is_empty() {
         format!("id:{}", r.mail_id)
@@ -155,8 +151,6 @@ impl MailVault {
         self.is_corrupted
     }
 
-    /// Kiểm tra xem file hoặc ID thư này đã được lưu trong Vault hay chưa (O(1)).
-    /// Giúp Fast-Skip bỏ qua lập tức mà không cần mở file nhị phân hay cấp phát bộ nhớ.
     pub fn contains_file_or_id(&self, fname: &str) -> bool {
         let id_part = fname.strip_prefix("Persistent.Mail.").unwrap_or(fname);
         self.key_index.contains_key(fname)
@@ -166,29 +160,22 @@ impl MailVault {
     }
 
     fn init(&mut self) {
-        // Tạo thư mục sao lưu nhị phân nếu chưa có
         if let Err(e) = fs::create_dir_all(&self.binary_dir) {
             eprintln!("[-] Không thể tạo thư mục mail_vault: {}", e);
         }
 
-        // 1. Nạp từ file vault JSON nếu đã có
         if let Err(e) = self.load_from_vault_file() {
             eprintln!("[!] Cảnh báo Vault: {}", e);
         }
 
-        // 2. Khôi phục bổ sung từ thư mục filtered_mails_json nếu người dùng đã có
         self.restore_from_filtered_mails_json();
 
-        // 3. Dọn dẹp các chiến báo sai lệch lịch sử (vd: thư Pass bị gán nhầm thành barbarian)
         self.sanitize_records();
 
-        // Sắp xếp theo thời gian chiến đấu
         self.records.sort_by_key(|r| r.time_raw);
         self.rebuild_index();
     }
 
-    /// Loại bỏ các chiến báo cũ bị phân loại nhầm thành barbarian (như Pass First Occupation),
-    /// và chuẩn hóa các chiến báo dã man từng bị gán nhầm cấp 60 của pháo đài.
     pub fn sanitize_records(&mut self) -> usize {
         let before_len = self.records.len();
         let mut modified = false;
@@ -202,11 +189,9 @@ impl MailVault {
                 {
                     return false;
                 }
-                // Loại bỏ thư bắn tháp không có vật phẩm bị gán nhầm thành barbarian cấp 60
                 if (r.target_level == "60" || r.target == "Dã Man Cấp 60") && r.items.is_empty() {
                     return false;
                 }
-                // Chuẩn hóa lại các báo cáo dã man từng bị gán nhầm cấp 60 của pháo đài (vd: Cấp 52-60 (x2))
                 if r.target_level.contains("60") || r.target.contains("60") {
                     let maybe_min_lvl = r.target_level.split_once("-60").map(|(min_str, _)| min_str.trim().to_string())
                         .or_else(|| {
@@ -318,22 +303,17 @@ impl MailVault {
             .map_err(|e| format!("Lỗi serialize JSON vault: {}", e))?;
         drop(file);
 
-        // Ghi đè nguyên tử (atomic rename/replace)
         fs::rename(&tmp_file, &self.vault_file)
             .map_err(|e| format!("Lỗi cập nhật file vault: {}", e))?;
 
         Ok(())
     }
 
-    /// Thêm hoặc cập nhật một bản ghi vào Vault.
-    /// Trả về true nếu là bản ghi mới được thêm.
     pub fn upsert(&mut self, rec: BattleRecord) -> bool {
         let key = get_record_dedup_key(&rec);
 
         if let Some(&idx) = self.key_index.get(&key) {
             let existing = &mut self.records[idx];
-            // Chỉ cập nhật nếu bản ghi mới có thông tin phong phú hơn hoặc chuẩn xác hơn.
-            // Tuyệt đối không để bản ghi "other" hay bản ghi rỗng ghi đè dữ liệu hợp lệ.
             if rec.battle_type != "other" && (existing.battle_type == "other" || existing.battle_type.is_empty()) {
                 existing.battle_type = rec.battle_type;
             }
@@ -365,7 +345,6 @@ impl MailVault {
             }
             false
         } else {
-            // Bản ghi mới -> Thêm vào danh sách và cập nhật chỉ mục
             let new_idx = self.records.len();
             self.records.push(rec);
             self.key_index.insert(key, new_idx);
@@ -373,7 +352,6 @@ impl MailVault {
         }
     }
 
-    /// Thêm hàng loạt bản ghi (Upsert batch), trả về số lượng bản ghi mới.
     pub fn upsert_batch(&mut self, recs: Vec<BattleRecord>) -> usize {
         let mut new_count = 0;
         for r in recs {
@@ -389,8 +367,6 @@ impl MailVault {
         new_count
     }
 
-    /// Sao lưu nhị phân file thư từ mailcache vào mail_vault.
-    /// Phương thức này sử dụng read_file_shared để đọc ngay trước khi game kịp xóa.
     #[allow(dead_code)]
     pub fn backup_binary_mail(&self, src_path: &Path) -> Result<PathBuf, String> {
         let fname = match src_path.file_name() {
@@ -404,7 +380,6 @@ impl MailVault {
 
         let dst_path = self.binary_dir.join(&fname);
 
-        // Đọc bytes với cờ chia sẻ đầy đủ của Windows
         let bytes = read_file_shared(src_path)
             .map_err(|e| format!("Lỗi đọc file nguồn {}: {}", src_path.display(), e))?;
 
@@ -418,9 +393,6 @@ impl MailVault {
         Ok(dst_path)
     }
 
-
-    /// Dọn dẹp toàn bộ file nhị phân trong thư mục mail_vault để giải phóng dung lượng đĩa.
-    /// Trả về (số lượng file đã xóa, tổng dung lượng bytes giải phóng).
     pub fn clean_binary_vault(&self) -> Result<(usize, u64), String> {
         if !self.binary_dir.exists() {
             return Ok((0, 0));
@@ -471,8 +443,6 @@ impl MailVault {
                     None => continue,
                 };
 
-                // Bỏ qua ngay lập tức nếu bản ghi đã tồn tại trong Vault (O(1) lookup),
-                // tránh mở file I/O và deserialization JSON không cần thiết gây lag khi khởi động.
                 if self.contains_file_or_id(stem) {
                     continue;
                 }
@@ -480,16 +450,12 @@ impl MailVault {
                 let p = entry.path();
                 if let Ok(file) = fs::File::open(&p) {
                     let reader = std::io::BufReader::new(file);
-                    // Thử parse xem có metadata thống kê không
                     if let Ok(val) = serde_json::from_reader::<_, serde_json::Value>(reader) {
                         if let Some(box_val) = val.get("box").and_then(|v| v.as_str()) {
                             if box_val == "Report" || box_val == "Archive" {
                                 let fname_saved = stem.to_string();
-                                // Parse BattleRecord từ cấu trúc json
                                 if let Some(rec) = Self::parse_battle_record_from_exported_json(&val, &fname_saved) {
                                     let key = get_record_dedup_key(&rec);
-                                    // TUYỆT ĐỐI KHÔNG ghi đè bản ghi đã tồn tại trong Vault
-                                    // vì bản ghi trong Vault có dữ liệu đầy đủ và chính xác hơn!
                                     if !self.key_index.contains_key(&key) && self.upsert(rec) {
                                         restored += 1;
                                     }
@@ -787,15 +753,12 @@ mod tests {
             content: "Test".into(),
         };
 
-        // First insert
         assert!(vault.upsert(rec.clone()));
         assert_eq!(vault.total_count(), 1);
 
-        // Duplicate insert should return false and not increase count
         assert!(!vault.upsert(rec));
         assert_eq!(vault.total_count(), 1);
 
-        // Save and reload
         assert!(vault.save_to_disk().is_ok());
 
         let reloaded = MailVault::new(&temp_dir);
@@ -825,7 +788,6 @@ mod tests {
         assert!(*btypes.get("barbarian").unwrap_or(&0) >= 476, "Phải nạp từ 476 chiến báo Barbarian trở lên");
         assert_eq!(*btypes.get("other").unwrap_or(&0), 0, "Không được có chiến báo nào bị phân loại nhầm thành other");
 
-        // Also verify and sanitize motte_filtered_mails.json if present
         let motte_file = Path::new("motte_filtered_mails.json");
         if motte_file.exists() {
             if let Ok(data) = fs::read_to_string(motte_file) {
@@ -869,7 +831,6 @@ mod tests {
                             }
                         }
                         if modified {
-                            // Verify json is serializable without mutating project workspace file
                             assert!(serde_json::to_string_pretty(&json_val).is_ok());
                         }
                     }
@@ -907,7 +868,6 @@ mod tests {
         let sample_file = json_dir.join("Persistent.Mail.777888.json");
         fs::write(&sample_file, mock_json).unwrap();
 
-        // Khởi tạo MailVault trên thư mục này -> Phải tự động khôi phục
         let vault = MailVault::new(&temp_dir);
         assert_eq!(vault.total_count(), 1);
         let rec = &vault.get_records()[0];
@@ -962,22 +922,18 @@ mod tests {
 
         let vault = MailVault::new(&temp_dir);
 
-        // Giả lập game RoK tạo 1 file nhị phân trong mailcache
         let sample_mail = game_mailcache.join("Persistent.Mail.999111");
         let sample_content = vec![0xFF, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x05, 0xFF];
         fs::write(&sample_mail, &sample_content).unwrap();
 
-        // Watcher sao lưu nhị phân vào vault
         let backup_result = vault.backup_binary_mail(&sample_mail);
         assert!(backup_result.is_ok());
         let backup_path = backup_result.unwrap();
         assert!(backup_path.exists());
 
-        // Mô phỏng người chơi đọc thư trong game -> Game xóa file gốc khỏi mailcache
         fs::remove_file(&sample_mail).unwrap();
         assert!(!sample_mail.exists());
 
-        // File trong kho vault vẫn tồn tại nguyên vẹn!
         assert!(backup_path.exists());
         let saved_bytes = fs::read(&backup_path).unwrap();
         assert_eq!(saved_bytes, sample_content);
@@ -1001,7 +957,6 @@ mod tests {
         assert!(corrupt_backup.exists(), "Must create .corrupt backup file");
         assert_eq!(fs::read(&corrupt_backup).unwrap(), corrupt_content);
 
-        // Attempting to save to disk must refuse to overwrite
         let save_res = vault.save_to_disk();
         assert!(save_res.is_err(), "Must refuse to overwrite corrupted vault");
         assert_eq!(fs::read(&vault_file).unwrap(), corrupt_content, "Original vault file must not be overwritten");
@@ -1108,7 +1063,6 @@ mod tests {
         let vault = MailVault::new(&temp_dir);
         let bin_dir = vault.get_binary_dir();
 
-        // Create 3 dummy files
         fs::write(bin_dir.join("file1.bin"), b"12345").unwrap();
         fs::write(bin_dir.join("file2.bin"), b"67890").unwrap();
         fs::write(bin_dir.join("file3.bin"), b"abc").unwrap();
@@ -1120,13 +1074,11 @@ mod tests {
         assert!(!bin_dir.join("file2.bin").exists());
         assert!(!bin_dir.join("file3.bin").exists());
 
-        // Calling it again on empty dir returns (0, 0)
         let (count2, bytes2) = vault.clean_binary_vault().expect("clean empty vault");
         assert_eq!(count2, 0);
         assert_eq!(bytes2, 0);
 
         let _ = fs::remove_dir_all(&temp_dir);
     }
-
 
 }
