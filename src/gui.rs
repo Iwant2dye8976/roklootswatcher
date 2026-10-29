@@ -38,7 +38,7 @@ pub struct ThemeColors {
     pub fort_accent: Color32,
     pub barb_accent: Color32,
     pub crystal_cyan: Color32,
-    pub speedup_purple: Color32,
+    pub speedup_blue: Color32,
     pub train_orange: Color32,
     pub heal_blue: Color32,
     pub log_bg: Color32,
@@ -73,7 +73,7 @@ impl ThemeColors {
             fort_accent: Color32::from_rgb(0xf5, 0x9e, 0x0b),
             barb_accent: Color32::from_rgb(0x10, 0xb9, 0x81),
             crystal_cyan: Color32::from_rgb(0x06, 0xb6, 0xd4),
-            speedup_purple: Color32::from_rgb(0xa8, 0x55, 0xf7),
+            speedup_blue: Color32::from_rgb(58, 147, 230),
             train_orange: Color32::from_rgb(0xfb, 0x92, 0x3c),
             heal_blue: Color32::from_rgb(0x38, 0xbd, 0xf8),
             log_bg: Color32::from_rgb(0x0d, 0x0f, 0x14),
@@ -108,7 +108,7 @@ impl ThemeColors {
             fort_accent: Color32::from_rgb(0xb4, 0x53, 0x09),
             barb_accent: Color32::from_rgb(0x04, 0x78, 0x57),
             crystal_cyan: Color32::from_rgb(0x0e, 0x74, 0x90),
-            speedup_purple: Color32::from_rgb(0x7e, 0x22, 0xce),
+            speedup_blue: Color32::from_rgb(58, 147, 230),
             train_orange: Color32::from_rgb(0xc2, 0x41, 0x0c),
             heal_blue: Color32::from_rgb(0x03, 0x69, 0xa1),
             log_bg: Color32::from_rgb(0xff, 0xff, 0xff),
@@ -376,7 +376,7 @@ fn category_badge_color(category: &str, c: &ThemeColors) -> Color32 {
     } else if lower.contains("vật liệu") || lower.contains("material") {
         c.heal_blue
     } else if lower.contains("tốc") || lower.contains("speed") {
-        c.speedup_purple
+        c.speedup_blue
     } else if lower.contains("pha lê") || lower.contains("crystal") {
         c.crystal_cyan
     } else if lower.contains("sách") || lower.contains("tên") || lower.contains("book") || lower.contains("arrow") {
@@ -1585,7 +1585,7 @@ impl RoKLootWatcherApp {
                                 .format_duration_for_language(heal_spd_mins as f64, self.language),
                             1,
                         ),
-                    c.speedup_purple,
+                    c.speedup_blue,
                 ),
                 (
                     self.language.t(TrKey::CardTotalResources),
@@ -2153,7 +2153,7 @@ impl RoKLootWatcherApp {
                         ui.label(
                             egui::RichText::new(format!("● {}", spd_lbl))
                                 .font(egui::FontId::proportional(9.5))
-                                .color(c.crystal_cyan),
+                                .color(c.speedup_blue),
                         );
                         ui.add_space(8.0);
                         ui.label(
@@ -2237,7 +2237,7 @@ impl RoKLootWatcherApp {
                                 egui::pos2(center_x - bar_w - 1.0, baseline_y - spd_bar_h),
                                 egui::pos2(center_x - 1.0, baseline_y),
                             );
-                            painter.rect_filled(spd_rect, Rounding::same(2.0), c.crystal_cyan);
+                            painter.rect_filled(spd_rect, Rounding::same(2.0), c.speedup_blue);
                         }
 
                         let ap_bar_h = ((d.ap_consumed as f64 / max_ap) as f32 * (baseline_y - chart_rect.min.y - 6.0))
@@ -2284,7 +2284,7 @@ impl RoKLootWatcherApp {
                         };
                         chart_resp.on_hover_ui(|ui| {
                             ui.label(egui::RichText::new(format!("{}: {}", lbl_date, display_date)).strong().monospace());
-                            ui.label(egui::RichText::new(format!("{}: {:.1}h ({:.0}m)", lbl_spd, d.speedup_hours, d.speedup_hours * 60.0)).color(c.crystal_cyan).monospace());
+                            ui.label(egui::RichText::new(format!("{}: {:.1}h ({:.0}m)", lbl_spd, d.speedup_hours, d.speedup_hours * 60.0)).color(c.speedup_blue).monospace());
                             ui.label(egui::RichText::new(format!("{}: {} AP", lbl_ap, format_num(d.ap_consumed))).color(c.train_orange).monospace());
                             if d.ap_consumed > 0 {
                                 let yield_rate = (d.speedup_hours * 60.0) / (d.ap_consumed as f64 / 1000.0);
@@ -5273,7 +5273,7 @@ mod tests {
     fn test_category_badge_color_and_sort_columns() {
         let colors = ThemeColors::dark();
         assert_eq!(category_badge_color("Tài nguyên", &colors), colors.accent_gold);
-        assert_eq!(category_badge_color("Tăng tốc", &colors), colors.speedup_purple);
+        assert_eq!(category_badge_color("Tăng tốc", &colors), colors.speedup_blue);
         assert_eq!(category_badge_color("Pha Lê", &colors), colors.crystal_cyan);
 
         let cols = [
@@ -5331,7 +5331,7 @@ mod tests {
         assert_eq!(light.heal_blue, Color32::from_rgb(0x03, 0x69, 0xa1));
         assert_eq!(light.status_green, Color32::from_rgb(0x04, 0x78, 0x57));
         assert_eq!(light.accent_gold, Color32::from_rgb(0xb4, 0x53, 0x09));
-        assert_eq!(light.speedup_purple, Color32::from_rgb(0x7e, 0x22, 0xce));
+        assert_eq!(light.speedup_blue, Color32::from_rgb(58, 147, 230));
         assert_eq!(light.crystal_cyan, Color32::from_rgb(0x0e, 0x74, 0x90));
 
         assert_eq!(category_badge_color("Vật liệu", &light), light.heal_blue);
