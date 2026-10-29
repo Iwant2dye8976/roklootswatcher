@@ -1719,15 +1719,14 @@ mod secret_store {
 
     pub fn save_secure_tokens(config_path: &Path, access: Option<&str>, refresh: Option<&str>) {
         let auth_path = auth_token_path(config_path);
-        let (acc, ref_) = match (access, refresh) {
-            (Some(a), Some(r)) if !a.is_empty() && !r.is_empty() => (a, r),
-            _ => {
-                let _ = fs::remove_file(&auth_path);
-                return;
-            }
-        };
+        let a = access.unwrap_or("").trim();
+        let r = refresh.unwrap_or("").trim();
+        if a.is_empty() && r.is_empty() {
+            let _ = fs::remove_file(&auth_path);
+            return;
+        }
 
-        let raw = format!("{}\n{}", acc, ref_);
+        let raw = format!("{}\n{}", a, r);
         let in_blob = DataBlob {
             cb_data: raw.len() as u32,
             pb_data: raw.as_ptr() as *mut u8,
@@ -1784,7 +1783,9 @@ mod secret_store {
                 let text = String::from_utf8_lossy(decrypted).to_string();
                 LocalFree(out_blob.pb_data as isize);
                 if let Some((acc, ref_)) = text.split_once('\n') {
-                    return (Some(acc.to_string()), Some(ref_.to_string()));
+                    let a = if acc.trim().is_empty() { None } else { Some(acc.trim().to_string()) };
+                    let r = if ref_.trim().is_empty() { None } else { Some(ref_.trim().to_string()) };
+                    return (a, r);
                 }
             }
         }
@@ -2991,5 +2992,38 @@ mod tests {
         let mut auth_high = CloudAuthConfig::default();
         auth_high.backup_interval_minutes = 2000;
         assert_eq!(auth_high.clamped_interval_minutes(), 1440);
+    }
+
+    #[test]
+    fn test_secret_store_roundtrip() {
+        let dir = std::env::temp_dir().join(format!("rok_test_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let cfg_path = dir.join("rok_config.json");
+
+        // Both tokens
+        secret_store::save_secure_tokens(&cfg_path, Some("acc_123"), Some("ref_456"));
+        let (acc, ref_) = secret_store::load_secure_tokens(&cfg_path);
+        assert_eq!(acc.as_deref(), Some("acc_123"));
+        assert_eq!(ref_.as_deref(), Some("ref_456"));
+
+        // Only refresh token (e.g. access expired or not yet issued)
+        secret_store::save_secure_tokens(&cfg_path, None, Some("ref_789"));
+        let (acc2, ref2) = secret_store::load_secure_tokens(&cfg_path);
+        assert_eq!(acc2, None);
+        assert_eq!(ref2.as_deref(), Some("ref_789"));
+
+        // Only access token
+        secret_store::save_secure_tokens(&cfg_path, Some("acc_999"), None);
+        let (acc3, ref3) = secret_store::load_secure_tokens(&cfg_path);
+        assert_eq!(acc3.as_deref(), Some("acc_999"));
+        assert_eq!(ref3, None);
+
+        // Neither (clears file)
+        secret_store::save_secure_tokens(&cfg_path, None, None);
+        let (acc4, ref4) = secret_store::load_secure_tokens(&cfg_path);
+        assert_eq!(acc4, None);
+        assert_eq!(ref4, None);
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

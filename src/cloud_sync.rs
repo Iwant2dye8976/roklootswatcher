@@ -182,7 +182,7 @@ pub fn start_google_login(supabase_url: &str, anon_key: &str) -> Result<CloudAut
     let expected_state = generate_secure_state();
     let redirect_uri = format!("http://127.0.0.1:{}/callback", port);
     let auth_url = format!(
-        "{}/auth/v1/authorize?provider=google&redirect_to={}&state={}",
+        "{}/auth/v1/authorize?provider=google&redirect_to={}&state={}&prompt=consent&access_type=offline",
         supabase_url.trim_end_matches('/'),
         redirect_uri,
         expected_state
@@ -322,7 +322,11 @@ pub fn refresh_session(
     let resp: serde_json::Value = agent
         .post(&url)
         .set("apikey", anon_key)
-        .send_json(serde_json::json!({ "refresh_token": refresh_token }))
+        .set("Authorization", &format!("Bearer {}", anon_key))
+        .send_json(serde_json::json!({
+            "grant_type": "refresh_token",
+            "refresh_token": refresh_token
+        }))
         .map_err(|e| format_cloud_error(e, "Làm mới phiên thất bại"))?
         .into_json()
         .map_err(|e| format!("Lỗi phân tích dữ liệu phiên: {}", e))?;

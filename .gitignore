@@ -18,3 +18,4 @@ AUDIT.md
 *.dat
 rok_auth.dat
 security-audit/
+VAULT_SCALABILITY.md

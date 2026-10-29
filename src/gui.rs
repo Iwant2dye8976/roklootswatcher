@@ -692,10 +692,11 @@ impl RoKLootWatcherApp {
 
 pub fn perform_exit_cloud_backup(watcher: &RoKMailWatcher) {
     let cfg = AppConfig::load();
-    if !cfg.cloud_auth.backup_on_exit || !watcher.has_unbacked_cloud_data() || cfg.cloud_auth.access_token.is_none() {
+    if !cfg.cloud_auth.backup_on_exit || !watcher.has_unbacked_cloud_data() || (cfg.cloud_auth.access_token.is_none() && cfg.cloud_auth.refresh_token.is_none()) {
         return;
     }
-    if let (Some(token), Some(user_id)) = (&cfg.cloud_auth.access_token, &cfg.cloud_auth.user_id) {
+    if let (token_opt, Some(user_id)) = (&cfg.cloud_auth.access_token, &cfg.cloud_auth.user_id) {
+        let token = token_opt.as_deref().unwrap_or("");
         let (url, key) = cfg.cloud_auth.get_credentials();
         let refresh_token = cfg.cloud_auth.refresh_token.as_deref();
         let vault_path = watcher.get_vault_file_path();
@@ -796,7 +797,7 @@ impl RoKLootWatcherApp {
 
 
     fn poll_cloud_events(&mut self, ctx: &egui::Context) {
-        if !self.cloud_busy && self.cloud_auth.auto_backup && self.cloud_auth.access_token.is_some() && self.has_unbacked_data {
+        if !self.cloud_busy && self.cloud_auth.auto_backup && (self.cloud_auth.access_token.is_some() || self.cloud_auth.refresh_token.is_some()) && self.has_unbacked_data {
             let interval_duration = std::time::Duration::from_secs(self.cloud_auth.clamped_interval_minutes() as u64 * 60);
             let should_run = match self.last_cloud_backup_time {
                 Some(last) => {
@@ -932,10 +933,10 @@ impl RoKLootWatcherApp {
         self.watcher.flush_vault_if_dirty();
 
         let (url, key) = self.get_cloud_credentials();
-        let token = match &self.cloud_auth.access_token {
-            Some(t) => t.clone(),
-            None => return,
-        };
+        let token = self.cloud_auth.access_token.clone().unwrap_or_default();
+        if token.is_empty() && self.cloud_auth.refresh_token.is_none() {
+            return;
+        }
         let refresh_token = self.cloud_auth.refresh_token.clone();
         let user_id = match &self.cloud_auth.user_id {
             Some(u) => u.clone(),
@@ -984,10 +985,10 @@ impl RoKLootWatcherApp {
         }
 
         let (url, key) = self.get_cloud_credentials();
-        let token = match &self.cloud_auth.access_token {
-            Some(t) => t.clone(),
-            None => return,
-        };
+        let token = self.cloud_auth.access_token.clone().unwrap_or_default();
+        if token.is_empty() && self.cloud_auth.refresh_token.is_none() {
+            return;
+        }
         let refresh_token = self.cloud_auth.refresh_token.clone();
 
         let vault_path = self.watcher.get_vault_file_path();
@@ -4362,9 +4363,11 @@ impl RoKLootWatcherApp {
                     );
                     ui.add_space(4.0);
 
+                    let is_logged_in = self.cloud_auth.user_email.is_some()
+                        && (self.cloud_auth.access_token.is_some() || self.cloud_auth.refresh_token.is_some());
                     let (status_text, is_logged_in) = match (
                         &self.cloud_auth.user_email,
-                        self.cloud_auth.access_token.is_some(),
+                        is_logged_in,
                     ) {
                         (Some(email), true) => {
                             let sync_info = self
@@ -5587,6 +5590,33 @@ mod tests {
     fn test_cloud_auth_stay_login_default_state() {
         let cfg = AppConfig::default();
         assert!(cfg.cloud_auth.stay_login, "Cloud auth stay_login must default to true");
+    }
+
+    #[test]
+    fn test_cloud_auth_logged_in_with_refresh_or_access_token() {
+        let mut cfg = AppConfig::default();
+        cfg.cloud_auth.user_email = Some("user@test.com".to_string());
+
+        // Refresh token only (e.g. after restart where access token expired)
+        cfg.cloud_auth.access_token = None;
+        cfg.cloud_auth.refresh_token = Some("valid_refresh_token".to_string());
+        let is_logged_in = cfg.cloud_auth.user_email.is_some()
+            && (cfg.cloud_auth.access_token.is_some() || cfg.cloud_auth.refresh_token.is_some());
+        assert!(is_logged_in);
+
+        // Access token only
+        cfg.cloud_auth.access_token = Some("valid_access_token".to_string());
+        cfg.cloud_auth.refresh_token = None;
+        let is_logged_in2 = cfg.cloud_auth.user_email.is_some()
+            && (cfg.cloud_auth.access_token.is_some() || cfg.cloud_auth.refresh_token.is_some());
+        assert!(is_logged_in2);
+
+        // Neither token
+        cfg.cloud_auth.access_token = None;
+        cfg.cloud_auth.refresh_token = None;
+        let is_logged_in3 = cfg.cloud_auth.user_email.is_some()
+            && (cfg.cloud_auth.access_token.is_some() || cfg.cloud_auth.refresh_token.is_some());
+        assert!(!is_logged_in3);
     }
 
     #[test]
