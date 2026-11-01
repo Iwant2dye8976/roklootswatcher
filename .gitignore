@@ -19,3 +19,6 @@ AUDIT.md
 rok_auth.dat
 security-audit/
 VAULT_SCALABILITY.md
+vault_solutions.md
+
+.worktrees/
