@@ -470,6 +470,72 @@ impl MailVault {
         new_count
     }
 
+    pub fn get_unsynced_records(&self, limit: usize) -> rusqlite::Result<Vec<(String, BattleRecord)>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare_cached(
+            "SELECT * FROM battle_records WHERE synced_at IS NULL ORDER BY time_raw ASC LIMIT ?1"
+        )?;
+        let rows = stmt.query_map(params![limit as i64], |row| {
+            let dedup_key: String = row.get("dedup_key")?;
+            let rec = row_to_battle_record(row)?;
+            Ok((dedup_key, rec))
+        })?;
+        rows.collect()
+    }
+
+    pub fn mark_records_synced(&self, dedup_keys: &[String], timestamp: i64) -> rusqlite::Result<usize> {
+        if dedup_keys.is_empty() {
+            return Ok(0);
+        }
+        let mut conn = self.conn();
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let mut updated = 0;
+        {
+            let mut stmt = tx.prepare_cached(
+                "UPDATE battle_records SET synced_at = ?1 WHERE dedup_key = ?2"
+            )?;
+            for key in dedup_keys {
+                updated += stmt.execute(params![timestamp, key])?;
+            }
+        }
+        tx.commit()?;
+        Ok(updated)
+    }
+
+    pub fn get_sync_counts(&self) -> rusqlite::Result<(usize, usize)> {
+        let conn = self.conn();
+        conn.query_row(
+            "SELECT COUNT(*), COUNT(CASE WHEN synced_at IS NULL THEN 1 END) FROM battle_records",
+            [],
+            |row| {
+                let total: i64 = row.get(0)?;
+                let unsynced: i64 = row.get(1)?;
+                Ok((total as usize, unsynced as usize))
+            },
+        )
+    }
+
+    pub fn get_cloud_user_id(&self) -> rusqlite::Result<Option<String>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare_cached(
+            "SELECT value FROM vault_meta WHERE key = 'synced_user_id'"
+        )?;
+        match stmt.query_row([], |row| row.get::<_, String>(0)) {
+            Ok(val) => Ok(Some(val)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
+    pub fn set_cloud_user_id(&self, user_id: &str) -> rusqlite::Result<()> {
+        let conn = self.conn();
+        conn.execute(
+            "INSERT OR REPLACE INTO vault_meta (key, value) VALUES ('synced_user_id', ?1)",
+            params![user_id],
+        )?;
+        Ok(())
+    }
+
     pub fn save_to_disk(&self) -> Result<(), String> {
         if self.is_corrupted {
             return Err(format!(
@@ -1608,5 +1674,118 @@ mod tests {
         assert_eq!(remaining.content, "Dã Man Cấp 50 tại X:10 Y:20");
 
         let _ = fs::remove_dir_all(&temp);
+    }
+
+    fn create_test_record(mail_id: &str, time_raw: i64) -> BattleRecord {
+        BattleRecord {
+            filename: format!("Persistent.Mail.{}", mail_id),
+            mail_id: mail_id.to_string(),
+            battle_type: "fort".to_string(),
+            time_raw,
+            time_utc: "".to_string(),
+            time_vn: "".to_string(),
+            target: "Target".to_string(),
+            target_level: "1".to_string(),
+            talent_add: 0,
+            pos_x: 100,
+            pos_y: 200,
+            damage_pct: 50,
+            plunder_tier: 1,
+            items: vec![],
+            item_totals: HashMap::new(),
+            content: "Test content".to_string(),
+        }
+    }
+
+    #[test]
+    fn test_vault_unsynced_and_mark_synced() {
+        let temp_dir = std::env::temp_dir().join(format!("rok_test_unsynced_{}", std::process::id()));
+        let _ = fs::create_dir_all(&temp_dir);
+        let mut vault = MailVault::new(&temp_dir);
+        let rec = create_test_record("mail_001", 1000);
+        assert!(vault.upsert(rec));
+
+        let unsynced = vault.get_unsynced_records(10).unwrap();
+        assert_eq!(unsynced.len(), 1);
+        assert_eq!(unsynced[0].0, "id:mail_001");
+
+        let marked = vault.mark_records_synced(&["id:mail_001".to_string()], 1700000000).unwrap();
+        assert_eq!(marked, 1);
+
+        let unsynced_after = vault.get_unsynced_records(10).unwrap();
+        assert_eq!(unsynced_after.len(), 0);
+
+        let (total, unsynced_cnt) = vault.get_sync_counts().unwrap();
+        assert_eq!(total, 1);
+        assert_eq!(unsynced_cnt, 0);
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_vault_cloud_user_id() {
+        let temp_dir = std::env::temp_dir().join(format!("rok_test_cloud_user_{}", std::process::id()));
+        let _ = fs::create_dir_all(&temp_dir);
+        let vault = MailVault::new(&temp_dir);
+
+        assert_eq!(vault.get_cloud_user_id().unwrap(), None);
+
+        vault.set_cloud_user_id("user_abc123").unwrap();
+        assert_eq!(vault.get_cloud_user_id().unwrap(), Some("user_abc123".to_string()));
+
+        vault.set_cloud_user_id("user_xyz789").unwrap();
+        assert_eq!(vault.get_cloud_user_id().unwrap(), Some("user_xyz789".to_string()));
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_vault_sync_queries_ordering_and_edge_cases() {
+        let temp_dir = std::env::temp_dir().join(format!("rok_test_sync_edge_{}", std::process::id()));
+        let _ = fs::create_dir_all(&temp_dir);
+        let mut vault = MailVault::new(&temp_dir);
+
+        // Empty vault sync counts
+        let (total, unsynced) = vault.get_sync_counts().unwrap();
+        assert_eq!(total, 0);
+        assert_eq!(unsynced, 0);
+
+        // Mark empty slice
+        assert_eq!(vault.mark_records_synced(&[], 123456).unwrap(), 0);
+        // Mark non-existent
+        assert_eq!(vault.mark_records_synced(&["non_existent".to_string()], 123456).unwrap(), 0);
+
+        // Insert records in non-chronological order
+        vault.upsert(create_test_record("rec_3000", 3000));
+        vault.upsert(create_test_record("rec_1000", 1000));
+        vault.upsert(create_test_record("rec_2000", 2000));
+
+        let (total, unsynced) = vault.get_sync_counts().unwrap();
+        assert_eq!(total, 3);
+        assert_eq!(unsynced, 3);
+
+        // Limit 2 with ordering check (should be rec_1000, rec_2000)
+        let page = vault.get_unsynced_records(2).unwrap();
+        assert_eq!(page.len(), 2);
+        assert_eq!(page[0].0, "id:rec_1000");
+        assert_eq!(page[0].1.time_raw, 1000);
+        assert_eq!(page[1].0, "id:rec_2000");
+        assert_eq!(page[1].1.time_raw, 2000);
+
+        // Mark rec_1000 as synced
+        let updated = vault.mark_records_synced(&["id:rec_1000".to_string()], 1700000000).unwrap();
+        assert_eq!(updated, 1);
+
+        let (total, unsynced) = vault.get_sync_counts().unwrap();
+        assert_eq!(total, 3);
+        assert_eq!(unsynced, 2);
+
+        // Remaining unsynced records
+        let page2 = vault.get_unsynced_records(10).unwrap();
+        assert_eq!(page2.len(), 2);
+        assert_eq!(page2[0].0, "id:rec_2000");
+        assert_eq!(page2[1].0, "id:rec_3000");
+
+        let _ = fs::remove_dir_all(&temp_dir);
     }
 }

@@ -38,7 +38,8 @@ pub fn create_schema(conn: &Connection) -> rusqlite::Result<()> {
         CREATE INDEX IF NOT EXISTS idx_time_raw ON battle_records(time_raw);
         CREATE INDEX IF NOT EXISTS idx_battle_type ON battle_records(battle_type);
         CREATE INDEX IF NOT EXISTS idx_mail_id ON battle_records(mail_id);
-        CREATE INDEX IF NOT EXISTS idx_filename ON battle_records(filename);",
+        CREATE INDEX IF NOT EXISTS idx_filename ON battle_records(filename);
+        CREATE INDEX IF NOT EXISTS idx_synced_at ON battle_records(synced_at);",
     )?;
     Ok(())
 }
@@ -147,6 +148,15 @@ mod tests {
             )
             .unwrap();
         assert_eq!(idx, "idx_time_raw");
+
+        let idx_sync: String = conn
+            .query_row(
+                "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_synced_at'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(idx_sync, "idx_synced_at");
     }
 
     #[test]
