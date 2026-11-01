@@ -274,7 +274,7 @@ fn test_worker_sync_now_500_records_e2e_streaming() {
     assert_eq!(worker.state.read().unwrap().pending_records_count, 500);
 
     // Trigger instant sync
-    worker.tx.send(SyncCommand::SyncNow).expect("failed to trigger SyncNow");
+    worker.tx.send(SyncCommand::SyncNow(None)).expect("failed to trigger SyncNow");
 
     // Wait for worker to finish streaming all 500 records (up to 5 seconds)
     let start = Instant::now();

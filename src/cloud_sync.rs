@@ -390,6 +390,36 @@ fn format_cloud_error(err: ureq::Error, context: &str) -> String {
     }
 }
 
+pub(crate) fn is_retryable_error(err: &str) -> bool {
+    let lower = err.to_ascii_lowercase();
+    // Non-retryable errors: client errors, auth/permissions, DB issues, user mismatch
+    if lower.contains("400")
+        || lower.contains("401")
+        || lower.contains("403")
+        || lower.contains("404")
+        || lower.contains("chưa đăng nhập")
+        || lower.contains("không khớp")
+        || lower.contains("hết hạn")
+        || lower.contains("từ chối")
+        || lower.contains("sqlite")
+    {
+        return false;
+    }
+    // Retryable: transient network drops, connection timeouts, 5xx server errors, rate limiting (429)
+    lower.contains("kết nối")
+        || lower.contains("timeout")
+        || lower.contains("timed out")
+        || lower.contains("transport")
+        || lower.contains("network")
+        || lower.contains("dns")
+        || lower.contains("refused")
+        || lower.contains("500")
+        || lower.contains("502")
+        || lower.contains("503")
+        || lower.contains("504")
+        || lower.contains("429")
+}
+
 pub fn build_report_record_payload(
     user_id: &str,
     dedup_key: &str,
@@ -425,7 +455,10 @@ pub fn upload_report_records_batch(
 
     let url = format!("{}/rest/v1/report_records?on_conflict=user_id,dedup_key", supabase_url.trim_end_matches('/'));
     let effective_timeout = timeout.unwrap_or(Duration::from_secs(15));
-    let agent = ureq::builder().timeout(effective_timeout).build();
+    let agent = ureq::builder()
+        .timeout_connect(Duration::from_secs(10))
+        .timeout(effective_timeout)
+        .build();
 
     let resp = agent
         .post(&url)
@@ -460,7 +493,10 @@ pub fn fetch_report_records_page(
         offset
     );
     let effective_timeout = timeout.unwrap_or(Duration::from_secs(15));
-    let agent = ureq::builder().timeout(effective_timeout).build();
+    let agent = ureq::builder()
+        .timeout_connect(Duration::from_secs(10))
+        .timeout(effective_timeout)
+        .build();
 
     let resp = match agent
         .get(&url)
@@ -507,7 +543,10 @@ pub fn check_legacy_user_vault(
 ) -> Result<Option<Vec<BattleRecord>>, String> {
     let url = format!("{}/rest/v1/user_vaults?select=vault_data", supabase_url.trim_end_matches('/'));
     let effective_timeout = timeout.unwrap_or(Duration::from_secs(15));
-    let agent = ureq::builder().timeout(effective_timeout).build();
+    let agent = ureq::builder()
+        .timeout_connect(Duration::from_secs(10))
+        .timeout(effective_timeout)
+        .build();
 
     let resp = match agent
         .get(&url)
@@ -558,7 +597,7 @@ pub fn check_legacy_user_vault(
 #[derive(Debug)]
 pub enum SyncCommand {
     TriggerDelta,
-    SyncNow,
+    SyncNow(Option<mpsc::Sender<Result<usize, String>>>),
     Restore(mpsc::Sender<Result<usize, String>>),
     Shutdown(mpsc::Sender<()>),
     UpdateConfig(CloudAuthConfig),
@@ -1020,30 +1059,48 @@ fn run_sync_worker_loop(
                 let _ = ack_tx.send(());
                 break;
             }
-            Ok(SyncCommand::SyncNow) => {
+            Ok(SyncCommand::SyncNow(reply_tx)) => {
                 debounce_deadline = None;
-                next_retry_at = None;
                 current_backoff_secs = None;
 
-                if can_sync_credentials(&config) {
-                    match perform_delta_sync(&vault, &mut config, &state, Some(Duration::from_secs(15)), true) {
-                        Ok(_) => {
-                            current_backoff_secs = None;
-                            next_retry_at = None;
-                        }
-                        Err(_) => {
-                            let next_secs = current_backoff_secs.map(|s| (s * 2).min(60)).unwrap_or(2);
-                            current_backoff_secs = Some(next_secs);
-                            next_retry_at = Some(Instant::now() + Duration::from_secs(next_secs));
-                            if let Ok(mut s) = state.write() {
-                                s.retry_in_secs = Some(next_secs);
-                            }
-                        }
-                    }
+                let res = if can_sync_credentials(&config) {
+                    perform_delta_sync(&vault, &mut config, &state, Some(Duration::from_secs(15)), true)
                 } else {
+                    let err = "Chưa đăng nhập tài khoản Cloud".to_string();
                     if let Ok(mut s) = state.write() {
-                        s.last_error = Some("Chưa đăng nhập tài khoản Cloud".to_string());
+                        s.last_error = Some(err.clone());
+                        s.retry_in_secs = None;
                     }
+                    Err(err)
+                };
+
+                match &res {
+                    Ok(_) => {
+                        current_backoff_secs = None;
+                        next_retry_at = None;
+                        if let Ok(mut s) = state.write() {
+                            s.retry_in_secs = None;
+                        }
+                    }
+                    Err(e) if is_retryable_error(e) => {
+                        let next_secs = current_backoff_secs.map(|s| (s * 2).min(60)).unwrap_or(2);
+                        current_backoff_secs = Some(next_secs);
+                        next_retry_at = Some(Instant::now() + Duration::from_secs(next_secs));
+                        if let Ok(mut s) = state.write() {
+                            s.retry_in_secs = Some(next_secs);
+                        }
+                    }
+                    Err(_) => {
+                        current_backoff_secs = None;
+                        next_retry_at = None;
+                        if let Ok(mut s) = state.write() {
+                            s.retry_in_secs = None;
+                        }
+                    }
+                }
+
+                if let Some(tx) = reply_tx {
+                    let _ = tx.send(res);
                 }
             }
             Ok(SyncCommand::TriggerDelta) => {
@@ -1075,12 +1132,18 @@ fn run_sync_worker_loop(
                                     Ok(_) => {
                                         current_backoff_secs = None;
                                     }
-                                    Err(_) => {
+                                    Err(e) if is_retryable_error(&e) => {
                                         let next_secs = current_backoff_secs.map(|s| (s * 2).min(60)).unwrap_or(2);
                                         current_backoff_secs = Some(next_secs);
                                         next_retry_at = Some(Instant::now() + Duration::from_secs(next_secs));
                                         if let Ok(mut s) = state.write() {
                                             s.retry_in_secs = Some(next_secs);
+                                        }
+                                    }
+                                    Err(_) => {
+                                        current_backoff_secs = None;
+                                        if let Ok(mut s) = state.write() {
+                                            s.retry_in_secs = None;
                                         }
                                     }
                                 }
@@ -1106,12 +1169,19 @@ fn run_sync_worker_loop(
                                         current_backoff_secs = None;
                                         next_retry_at = None;
                                     }
-                                    Err(_) => {
+                                    Err(e) if is_retryable_error(&e) => {
                                         let next_secs = current_backoff_secs.map(|s| (s * 2).min(60)).unwrap_or(2);
                                         current_backoff_secs = Some(next_secs);
                                         next_retry_at = Some(Instant::now() + Duration::from_secs(next_secs));
                                         if let Ok(mut s) = state.write() {
                                             s.retry_in_secs = Some(next_secs);
+                                        }
+                                    }
+                                    Err(_) => {
+                                        current_backoff_secs = None;
+                                        next_retry_at = None;
+                                        if let Ok(mut s) = state.write() {
+                                            s.retry_in_secs = None;
                                         }
                                     }
                                 }
@@ -1132,12 +1202,19 @@ fn run_sync_worker_loop(
                                     current_backoff_secs = None;
                                     next_retry_at = None;
                                 }
-                                Err(_) => {
+                                Err(e) if is_retryable_error(&e) => {
                                     let next_secs = current_backoff_secs.map(|s| (s * 2).min(60)).unwrap_or(2);
                                     current_backoff_secs = Some(next_secs);
                                     next_retry_at = Some(Instant::now() + Duration::from_secs(next_secs));
                                     if let Ok(mut s) = state.write() {
                                         s.retry_in_secs = Some(next_secs);
+                                    }
+                                }
+                                Err(_) => {
+                                    current_backoff_secs = None;
+                                    next_retry_at = None;
+                                    if let Ok(mut s) = state.write() {
+                                        s.retry_in_secs = None;
                                     }
                                 }
                             }
@@ -1665,7 +1742,7 @@ mod tests {
         let worker = spawn_sync_worker(vault.clone(), cfg);
         assert_eq!(worker.state.read().unwrap().pending_records_count, 2);
 
-        worker.tx.send(SyncCommand::SyncNow).unwrap();
+        worker.tx.send(SyncCommand::SyncNow(None)).unwrap();
 
         let start = std::time::Instant::now();
         while start.elapsed() < std::time::Duration::from_secs(2) {
@@ -1716,7 +1793,7 @@ mod tests {
         assert_eq!(vault.get_unsynced_records(10).unwrap().len(), 1);
 
         // Explicit SyncNow flushes immediately without waiting for 5s debounce
-        worker.tx.send(SyncCommand::SyncNow).unwrap();
+        worker.tx.send(SyncCommand::SyncNow(None)).unwrap();
 
         let start = std::time::Instant::now();
         while start.elapsed() < std::time::Duration::from_secs(2) {
@@ -1858,7 +1935,7 @@ mod tests {
         cfg.user_id = Some("user_401_test".into());
 
         let worker = spawn_sync_worker(vault.clone(), cfg);
-        worker.tx.send(SyncCommand::SyncNow).unwrap();
+        worker.tx.send(SyncCommand::SyncNow(None)).unwrap();
 
         let start = std::time::Instant::now();
         while start.elapsed() < std::time::Duration::from_secs(2) {
@@ -1897,7 +1974,7 @@ mod tests {
         cfg.user_id = Some("account_B".into());
 
         let worker = spawn_sync_worker(vault, cfg);
-        worker.tx.send(SyncCommand::SyncNow).unwrap();
+        worker.tx.send(SyncCommand::SyncNow(None)).unwrap();
 
         let start = std::time::Instant::now();
         while start.elapsed() < std::time::Duration::from_secs(2) {
@@ -1935,7 +2012,7 @@ mod tests {
         cfg.user_id = Some("user_fail_test".into());
 
         let worker = spawn_sync_worker(vault, cfg);
-        worker.tx.send(SyncCommand::SyncNow).unwrap();
+        worker.tx.send(SyncCommand::SyncNow(None)).unwrap();
 
         let start = std::time::Instant::now();
         while start.elapsed() < std::time::Duration::from_secs(2) {
@@ -1985,7 +2062,7 @@ mod tests {
         cfg.user_id = Some("user_retry_test".into());
 
         let worker = spawn_sync_worker(vault.clone(), cfg);
-        worker.tx.send(SyncCommand::SyncNow).unwrap();
+        worker.tx.send(SyncCommand::SyncNow(None)).unwrap();
 
         // 1. Initial attempt fails
         let start = std::time::Instant::now();
@@ -2036,7 +2113,7 @@ mod tests {
 
         // Spawn with unconfigured credentials
         let worker = spawn_sync_worker(vault.clone(), crate::model::CloudAuthConfig::default());
-        worker.tx.send(SyncCommand::SyncNow).unwrap();
+        worker.tx.send(SyncCommand::SyncNow(None)).unwrap();
 
         let start = std::time::Instant::now();
         while start.elapsed() < std::time::Duration::from_secs(2) {
@@ -2055,7 +2132,7 @@ mod tests {
         new_cfg.user_id = Some("user_upd_test".into());
 
         worker.tx.send(SyncCommand::UpdateConfig(new_cfg)).unwrap();
-        worker.tx.send(SyncCommand::SyncNow).unwrap();
+        worker.tx.send(SyncCommand::SyncNow(None)).unwrap();
 
         let start = std::time::Instant::now();
         while start.elapsed() < std::time::Duration::from_secs(2) {
@@ -2122,6 +2199,103 @@ mod tests {
         assert!(outcome.is_err(), "Expected error on 500 legacy restore");
         assert_eq!(worker.state.read().unwrap().is_syncing, false);
         assert_eq!(worker.state.read().unwrap().is_restoring, false);
+        assert!(worker.state.read().unwrap().last_error.is_some());
+
+        let (ack_tx, ack_rx) = std::sync::mpsc::channel();
+        worker.tx.send(SyncCommand::Shutdown(ack_tx)).unwrap();
+        assert!(ack_rx.recv_timeout(std::time::Duration::from_secs(2)).is_ok());
+        handle.join().unwrap();
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_is_retryable_error_classification() {
+        assert!(!is_retryable_error("Bị từ chối (HTTP 403) - permission denied for table report_records"));
+        assert!(!is_retryable_error("HTTP 401 Unauthorized: token expired"));
+        assert!(!is_retryable_error("Không tìm thấy bảng dữ liệu (HTTP 404)."));
+        assert!(!is_retryable_error("Chưa đăng nhập tài khoản Cloud"));
+        assert!(!is_retryable_error("Tài khoản Cloud hiện tại không khớp"));
+        assert!(!is_retryable_error("Lỗi SQLite: table locked"));
+
+        assert!(is_retryable_error("Lỗi kết nối mạng: Connection timed out"));
+        assert!(is_retryable_error("ureq transport error: network down"));
+        assert!(is_retryable_error("Lỗi máy chủ Cloud (HTTP 500)"));
+        assert!(is_retryable_error("Lỗi máy chủ Cloud (HTTP 502)"));
+        assert!(is_retryable_error("Lỗi máy chủ Cloud (HTTP 503)"));
+        assert!(is_retryable_error("HTTP 429 Too Many Requests"));
+    }
+
+    #[test]
+    fn test_sync_now_with_reply_channel_sends_result() {
+        let temp_dir = std::env::temp_dir().join(format!("rok_test_sync_now_reply_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&temp_dir);
+        let mut vault_inst = crate::vault::MailVault::new(&temp_dir);
+        vault_inst.upsert(dummy_record("m_sync_now_1"));
+        let vault = std::sync::Arc::new(vault_inst);
+
+        let (url, handle) = spawn_multi_mock_server(|req| {
+            assert!(req.starts_with("POST /rest/v1/report_records"));
+            (201, "Created", "[]".to_string())
+        }, 1);
+
+        let mut cfg = crate::model::CloudAuthConfig::default();
+        cfg.supabase_url = Some(url);
+        cfg.anon_key = Some("test_anon".into());
+        cfg.access_token = Some("test_tok".into());
+        cfg.user_id = Some("user_reply_test".into());
+        cfg.backup_on_exit = false;
+
+        let worker = spawn_sync_worker(vault.clone(), cfg);
+        let (reply_tx, reply_rx) = std::sync::mpsc::channel();
+        worker.tx.send(SyncCommand::SyncNow(Some(reply_tx))).unwrap();
+
+        let outcome = reply_rx.recv_timeout(std::time::Duration::from_secs(3));
+        assert!(outcome.is_ok(), "SyncNow must reply on provided channel");
+        let count = outcome.unwrap().expect("SyncNow must succeed");
+        assert_eq!(count, 1);
+        assert_eq!(vault.get_unsynced_records(10).unwrap().len(), 0);
+
+        let (ack_tx, ack_rx) = std::sync::mpsc::channel();
+        worker.tx.send(SyncCommand::Shutdown(ack_tx)).unwrap();
+        assert!(ack_rx.recv_timeout(std::time::Duration::from_secs(2)).is_ok());
+        handle.join().unwrap();
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_sync_now_non_retryable_error_does_not_loop_backoff() {
+        let temp_dir = std::env::temp_dir().join(format!("rok_test_sync_403_stop_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&temp_dir);
+        let mut vault_inst = crate::vault::MailVault::new(&temp_dir);
+        vault_inst.upsert(dummy_record("m_sync_403"));
+        let vault = std::sync::Arc::new(vault_inst);
+
+        let (url, handle) = spawn_multi_mock_server(|req| {
+            if req.starts_with("POST /rest/v1/report_records") {
+                (403, "Forbidden", r#"{"message":"permission denied for table report_records"}"#.to_string())
+            } else {
+                (404, "Not Found", "".to_string())
+            }
+        }, 1);
+
+        let mut cfg = crate::model::CloudAuthConfig::default();
+        cfg.supabase_url = Some(url);
+        cfg.anon_key = Some("test_anon".into());
+        cfg.access_token = Some("test_tok".into());
+        cfg.user_id = Some("user_403_test".into());
+        cfg.backup_on_exit = false;
+
+        let worker = spawn_sync_worker(vault.clone(), cfg);
+        let (reply_tx, reply_rx) = std::sync::mpsc::channel();
+        worker.tx.send(SyncCommand::SyncNow(Some(reply_tx))).unwrap();
+
+        let outcome = reply_rx.recv_timeout(std::time::Duration::from_secs(3)).expect("Must reply within timeout");
+        assert!(outcome.is_err(), "Must report 403 error");
+        let err_msg = outcome.unwrap_err();
+        assert!(err_msg.contains("403"));
+
+        // Must NOT schedule retry backoff
+        assert_eq!(worker.state.read().unwrap().retry_in_secs, None);
         assert!(worker.state.read().unwrap().last_error.is_some());
 
         let (ack_tx, ack_rx) = std::sync::mpsc::channel();

@@ -201,6 +201,7 @@ pub struct RoKLootWatcherApp {
     pub cloud_auth: crate::model::CloudAuthConfig,
     cloud_rx: Option<std::sync::mpsc::Receiver<Result<crate::cloud_sync::CloudAuthResult, String>>>,
     pub sync_worker: Option<crate::cloud_sync::SyncWorkerHandle>,
+    sync_rx: Option<std::sync::mpsc::Receiver<Result<usize, String>>>,
     restore_rx: Option<std::sync::mpsc::Receiver<Result<usize, String>>>,
     cloud_busy: bool,
     pub has_unbacked_data: bool,
@@ -651,6 +652,7 @@ impl RoKLootWatcherApp {
             cloud_auth: config.cloud_auth.clone(),
             cloud_rx: None,
             sync_worker: Some(sync_worker),
+            sync_rx: None,
             restore_rx: None,
             cloud_busy: false,
             has_unbacked_data: initial_has_unbacked,
@@ -831,6 +833,44 @@ impl RoKLootWatcherApp {
             }
         }
 
+        if let Some(res) = poll_cloud_receiver(&mut self.sync_rx, &mut self.cloud_busy) {
+            match res {
+                Ok(Ok(cnt)) => {
+                    let success_msg = match self.language {
+                        AppLanguage::Vietnamese => {
+                            if cnt > 0 {
+                                format!("Đồng bộ thành công {} bản ghi lên Cloud!", cnt)
+                            } else {
+                                "Dữ liệu đám mây đã đồng bộ mới nhất!".to_string()
+                            }
+                        }
+                        AppLanguage::English => {
+                            if cnt > 0 {
+                                format!("Successfully synced {} records to Cloud!", cnt)
+                            } else {
+                                "Cloud data is already up to date!".to_string()
+                            }
+                        }
+                    };
+                    self.watcher.log("SUCCESS", &success_msg);
+                }
+                Ok(Err(e)) => {
+                    let err_msg = match self.language {
+                        AppLanguage::Vietnamese => format!("Đồng bộ lên Cloud thất bại: {}", e),
+                        AppLanguage::English => format!("Cloud sync failed: {}", e),
+                    };
+                    self.watcher.log("ERROR", &err_msg);
+                }
+                Err(()) => {
+                    let msg = match self.language {
+                        AppLanguage::Vietnamese => "Đồng bộ lên Cloud thất bại: luồng xử lý bị đóng bất ngờ".to_string(),
+                        AppLanguage::English => "Cloud sync failed: worker thread disconnected".to_string(),
+                    };
+                    self.watcher.log("ERROR", &msg);
+                }
+            }
+        }
+
         if let Some(ref worker) = self.sync_worker {
             let mut need_save = false;
             let has_new_tokens = worker.state.read().map(|s| s.new_tokens.is_some()).unwrap_or(false);
@@ -851,7 +891,7 @@ impl RoKLootWatcherApp {
                         need_save = true;
                     }
                 }
-                if state.is_syncing || state.is_restoring || state.retry_in_secs.is_some() {
+                if state.is_syncing || state.is_restoring || state.retry_in_secs.is_some() || self.sync_rx.is_some() {
                     ctx.request_repaint_after(std::time::Duration::from_millis(250));
                 }
             }
@@ -902,13 +942,22 @@ impl RoKLootWatcherApp {
     }
 
     fn trigger_cloud_backup(&mut self) {
+        if self.cloud_busy {
+            return;
+        }
+
         if let Some(ref worker) = self.sync_worker {
-            let _ = worker.tx.send(crate::cloud_sync::SyncCommand::SyncNow);
-            let msg = match self.language {
-                AppLanguage::Vietnamese => "Đang gửi yêu cầu đồng bộ ngay lên Cloud...",
-                AppLanguage::English => "Requested immediate cloud sync...",
-            };
-            self.watcher.log("INFO", msg);
+            let (tx, rx) = std::sync::mpsc::channel();
+            if worker.tx.send(crate::cloud_sync::SyncCommand::SyncNow(Some(tx))).is_ok() {
+                self.sync_rx = Some(rx);
+                self.cloud_busy = true;
+
+                let msg = match self.language {
+                    AppLanguage::Vietnamese => "Đang gửi yêu cầu đồng bộ ngay lên Cloud...",
+                    AppLanguage::English => "Requested immediate cloud sync...",
+                };
+                self.watcher.log("INFO", msg);
+            }
         }
     }
 
@@ -4339,13 +4388,14 @@ impl RoKLootWatcherApp {
                     if is_logged_in {
                         ui.add_space(3.0);
                         let is_busy_restoring = worker_restoring || self.restore_rx.is_some();
+                        let is_busy_syncing = worker_syncing || self.sync_rx.is_some();
                         let (live_text, live_col, show_spinner) = if is_busy_restoring {
                             (
                                 self.language.t(TrKey::CloudSyncStatusRestoring).replace("{0}", &total_count.to_string()),
                                 c.accent_gold,
                                 true,
                             )
-                        } else if worker_syncing {
+                        } else if is_busy_syncing {
                             (
                                 self.language.t(TrKey::CloudSyncStatusSyncing).replace("{0}", &pending_count.to_string()),
                                 c.crystal_cyan,
@@ -4383,11 +4433,11 @@ impl RoKLootWatcherApp {
                                     .strong(),
                             );
                             if let Some(ref err) = last_err {
-                                if !worker_syncing && !is_busy_restoring {
+                                if !is_busy_syncing && !is_busy_restoring {
                                     resp.on_hover_text(err);
                                 }
                             }
-                            if pending_count > 0 && !worker_syncing && !is_busy_restoring {
+                            if pending_count > 0 && !is_busy_syncing && !is_busy_restoring {
                                 let unsynced_txt = match self.language {
                                     AppLanguage::Vietnamese => format!("({} bản ghi chờ đồng bộ)", pending_count),
                                     AppLanguage::English => format!("({} pending records)", pending_count),
@@ -4469,7 +4519,7 @@ impl RoKLootWatcherApp {
                             .stroke(Stroke::new(1.0_f32, c.status_green.linear_multiply(0.4)))
                             .rounding(Rounding::same(5.0));
 
-                            let is_busy = worker_syncing || worker_restoring || self.cloud_busy;
+                            let is_busy = worker_syncing || worker_restoring || self.cloud_busy || self.sync_rx.is_some();
                             if ui.add_sized([0.0, 28.0], btn_sync).clicked() && !is_busy {
                                 self.trigger_cloud_backup();
                             }
