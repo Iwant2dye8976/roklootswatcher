@@ -457,7 +457,8 @@ impl RoKMailWatcher {
         F: FnOnce(&[BattleRecord]) -> R,
     {
         let v = self.vault.read().unwrap_or_else(|e| e.into_inner());
-        f(v.get_records())
+        let recs = v.get_records();
+        f(&recs)
     }
 
     pub fn get_latest_vault_records(&self, filter: FilterMode, limit: usize) -> Vec<BattleRecord> {
@@ -1247,10 +1248,12 @@ mod tests {
 
     #[test]
     fn test_watcher_date_range_label_bilingual() {
+        let temp_dir = std::env::temp_dir().join(format!("rok_test_date_label_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&temp_dir);
         let (tx, _rx) = std::sync::mpsc::channel();
         let watcher = RoKMailWatcher::new(
             None,
-            None,
+            Some(temp_dir.clone()),
             FilterMode::AllTargets,
             LootCatalog::empty(),
             tx,
@@ -1274,6 +1277,8 @@ mod tests {
         assert_eq!(watcher.get_date_range_label(), "Từ 2026-10-01 đến 2026-10-10");
         watcher.set_language(AppLanguage::English);
         assert_eq!(watcher.get_date_range_label(), "From 2026-10-01 to 2026-10-10");
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 
     #[test]
