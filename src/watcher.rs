@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
 use chrono::NaiveDate;
-use notify::{Config, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::{Config, EventKind, RecommendedWatcher, RecursiveMode, Watcher as NotifyWatcher};
 
 use crate::analyzer::{filter_records_by_date, generate_statistics};
 use crate::classifier::{classify_mail, extract_motte_details};
@@ -257,7 +257,10 @@ pub struct RoKMailWatcher {
 
     ui_sender: Sender<WatcherUiEvent>,
     stop_signal: Arc<Mutex<Option<Sender<()>>>>,
+    sync_tx: Arc<Mutex<Option<Sender<crate::cloud_sync::SyncCommand>>>>,
 }
+
+pub type Watcher = RoKMailWatcher;
 
 impl RoKMailWatcher {
     pub fn new(
@@ -297,10 +300,29 @@ impl RoKMailWatcher {
 
             ui_sender,
             stop_signal: Arc::new(Mutex::new(None)),
+            sync_tx: Arc::new(Mutex::new(None)),
         };
 
         watcher.recompute_filtered_records_and_stats();
         watcher
+    }
+
+    pub fn set_sync_channel(&self, tx: Sender<crate::cloud_sync::SyncCommand>) {
+        if let Ok(mut lock) = self.sync_tx.lock() {
+            *lock = Some(tx);
+        }
+    }
+
+    pub fn process_mail_file(&self, path: &Path) {
+        self.process_file_async(path);
+    }
+
+    fn notify_sync_trigger(&self) {
+        if let Ok(lock) = self.sync_tx.lock() {
+            if let Some(tx) = &*lock {
+                let _ = tx.send(crate::cloud_sync::SyncCommand::TriggerDelta);
+            }
+        }
     }
 
     pub fn set_language(&self, lang: AppLanguage) {
@@ -831,6 +853,10 @@ impl RoKMailWatcher {
             0
         };
 
+        if new_added > 0 {
+            self.notify_sync_trigger();
+        }
+
         let total_all = self.vault.read().unwrap_or_else(|e| e.into_inner()).total_count();
 
         let (mode_cnt, active_cnt) = self.recompute_filtered_records_and_stats();
@@ -1037,6 +1063,10 @@ impl RoKMailWatcher {
 
         self.mark_vault_dirty();
 
+        if is_new {
+            self.notify_sync_trigger();
+        }
+
         self.recompute_filtered_records_and_stats();
 
         let loot_preview: Vec<String> = rec
@@ -1141,6 +1171,7 @@ impl RoKMailWatcher {
             is_scanning: Arc::clone(&self.is_scanning),
             ui_sender: self.ui_sender.clone(),
             stop_signal: Arc::clone(&self.stop_signal),
+            sync_tx: Arc::clone(&self.sync_tx),
         }
     }
 }
@@ -1453,6 +1484,89 @@ mod tests {
         // Test import invalid JSON returns Err
         let bad_import = watcher.import_vault_json("{ not valid json");
         assert!(bad_import.is_err());
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_watcher_triggers_sync_on_new_record() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let temp_dir = std::env::temp_dir().join(format!("rok_test_sync_trig_{}_{}", std::process::id(), unique));
+        let mailcache = temp_dir.join("mailcache");
+        let _ = std::fs::create_dir_all(&mailcache);
+
+        let (tx_ui, _rx_ui) = std::sync::mpsc::channel();
+        let watcher = RoKMailWatcher::new(
+            Some(mailcache.clone()),
+            Some(temp_dir.clone()),
+            FilterMode::AllTargets,
+            LootCatalog::empty(),
+            tx_ui,
+        );
+
+        let (sync_tx, sync_rx) = std::sync::mpsc::channel();
+        watcher.set_sync_channel(sync_tx);
+
+        let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let fixture_path = manifest_dir.join("tests/fixtures/Persistent.Mail.1002220217856803764");
+        let mail_path = mailcache.join("Persistent.Mail.1002220217856803764");
+        std::fs::copy(&fixture_path, &mail_path).expect("Failed to copy fixture");
+
+        // First process: new record added -> should send TriggerDelta
+        watcher.process_mail_file(&mail_path);
+
+        let cmd = sync_rx.recv_timeout(std::time::Duration::from_millis(500));
+        assert!(cmd.is_ok(), "Expected TriggerDelta to be received on new record");
+        match cmd.unwrap() {
+            crate::cloud_sync::SyncCommand::TriggerDelta => {}
+            other => panic!("Expected TriggerDelta, got {:?}", other),
+        }
+
+        // Second process: duplicate record -> should NOT send TriggerDelta
+        watcher.process_mail_file(&mail_path);
+        let second_cmd = sync_rx.try_recv();
+        assert!(second_cmd.is_err(), "Duplicate record should not trigger delta sync");
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_watcher_sync_channel_resilience_none_and_disconnected() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let temp_dir = std::env::temp_dir().join(format!("rok_test_sync_res_{}_{}", std::process::id(), unique));
+        let mailcache = temp_dir.join("mailcache");
+        let _ = std::fs::create_dir_all(&mailcache);
+
+        let (tx_ui, _rx_ui) = std::sync::mpsc::channel();
+        let watcher = Watcher::new(
+            Some(mailcache.clone()),
+            Some(temp_dir.clone()),
+            FilterMode::AllTargets,
+            LootCatalog::empty(),
+            tx_ui,
+        );
+
+        let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let fixture_path = manifest_dir.join("tests/fixtures/Persistent.Mail.1002220217856803764");
+        let mail_path = mailcache.join("Persistent.Mail.1002220217856803764");
+        std::fs::copy(&fixture_path, &mail_path).expect("Failed to copy fixture");
+
+        // 1. Without sync channel set: should process safely without error
+        watcher.process_mail_file(&mail_path);
+        assert_eq!(watcher.get_vault_total_count(), 1);
+
+        // 2. With disconnected sync channel (receiver dropped): should not panic
+        let (sync_tx, sync_rx) = std::sync::mpsc::channel();
+        drop(sync_rx);
+        watcher.set_sync_channel(sync_tx);
+        // Force notify:
+        watcher.notify_sync_trigger();
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }

@@ -16,7 +16,7 @@ mod single_instance;
 mod tray;
 mod vault;
 mod vault_migrate;
-mod watcher;
+pub mod watcher;
 
 use std::path::PathBuf;
 use std::sync::mpsc::channel;
@@ -32,7 +32,7 @@ use crate::lilith_stream::decode_mail_file;
 use crate::loot_catalog::LootCatalog;
 use crate::model::{format_num, get_item_converted_display, AppLanguage, FilterMode, SpeedupUnit};
 use crate::tray::SystemTrayManager;
-use crate::watcher::RoKMailWatcher;
+pub use crate::watcher::{RoKMailWatcher, Watcher};
 
 #[cfg(windows)]
 fn attach_parent_console() {
