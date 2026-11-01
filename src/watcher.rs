@@ -334,6 +334,15 @@ impl RoKMailWatcher {
         self.vault.read().unwrap_or_else(|e| e.into_inner()).get_binary_dir().to_path_buf()
     }
 
+    pub fn export_vault_json(&self) -> Result<String, String> {
+        self.vault.read().unwrap_or_else(|e| e.into_inner()).export_vault_json()
+    }
+
+    pub fn import_vault_json(&self, json: &str) -> Result<usize, String> {
+        let mut v = self.vault.write().unwrap_or_else(|e| e.into_inner());
+        v.import_records_from_json(json)
+    }
+
     pub fn get_mail_dir(&self) -> PathBuf {
         self.mail_dir.read().unwrap_or_else(|e| e.into_inner()).clone()
     }
@@ -384,8 +393,10 @@ impl RoKMailWatcher {
     }
 
     pub fn recompute_filtered_records_and_stats(&self) -> (usize, usize) {
-        let vault = self.vault.read().unwrap_or_else(|e| e.into_inner());
-        let all = vault.get_records();
+        let all = {
+            let vault = self.vault.read().unwrap_or_else(|e| e.into_inner());
+            vault.get_records()
+        };
         let mode = self.get_mode();
         let total_mode_count = all
             .iter()
@@ -397,9 +408,8 @@ impl RoKMailWatcher {
         let d = *self.days.read().unwrap_or_else(|e| e.into_inner());
 
         let active_vec = if s.is_none() && e.is_none() && d.is_none() {
-            all.iter()
+            all.into_iter()
                 .filter(|r| mode.matches(&r.battle_type))
-                .cloned()
                 .collect()
         } else {
             filter_records_by_date(
@@ -413,7 +423,6 @@ impl RoKMailWatcher {
         let active_cnt = active_vec.len();
         let new_stats = generate_statistics(&active_vec);
 
-        drop(vault);
         *self.active_records.write().unwrap_or_else(|e| e.into_inner()) = Arc::new(active_vec);
         *self.stats.write().unwrap_or_else(|e| e.into_inner()) = new_stats.clone();
 
@@ -1376,5 +1385,73 @@ mod tests {
         std::env::remove_var("ROK_MAIL_DIR");
         let p = detect_default_mail_dir();
         assert!(!p.as_os_str().is_empty());
+    }
+
+    #[test]
+    fn test_watcher_export_and_import_vault_json() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let temp_dir = std::env::temp_dir().join(format!("rok_test_watcher_json_{}_{}", std::process::id(), unique));
+        let _ = std::fs::create_dir_all(&temp_dir);
+
+        let (tx, _rx) = std::sync::mpsc::channel();
+        let watcher = RoKMailWatcher::new(
+            Some(temp_dir.clone()),
+            Some(temp_dir.clone()),
+            FilterMode::AllTargets,
+            LootCatalog::empty(),
+            tx,
+        );
+
+        assert_eq!(watcher.get_vault_total_count(), 0);
+
+        // Test export empty vault
+        let export_res = watcher.export_vault_json();
+        assert!(export_res.is_ok());
+        let json_str = export_res.unwrap();
+        assert!(json_str.contains("\"records\": []") || json_str.contains("\"records\":[]"));
+
+        // Test import valid JSON with records
+        let sample_json = r#"{
+            "version": 1,
+            "last_updated": "2026-11-01 12:00:00",
+            "total_records": 1,
+            "records": [
+                {
+                    "filename": "mail_001.bin",
+                    "mail_id": "999901",
+                    "battle_type": "barbarian",
+                    "time_raw": 1700000000,
+                    "time_utc": "2026-11-01 12:00:00",
+                    "time_vn": "2026-11-01 19:00:00",
+                    "target": "Barbarian Fort 5",
+                    "target_level": "5",
+                    "talent_add": 0,
+                    "pos_x": 100,
+                    "pos_y": 200,
+                    "damage_pct": 100,
+                    "plunder_tier": 0,
+                    "items": [],
+                    "item_totals": {},
+                    "content": ""
+                }
+            ]
+        }"#;
+
+        let import_res = watcher.import_vault_json(sample_json);
+        assert_eq!(import_res.unwrap(), 1);
+        assert_eq!(watcher.get_vault_total_count(), 1);
+
+        // Test export non-empty vault
+        let exported_after = watcher.export_vault_json().unwrap();
+        assert!(exported_after.contains("999901"));
+
+        // Test import invalid JSON returns Err
+        let bad_import = watcher.import_vault_json("{ not valid json");
+        assert!(bad_import.is_err());
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }
