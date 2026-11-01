@@ -6,10 +6,10 @@ target/
 analytics.md
 *.txt
 *.json
-!loot.json
+loot.json
 .superpowers/
 docs/
-!docs/superpowers/
+docs/superpowers/
 examples/
 .agents/
 AGENT.md
@@ -19,8 +19,6 @@ AUDIT.md
 *.dat
 rok_auth.dat
 security-audit/
-VAULT_SCALABILITY.md
-vault_solutions.md
 
 .worktrees/
 *.db
