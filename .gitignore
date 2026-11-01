@@ -9,6 +9,7 @@ analytics.md
 !loot.json
 .superpowers/
 docs/
+!docs/superpowers/
 examples/
 .agents/
 AGENT.md
