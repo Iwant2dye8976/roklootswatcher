@@ -166,7 +166,7 @@ impl MailVault {
         };
 
         if !is_corrupted {
-            if let Err(e) = conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;") {
+            if let Err(e) = conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA busy_timeout = 5000;") {
                 eprintln!("[!] Cảnh báo WAL mode: {}", e);
             }
             if let Err(e) = vault_migrate::create_schema(&conn) {
@@ -536,7 +536,7 @@ impl MailVault {
         Ok(())
     }
 
-    pub fn restore_records_batch(&self, recs: &[BattleRecord], timestamp: i64) -> rusqlite::Result<usize> {
+    pub fn restore_records_batch(&self, recs: &[BattleRecord], timestamp: Option<i64>) -> rusqlite::Result<usize> {
         if recs.is_empty() {
             return Ok(0);
         }
@@ -1853,13 +1853,33 @@ mod tests {
 
         let rec1 = create_test_record("pre_exist", 500); // conflict with existing unsynced
         let rec2 = create_test_record("new_restored", 600);
-        let restored = vault.restore_records_batch(&[rec1, rec2], 1700000000).unwrap();
+        let restored = vault.restore_records_batch(&[rec1, rec2], Some(1700000000)).unwrap();
         assert_eq!(restored, 2);
 
         // All should now have synced_at set, so unsynced is 0
         let (total, unsynced) = vault.get_sync_counts().unwrap();
         assert_eq!(total, 2);
         assert_eq!(unsynced, 0);
+
+        // Test restoring with None (legacy fallback) leaves record unsynced
+        let rec3 = create_test_record("legacy_restored", 700);
+        let restored_legacy = vault.restore_records_batch(&[rec3], None).unwrap();
+        assert_eq!(restored_legacy, 1);
+        let (total2, unsynced2) = vault.get_sync_counts().unwrap();
+        assert_eq!(total2, 3);
+        assert_eq!(unsynced2, 1);
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_mark_records_synced_with_nonexistent_key_returns_zero() {
+        let temp_dir = std::env::temp_dir().join(format!("rok_test_vault_zero_{}", std::process::id()));
+        let _ = fs::create_dir_all(&temp_dir);
+        let vault = MailVault::new(&temp_dir);
+
+        let marked = vault.mark_records_synced(&["non_existent_key".to_string()], 12345).unwrap();
+        assert_eq!(marked, 0);
 
         let _ = fs::remove_dir_all(&temp_dir);
     }

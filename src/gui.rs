@@ -832,16 +832,32 @@ impl RoKLootWatcherApp {
         }
 
         if let Some(ref worker) = self.sync_worker {
+            let mut need_save = false;
+            let has_new_tokens = worker.state.read().map(|s| s.new_tokens.is_some()).unwrap_or(false);
+            if has_new_tokens {
+                if let Ok(mut state) = worker.state.write() {
+                    if let Some((acc, ref_tok)) = state.new_tokens.take() {
+                        self.cloud_auth.access_token = Some(acc);
+                        self.cloud_auth.refresh_token = Some(ref_tok);
+                        need_save = true;
+                    }
+                }
+            }
+
             if let Ok(state) = worker.state.read() {
                 if let Some(ref t) = state.last_sync_time {
                     if self.cloud_auth.last_synced.as_deref() != Some(t.as_str()) {
                         self.cloud_auth.last_synced = Some(t.clone());
-                        self.save_config();
+                        need_save = true;
                     }
                 }
                 if state.is_syncing || state.is_restoring || state.retry_in_secs.is_some() {
                     ctx.request_repaint_after(std::time::Duration::from_millis(250));
                 }
+            }
+
+            if need_save {
+                self.save_config();
             }
         }
     }
@@ -5822,5 +5838,32 @@ mod tests {
         state.pending_records_count = 0;
         let idle_vi = AppLanguage::Vietnamese.t(TrKey::CloudSyncStatusIdle);
         assert_eq!(idle_vi, "Đồng bộ: Đã cập nhật");
+    }
+
+    #[test]
+    fn test_sync_worker_state_token_rotation_extraction() {
+        use crate::cloud_sync::SyncWorkerState;
+
+        let state = std::sync::Arc::new(std::sync::RwLock::new(SyncWorkerState::default()));
+        if let Ok(mut s) = state.write() {
+            s.new_tokens = Some(("acc_rot_123".to_string(), "ref_rot_456".to_string()));
+        }
+
+        let has_new_tokens = state.read().map(|s| s.new_tokens.is_some()).unwrap_or(false);
+        assert!(has_new_tokens);
+
+        let mut auth_cfg = crate::model::CloudAuthConfig::default();
+        if has_new_tokens {
+            if let Ok(mut s) = state.write() {
+                if let Some((acc, ref_tok)) = s.new_tokens.take() {
+                    auth_cfg.access_token = Some(acc);
+                    auth_cfg.refresh_token = Some(ref_tok);
+                }
+            }
+        }
+
+        assert_eq!(auth_cfg.access_token.as_deref(), Some("acc_rot_123"));
+        assert_eq!(auth_cfg.refresh_token.as_deref(), Some("ref_rot_456"));
+        assert!(state.read().unwrap().new_tokens.is_none());
     }
 }

@@ -683,6 +683,7 @@ pub struct SyncWorkerState {
     pub last_sync_time: Option<String>,
     pub last_error: Option<String>,
     pub retry_in_secs: Option<u64>,
+    pub new_tokens: Option<(String, String)>,
 }
 
 pub struct SyncWorkerHandle {
@@ -736,7 +737,10 @@ fn perform_delta_sync(
             if let Some(ref ref_tok) = config.refresh_token {
                 if let Ok((new_acc, new_ref)) = refresh_session(&url, &anon_key, ref_tok, timeout) {
                     config.access_token = Some(new_acc.clone());
-                    config.refresh_token = Some(new_ref);
+                    config.refresh_token = Some(new_ref.clone());
+                    if let Ok(mut s) = state.write() {
+                        s.new_tokens = Some((new_acc.clone(), new_ref));
+                    }
                     new_acc
                 } else {
                     return Err("Chưa đăng nhập tài khoản Cloud".to_string());
@@ -801,7 +805,10 @@ fn perform_delta_sync(
                 if let Ok((new_acc, new_ref)) = refresh_session(&url, &anon_key, ref_tok, timeout) {
                     access_token = new_acc.clone();
                     config.access_token = Some(new_acc.clone());
-                    config.refresh_token = Some(new_ref);
+                    config.refresh_token = Some(new_ref.clone());
+                    if let Ok(mut s) = state.write() {
+                        s.new_tokens = Some((new_acc.clone(), new_ref));
+                    }
 
                     upload_res = upload_report_records_batch(
                         &url,
@@ -819,7 +826,20 @@ fn perform_delta_sync(
             Ok(count) => {
                 let now_ts = chrono::Utc::now().timestamp();
                 let keys: Vec<String> = records.into_iter().map(|(k, _)| k).collect();
-                let _ = vault.mark_records_synced(&keys, now_ts);
+                let marked = match vault.mark_records_synced(&keys, now_ts) {
+                    Ok(m) => m,
+                    Err(e) => {
+                        let err_msg = format!("Lỗi cập nhật trạng thái đã đồng bộ: {}", e);
+                        if let Ok(mut s) = state.write() {
+                            s.is_syncing = false;
+                            s.last_error = Some(err_msg.clone());
+                        }
+                        return Err(err_msg);
+                    }
+                };
+                if marked == 0 {
+                    break;
+                }
                 total_uploaded += count;
 
                 if let Ok((total, unsynced)) = vault.get_sync_counts() {
@@ -873,7 +893,10 @@ fn perform_restore(
             if let Some(ref ref_tok) = config.refresh_token {
                 if let Ok((new_acc, new_ref)) = refresh_session(&url, &anon_key, ref_tok, Some(Duration::from_secs(15))) {
                     config.access_token = Some(new_acc.clone());
-                    config.refresh_token = Some(new_ref);
+                    config.refresh_token = Some(new_ref.clone());
+                    if let Ok(mut s) = state.write() {
+                        s.new_tokens = Some((new_acc.clone(), new_ref));
+                    }
                     new_acc
                 } else {
                     return Err("Chưa đăng nhập tài khoản Cloud".to_string());
@@ -930,7 +953,10 @@ fn perform_restore(
                 if let Ok((new_acc, new_ref)) = refresh_session(&url, &anon_key, ref_tok, Some(Duration::from_secs(15))) {
                     access_token = new_acc.clone();
                     config.access_token = Some(new_acc.clone());
-                    config.refresh_token = Some(new_ref);
+                    config.refresh_token = Some(new_ref.clone());
+                    if let Ok(mut s) = state.write() {
+                        s.new_tokens = Some((new_acc.clone(), new_ref));
+                    }
 
                     page_res = fetch_report_records_page(
                         &url,
@@ -949,7 +975,7 @@ fn perform_restore(
             Ok((records, has_more)) => {
                 let count = records.len();
                 if count > 0 {
-                    let saved = match vault.restore_records_batch(&records, now_ts) {
+                    let saved = match vault.restore_records_batch(&records, Some(now_ts)) {
                         Ok(s) => s,
                         Err(e) => {
                             let err_msg = format!("Lỗi ghi dữ liệu khôi phục vào SQLite: {}", e);
@@ -995,7 +1021,10 @@ fn perform_restore(
                 if let Ok((new_acc, new_ref)) = refresh_session(&url, &anon_key, ref_tok, Some(Duration::from_secs(15))) {
                     access_token = new_acc.clone();
                     config.access_token = Some(new_acc.clone());
-                    config.refresh_token = Some(new_ref);
+                    config.refresh_token = Some(new_ref.clone());
+                    if let Ok(mut s) = state.write() {
+                        s.new_tokens = Some((new_acc.clone(), new_ref));
+                    }
 
                     legacy_res = check_legacy_user_vault(
                         &url,
@@ -1010,7 +1039,7 @@ fn perform_restore(
         match legacy_res {
             Ok(Some(legacy_records)) => {
                 if !legacy_records.is_empty() {
-                    let saved = match vault.restore_records_batch(&legacy_records, now_ts) {
+                    let saved = match vault.restore_records_batch(&legacy_records, None) {
                         Ok(s) => s,
                         Err(e) => {
                             let err_msg = format!("Lỗi ghi dữ liệu legacy vào SQLite: {}", e);
@@ -1082,6 +1111,15 @@ fn run_sync_worker_loop(
 
         match rx.recv_timeout(tick_timeout) {
             Ok(SyncCommand::UpdateConfig(new_cfg)) => {
+                if new_cfg.access_token.is_none() && new_cfg.refresh_token.is_none() {
+                    next_retry_at = None;
+                    current_backoff_secs = None;
+                    debounce_deadline = None;
+                    if let Ok(mut s) = state.write() {
+                        s.last_error = None;
+                        s.retry_in_secs = None;
+                    }
+                }
                 config = new_cfg;
             }
             Ok(SyncCommand::Shutdown(ack_tx)) => {
@@ -1926,6 +1964,7 @@ mod tests {
         cfg.anon_key = Some("test_anon".into());
         cfg.access_token = Some("test_tok".into());
         cfg.user_id = Some("user_legacy_test".into());
+        cfg.backup_on_exit = false;
 
         let worker = spawn_sync_worker(vault.clone(), cfg);
         let (res_tx, res_rx) = std::sync::mpsc::channel();
@@ -1935,6 +1974,9 @@ mod tests {
         assert_eq!(outcome, Ok(1));
         assert_eq!(vault.get_records().len(), 1);
         assert_eq!(vault.get_records()[0].mail_id, "m_legacy_1");
+        let (total, unsynced) = vault.get_sync_counts().unwrap();
+        assert_eq!(total, 1);
+        assert_eq!(unsynced, 1);
 
         let (ack_tx, ack_rx) = std::sync::mpsc::channel();
         worker.tx.send(SyncCommand::Shutdown(ack_tx)).unwrap();
@@ -1983,6 +2025,10 @@ mod tests {
 
         assert_eq!(worker.state.read().unwrap().pending_records_count, 0);
         assert!(worker.state.read().unwrap().last_error.is_none());
+        assert_eq!(
+            worker.state.read().unwrap().new_tokens,
+            Some(("refreshed_tok".to_string(), "refreshed_rt".to_string()))
+        );
 
         let (ack_tx, ack_rx) = std::sync::mpsc::channel();
         worker.tx.send(SyncCommand::Shutdown(ack_tx)).unwrap();
@@ -2176,6 +2222,23 @@ mod tests {
 
         assert_eq!(worker.state.read().unwrap().pending_records_count, 0);
         assert!(worker.state.read().unwrap().last_error.is_none());
+
+        // Test logout resets backoff and last_error
+        if let Ok(mut s) = worker.state.write() {
+            s.last_error = Some("Lỗi tạm thời".to_string());
+            s.retry_in_secs = Some(30);
+        }
+        let logout_cfg = crate::model::CloudAuthConfig::default();
+        worker.tx.send(SyncCommand::UpdateConfig(logout_cfg)).unwrap();
+        let start = std::time::Instant::now();
+        while start.elapsed() < std::time::Duration::from_secs(1) {
+            if worker.state.read().unwrap().last_error.is_none() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(worker.state.read().unwrap().last_error.is_none());
+        assert!(worker.state.read().unwrap().retry_in_secs.is_none());
 
         let (ack_tx, ack_rx) = std::sync::mpsc::channel();
         worker.tx.send(SyncCommand::Shutdown(ack_tx)).unwrap();
