@@ -1,9 +1,11 @@
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::TcpListener;
-use std::time::Duration;
+use std::sync::{mpsc, Arc, RwLock};
+use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
-use crate::model::BattleRecord;
+use crate::model::{BattleRecord, CloudAuthConfig};
+use crate::vault::MailVault;
 
 pub const DEFAULT_SUPABASE_URL: &str = match option_env!("ROK_SUPABASE_URL") {
     Some(val) => val,
@@ -663,6 +665,507 @@ pub fn check_legacy_user_vault(
     Err("Dữ liệu legacy user_vaults không đúng định dạng".to_string())
 }
 
+#[derive(Debug)]
+pub enum SyncCommand {
+    TriggerDelta,
+    SyncNow,
+    Restore(mpsc::Sender<Result<usize, String>>),
+    Shutdown(mpsc::Sender<()>),
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct SyncWorkerState {
+    pub is_syncing: bool,
+    pub is_restoring: bool,
+    pub pending_records_count: usize,
+    pub total_records_count: usize,
+    pub last_sync_time: Option<String>,
+    pub last_error: Option<String>,
+    pub retry_in_secs: Option<u64>,
+}
+
+pub struct SyncWorkerHandle {
+    pub tx: mpsc::Sender<SyncCommand>,
+    pub state: Arc<RwLock<SyncWorkerState>>,
+}
+
+pub fn spawn_sync_worker(vault: Arc<MailVault>, config: CloudAuthConfig) -> SyncWorkerHandle {
+    let (tx, rx) = mpsc::channel();
+    let state = Arc::new(RwLock::new(SyncWorkerState::default()));
+
+    if let Ok((total, unsynced)) = vault.get_sync_counts() {
+        if let Ok(mut s) = state.write() {
+            s.total_records_count = total;
+            s.pending_records_count = unsynced;
+        }
+    }
+
+    let worker_state = Arc::clone(&state);
+    let _ = std::thread::Builder::new()
+        .name("cloud-sync-worker".to_string())
+        .spawn(move || {
+            run_sync_worker_loop(vault, config, rx, worker_state);
+        });
+
+    SyncWorkerHandle { tx, state }
+}
+
+fn can_sync_credentials(config: &CloudAuthConfig) -> bool {
+    let has_token = config.access_token.as_ref().map(|s| !s.trim().is_empty()).unwrap_or(false)
+        || config.refresh_token.as_ref().map(|s| !s.trim().is_empty()).unwrap_or(false);
+    let has_user = config.user_id.as_ref().map(|s| !s.trim().is_empty()).unwrap_or(false);
+    has_token && has_user
+}
+
+fn perform_delta_sync(
+    vault: &MailVault,
+    config: &mut CloudAuthConfig,
+    state: &Arc<RwLock<SyncWorkerState>>,
+    timeout: Option<Duration>,
+    flush_all: bool,
+) -> Result<usize, String> {
+    let (url, anon_key) = config.get_credentials();
+    let user_id = match &config.user_id {
+        Some(uid) if !uid.is_empty() => uid.clone(),
+        _ => return Err("Chưa cấu hình user_id tài khoản Cloud".to_string()),
+    };
+    let mut access_token = match &config.access_token {
+        Some(tok) if !tok.is_empty() => tok.clone(),
+        _ => {
+            if let Some(ref ref_tok) = config.refresh_token {
+                if let Ok((new_acc, new_ref)) = refresh_session(&url, &anon_key, ref_tok, timeout) {
+                    config.access_token = Some(new_acc.clone());
+                    config.refresh_token = Some(new_ref);
+                    new_acc
+                } else {
+                    return Err("Chưa đăng nhập tài khoản Cloud".to_string());
+                }
+            } else {
+                return Err("Chưa đăng nhập tài khoản Cloud".to_string());
+            }
+        }
+    };
+
+    if let Ok(Some(existing_uid)) = vault.get_cloud_user_id() {
+        if existing_uid != user_id {
+            let err = format!(
+                "Tài khoản Cloud hiện tại ({}) không khớp với tài khoản đã đồng bộ trước đó ({})",
+                user_id, existing_uid
+            );
+            if let Ok(mut s) = state.write() {
+                s.last_error = Some(err.clone());
+            }
+            return Err(err);
+        }
+    } else {
+        let _ = vault.set_cloud_user_id(&user_id);
+    }
+
+    if let Ok(mut s) = state.write() {
+        s.is_syncing = true;
+    }
+
+    let mut total_uploaded = 0;
+    let batch_size = 200;
+
+    loop {
+        let records = match vault.get_unsynced_records(batch_size) {
+            Ok(r) => r,
+            Err(e) => {
+                if let Ok(mut s) = state.write() {
+                    s.is_syncing = false;
+                }
+                return Err(format!("Lỗi truy vấn bản ghi chưa đồng bộ từ SQLite: {}", e));
+            }
+        };
+
+        if records.is_empty() {
+            break;
+        }
+
+        let mut upload_res = upload_report_records_batch(
+            &url,
+            &anon_key,
+            &access_token,
+            &user_id,
+            &records,
+            timeout,
+        );
+
+        if let Err(ref e) = upload_res {
+            if (e.contains("Token phiên làm việc đã hết hạn") || e.contains("401"))
+                && config.refresh_token.is_some()
+            {
+                let ref_tok = config.refresh_token.as_ref().unwrap();
+                if let Ok((new_acc, new_ref)) = refresh_session(&url, &anon_key, ref_tok, timeout) {
+                    access_token = new_acc.clone();
+                    config.access_token = Some(new_acc.clone());
+                    config.refresh_token = Some(new_ref);
+
+                    upload_res = upload_report_records_batch(
+                        &url,
+                        &anon_key,
+                        &new_acc,
+                        &user_id,
+                        &records,
+                        timeout,
+                    );
+                }
+            }
+        }
+
+        match upload_res {
+            Ok(count) => {
+                let now_ts = chrono::Utc::now().timestamp();
+                let keys: Vec<String> = records.into_iter().map(|(k, _)| k).collect();
+                let _ = vault.mark_records_synced(&keys, now_ts);
+                total_uploaded += count;
+
+                if let Ok((total, unsynced)) = vault.get_sync_counts() {
+                    if let Ok(mut s) = state.write() {
+                        s.total_records_count = total;
+                        s.pending_records_count = unsynced;
+                        s.last_sync_time = Some(chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string());
+                        s.last_error = None;
+                        s.retry_in_secs = None;
+                    }
+                }
+
+                if !flush_all {
+                    break;
+                }
+            }
+            Err(e) => {
+                if let Ok(mut s) = state.write() {
+                    s.is_syncing = false;
+                    s.last_error = Some(e.clone());
+                }
+                return Err(e);
+            }
+        }
+    }
+
+    if let Ok(mut s) = state.write() {
+        s.is_syncing = false;
+        if let Ok((total, unsynced)) = vault.get_sync_counts() {
+            s.total_records_count = total;
+            s.pending_records_count = unsynced;
+        }
+    }
+
+    Ok(total_uploaded)
+}
+
+fn perform_restore(
+    vault: &MailVault,
+    config: &mut CloudAuthConfig,
+    state: &Arc<RwLock<SyncWorkerState>>,
+) -> Result<usize, String> {
+    let (url, anon_key) = config.get_credentials();
+    let user_id = match &config.user_id {
+        Some(uid) if !uid.is_empty() => uid.clone(),
+        _ => return Err("Chưa cấu hình user_id tài khoản Cloud".to_string()),
+    };
+    let mut access_token = match &config.access_token {
+        Some(tok) if !tok.is_empty() => tok.clone(),
+        _ => {
+            if let Some(ref ref_tok) = config.refresh_token {
+                if let Ok((new_acc, new_ref)) = refresh_session(&url, &anon_key, ref_tok, Some(Duration::from_secs(15))) {
+                    config.access_token = Some(new_acc.clone());
+                    config.refresh_token = Some(new_ref);
+                    new_acc
+                } else {
+                    return Err("Chưa đăng nhập tài khoản Cloud".to_string());
+                }
+            } else {
+                return Err("Chưa đăng nhập tài khoản Cloud".to_string());
+            }
+        }
+    };
+
+    if let Ok(Some(existing_uid)) = vault.get_cloud_user_id() {
+        if existing_uid != user_id {
+            let err = format!(
+                "Tài khoản Cloud hiện tại ({}) không khớp với tài khoản đã đồng bộ trước đó ({})",
+                user_id, existing_uid
+            );
+            if let Ok(mut s) = state.write() {
+                s.last_error = Some(err.clone());
+            }
+            return Err(err);
+        }
+    } else {
+        let _ = vault.set_cloud_user_id(&user_id);
+    }
+
+    {
+        if let Ok(mut s) = state.write() {
+            s.is_syncing = true;
+            s.is_restoring = true;
+        }
+    }
+
+    let mut total_restored = 0;
+    let mut offset = 0;
+    let limit = 200;
+    let now_ts = chrono::Utc::now().timestamp();
+
+    loop {
+        let mut page_res = fetch_report_records_page(
+            &url,
+            &anon_key,
+            &access_token,
+            &user_id,
+            limit,
+            offset,
+            Some(Duration::from_secs(15)),
+        );
+
+        if let Err(ref e) = page_res {
+            if (e.contains("Token phiên làm việc đã hết hạn") || e.contains("401"))
+                && config.refresh_token.is_some()
+            {
+                let ref_tok = config.refresh_token.as_ref().unwrap();
+                if let Ok((new_acc, new_ref)) = refresh_session(&url, &anon_key, ref_tok, Some(Duration::from_secs(15))) {
+                    access_token = new_acc.clone();
+                    config.access_token = Some(new_acc.clone());
+                    config.refresh_token = Some(new_ref);
+
+                    page_res = fetch_report_records_page(
+                        &url,
+                        &anon_key,
+                        &access_token,
+                        &user_id,
+                        limit,
+                        offset,
+                        Some(Duration::from_secs(15)),
+                    );
+                }
+            }
+        }
+
+        match page_res {
+            Ok((records, has_more)) => {
+                let count = records.len();
+                if count > 0 {
+                    let saved = vault.restore_records_batch(&records, now_ts)
+                        .map_err(|e| format!("Lỗi ghi dữ liệu khôi phục vào SQLite: {}", e))?;
+                    total_restored += saved;
+                    offset += count;
+                }
+                if !has_more {
+                    break;
+                }
+            }
+            Err(e) => {
+                if let Ok(mut s) = state.write() {
+                    s.is_syncing = false;
+                    s.is_restoring = false;
+                    s.last_error = Some(e.clone());
+                }
+                return Err(e);
+            }
+        }
+    }
+
+    if total_restored == 0 {
+        let mut legacy_res = check_legacy_user_vault(
+            &url,
+            &anon_key,
+            &access_token,
+            Some(Duration::from_secs(15)),
+        );
+
+        if let Err(ref e) = legacy_res {
+            if (e.contains("Token phiên làm việc đã hết hạn") || e.contains("401"))
+                && config.refresh_token.is_some()
+            {
+                let ref_tok = config.refresh_token.as_ref().unwrap();
+                if let Ok((new_acc, new_ref)) = refresh_session(&url, &anon_key, ref_tok, Some(Duration::from_secs(15))) {
+                    access_token = new_acc.clone();
+                    config.access_token = Some(new_acc.clone());
+                    config.refresh_token = Some(new_ref);
+
+                    legacy_res = check_legacy_user_vault(
+                        &url,
+                        &anon_key,
+                        &access_token,
+                        Some(Duration::from_secs(15)),
+                    );
+                }
+            }
+        }
+
+        if let Ok(Some(legacy_records)) = legacy_res {
+            if !legacy_records.is_empty() {
+                let saved = vault.restore_records_batch(&legacy_records, now_ts)
+                    .map_err(|e| format!("Lỗi ghi dữ liệu legacy vào SQLite: {}", e))?;
+                total_restored = saved;
+            }
+        }
+    }
+
+    if let Ok(mut s) = state.write() {
+        s.is_syncing = false;
+        s.is_restoring = false;
+        s.last_error = None;
+        s.retry_in_secs = None;
+        s.last_sync_time = Some(chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string());
+        if let Ok((total, unsynced)) = vault.get_sync_counts() {
+            s.total_records_count = total;
+            s.pending_records_count = unsynced;
+        }
+    }
+
+    Ok(total_restored)
+}
+
+fn run_sync_worker_loop(
+    vault: Arc<MailVault>,
+    mut config: CloudAuthConfig,
+    rx: mpsc::Receiver<SyncCommand>,
+    state: Arc<RwLock<SyncWorkerState>>,
+) {
+    let mut debounce_deadline: Option<Instant> = None;
+    let mut next_retry_at: Option<Instant> = None;
+    let mut current_backoff_secs: Option<u64> = None;
+    let mut last_periodic_sweep = Instant::now();
+
+    loop {
+        let now = Instant::now();
+        let mut tick_timeout = Duration::from_secs(1);
+
+        if let Some(deadline) = debounce_deadline {
+            let rem = deadline.saturating_duration_since(now);
+            if rem < tick_timeout {
+                tick_timeout = rem.max(Duration::from_millis(10));
+            }
+        }
+
+        match rx.recv_timeout(tick_timeout) {
+            Ok(SyncCommand::Shutdown(ack_tx)) => {
+                let retry_allowed = next_retry_at.map(|r| Instant::now() >= r).unwrap_or(true);
+                if retry_allowed && config.backup_on_exit && can_sync_credentials(&config) {
+                    let _ = perform_delta_sync(&vault, &mut config, &state, Some(Duration::from_secs(1)), false);
+                }
+                let _ = ack_tx.send(());
+                break;
+            }
+            Ok(SyncCommand::SyncNow) => {
+                debounce_deadline = None;
+                next_retry_at = None;
+                current_backoff_secs = None;
+
+                if can_sync_credentials(&config) {
+                    match perform_delta_sync(&vault, &mut config, &state, Some(Duration::from_secs(15)), true) {
+                        Ok(_) => {
+                            current_backoff_secs = None;
+                            next_retry_at = None;
+                        }
+                        Err(_) => {
+                            let next_secs = current_backoff_secs.map(|s| (s * 2).min(60)).unwrap_or(2);
+                            current_backoff_secs = Some(next_secs);
+                            next_retry_at = Some(Instant::now() + Duration::from_secs(next_secs));
+                            if let Ok(mut s) = state.write() {
+                                s.retry_in_secs = Some(next_secs);
+                            }
+                        }
+                    }
+                } else {
+                    if let Ok(mut s) = state.write() {
+                        s.last_error = Some("Chưa đăng nhập tài khoản Cloud".to_string());
+                    }
+                }
+            }
+            Ok(SyncCommand::TriggerDelta) => {
+                if config.auto_backup && can_sync_credentials(&config) {
+                    debounce_deadline = Some(Instant::now() + Duration::from_secs(5));
+                }
+            }
+            Ok(SyncCommand::Restore(reply_tx)) => {
+                debounce_deadline = None;
+                next_retry_at = None;
+                current_backoff_secs = None;
+
+                let res = perform_restore(&vault, &mut config, &state);
+                let _ = reply_tx.send(res);
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                let now = Instant::now();
+
+                // 1. Debounced delta sync
+                if let Some(deadline) = debounce_deadline {
+                    if now >= deadline {
+                        debounce_deadline = None;
+                        let retry_allowed = next_retry_at.map(|r| now >= r).unwrap_or(true);
+                        if retry_allowed && config.auto_backup && can_sync_credentials(&config) {
+                            match perform_delta_sync(&vault, &mut config, &state, Some(Duration::from_secs(15)), true) {
+                                Ok(_) => {
+                                    current_backoff_secs = None;
+                                    next_retry_at = None;
+                                }
+                                Err(_) => {
+                                    let next_secs = current_backoff_secs.map(|s| (s * 2).min(60)).unwrap_or(2);
+                                    current_backoff_secs = Some(next_secs);
+                                    next_retry_at = Some(Instant::now() + Duration::from_secs(next_secs));
+                                    if let Ok(mut s) = state.write() {
+                                        s.retry_in_secs = Some(next_secs);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 2. Periodic sweep if auto_backup is true
+                if config.auto_backup && can_sync_credentials(&config) {
+                    let sweep_interval = Duration::from_secs((config.clamped_interval_minutes() as u64) * 60);
+                    if last_periodic_sweep.elapsed() >= sweep_interval {
+                        last_periodic_sweep = Instant::now();
+                        let retry_allowed = next_retry_at.map(|r| now >= r).unwrap_or(true);
+                        if retry_allowed {
+                            match perform_delta_sync(&vault, &mut config, &state, Some(Duration::from_secs(15)), true) {
+                                Ok(_) => {
+                                    current_backoff_secs = None;
+                                    next_retry_at = None;
+                                }
+                                Err(_) => {
+                                    let next_secs = current_backoff_secs.map(|s| (s * 2).min(60)).unwrap_or(2);
+                                    current_backoff_secs = Some(next_secs);
+                                    next_retry_at = Some(Instant::now() + Duration::from_secs(next_secs));
+                                    if let Ok(mut s) = state.write() {
+                                        s.retry_in_secs = Some(next_secs);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Periodic count update
+                if let Ok((total, unsynced)) = vault.get_sync_counts() {
+                    if let Ok(mut s) = state.write() {
+                        s.total_records_count = total;
+                        s.pending_records_count = unsynced;
+                        if let Some(retry_at) = next_retry_at {
+                            if now < retry_at {
+                                s.retry_in_secs = Some(retry_at.duration_since(now).as_secs() + 1);
+                            } else {
+                                s.retry_in_secs = None;
+                            }
+                        } else {
+                            s.retry_in_secs = None;
+                        }
+                    }
+                }
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                break;
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1105,5 +1608,384 @@ mod tests {
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].mail_id, "m_legacy");
         h_data.join().unwrap();
+    }
+
+    #[test]
+    fn test_sync_worker_spawn_and_shutdown() {
+        let temp_dir = std::env::temp_dir().join(format!("rok_test_sync_worker_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&temp_dir);
+        let vault = std::sync::Arc::new(crate::vault::MailVault::new(&temp_dir));
+        let cfg = crate::model::CloudAuthConfig::default();
+        let worker = spawn_sync_worker(vault, cfg);
+
+        let (ack_tx, ack_rx) = std::sync::mpsc::channel();
+        worker.tx.send(SyncCommand::Shutdown(ack_tx)).unwrap();
+        assert!(ack_rx.recv_timeout(std::time::Duration::from_secs(2)).is_ok());
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    fn spawn_multi_mock_server<F>(mut handler: F, count: usize) -> (String, std::thread::JoinHandle<()>)
+    where
+        F: FnMut(&str) -> (u16, &'static str, String) + Send + 'static,
+    {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let url = format!("http://{}", addr);
+        let handle = std::thread::spawn(move || {
+            for _ in 0..count {
+                if let Ok((mut stream, _)) = listener.accept() {
+                    let mut req_bytes = Vec::new();
+                    let mut buf = [0u8; 1024];
+                    let mut content_length = 0;
+                    let mut header_len = None;
+
+                    loop {
+                        let n = match stream.read(&mut buf) {
+                            Ok(0) => break,
+                            Ok(n) => n,
+                            Err(_) => break,
+                        };
+                        req_bytes.extend_from_slice(&buf[..n]);
+                        if header_len.is_none() {
+                            if let Some(pos) = req_bytes.windows(4).position(|w| w == b"\r\n\r\n") {
+                                header_len = Some(pos + 4);
+                                let headers = String::from_utf8_lossy(&req_bytes[..pos]);
+                                for line in headers.lines() {
+                                    if line.to_ascii_lowercase().starts_with("content-length:") {
+                                        if let Some(val) = line.split(':').nth(1) {
+                                            content_length = val.trim().parse::<usize>().unwrap_or(0);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if let Some(hlen) = header_len {
+                            if req_bytes.len() >= hlen + content_length {
+                                break;
+                            }
+                        }
+                    }
+
+                    let req_str = String::from_utf8_lossy(&req_bytes);
+                    let (status, status_text, body) = handler(&req_str);
+                    let resp = format!(
+                        "HTTP/1.1 {} {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                        status,
+                        status_text,
+                        body.len(),
+                        body
+                    );
+                    let _ = stream.write_all(resp.as_bytes());
+                    let _ = stream.flush();
+                    let _ = stream.shutdown(std::net::Shutdown::Both);
+                }
+            }
+        });
+        (url, handle)
+    }
+
+    #[test]
+    fn test_sync_worker_sync_now_success() {
+        let temp_dir = std::env::temp_dir().join(format!("rok_test_sync_worker_now_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&temp_dir);
+        let mut vault_inst = crate::vault::MailVault::new(&temp_dir);
+        vault_inst.upsert(dummy_record("m_sync_1"));
+        vault_inst.upsert(dummy_record("m_sync_2"));
+        let vault = std::sync::Arc::new(vault_inst);
+
+        let (url, handle) = spawn_multi_mock_server(|req| {
+            assert!(req.starts_with("POST /rest/v1/report_records?on_conflict=user_id,dedup_key"));
+            (201, "Created", "[]".to_string())
+        }, 1);
+
+        let mut cfg = crate::model::CloudAuthConfig::default();
+        cfg.supabase_url = Some(url);
+        cfg.anon_key = Some("test_anon".into());
+        cfg.access_token = Some("test_tok".into());
+        cfg.user_id = Some("user_sync_test".into());
+
+        let worker = spawn_sync_worker(vault.clone(), cfg);
+        assert_eq!(worker.state.read().unwrap().pending_records_count, 2);
+
+        worker.tx.send(SyncCommand::SyncNow).unwrap();
+
+        let start = std::time::Instant::now();
+        while start.elapsed() < std::time::Duration::from_secs(2) {
+            if worker.state.read().unwrap().pending_records_count == 0 {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+
+        assert_eq!(worker.state.read().unwrap().pending_records_count, 0);
+        assert!(worker.state.read().unwrap().last_sync_time.is_some());
+        assert_eq!(vault.get_unsynced_records(10).unwrap().len(), 0);
+
+        let (ack_tx, ack_rx) = std::sync::mpsc::channel();
+        worker.tx.send(SyncCommand::Shutdown(ack_tx)).unwrap();
+        assert!(ack_rx.recv_timeout(std::time::Duration::from_secs(2)).is_ok());
+        handle.join().unwrap();
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_sync_worker_debounce_trigger_delta() {
+        let temp_dir = std::env::temp_dir().join(format!("rok_test_sync_debounce_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&temp_dir);
+        let mut vault_inst = crate::vault::MailVault::new(&temp_dir);
+        vault_inst.upsert(dummy_record("m_deb"));
+        let vault = std::sync::Arc::new(vault_inst);
+
+        let (url, handle) = spawn_multi_mock_server(|req| {
+            assert!(req.starts_with("POST /rest/v1/report_records"));
+            (201, "Created", "[]".to_string())
+        }, 1);
+
+        let mut cfg = crate::model::CloudAuthConfig::default();
+        cfg.supabase_url = Some(url);
+        cfg.anon_key = Some("test_anon".into());
+        cfg.access_token = Some("test_tok".into());
+        cfg.user_id = Some("user_deb_test".into());
+        cfg.auto_backup = true;
+        cfg.backup_on_exit = false;
+
+        let worker = spawn_sync_worker(vault.clone(), cfg);
+        worker.tx.send(SyncCommand::TriggerDelta).unwrap();
+
+        // After 200ms, 5s debounce has not elapsed, still pending
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        assert_eq!(worker.state.read().unwrap().pending_records_count, 1);
+        assert_eq!(vault.get_unsynced_records(10).unwrap().len(), 1);
+
+        // Explicit SyncNow flushes immediately without waiting for 5s debounce
+        worker.tx.send(SyncCommand::SyncNow).unwrap();
+
+        let start = std::time::Instant::now();
+        while start.elapsed() < std::time::Duration::from_secs(2) {
+            if worker.state.read().unwrap().pending_records_count == 0 {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+
+        assert_eq!(worker.state.read().unwrap().pending_records_count, 0);
+
+        let (ack_tx, ack_rx) = std::sync::mpsc::channel();
+        worker.tx.send(SyncCommand::Shutdown(ack_tx)).unwrap();
+        assert!(ack_rx.recv_timeout(std::time::Duration::from_secs(2)).is_ok());
+        handle.join().unwrap();
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_sync_worker_restore_success() {
+        let temp_dir = std::env::temp_dir().join(format!("rok_test_sync_worker_res_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&temp_dir);
+        let vault = std::sync::Arc::new(crate::vault::MailVault::new(&temp_dir));
+
+        let rec1 = dummy_record("m_res_1");
+        let rec2 = dummy_record("m_res_2");
+        let body = serde_json::to_string(&vec![
+            serde_json::json!({ "data": rec1 }),
+            serde_json::json!({ "data": rec2 }),
+        ]).unwrap();
+
+        let (url, handle) = spawn_multi_mock_server(move |req| {
+            assert!(req.starts_with("GET /rest/v1/report_records?user_id=eq.user_res_test"));
+            (200, "OK", body.clone())
+        }, 1);
+
+        let mut cfg = crate::model::CloudAuthConfig::default();
+        cfg.supabase_url = Some(url);
+        cfg.anon_key = Some("test_anon".into());
+        cfg.access_token = Some("test_tok".into());
+        cfg.user_id = Some("user_res_test".into());
+
+        let worker = spawn_sync_worker(vault.clone(), cfg);
+        let (res_tx, res_rx) = std::sync::mpsc::channel();
+        worker.tx.send(SyncCommand::Restore(res_tx)).unwrap();
+
+        let outcome = res_rx.recv_timeout(std::time::Duration::from_secs(2)).unwrap();
+        assert_eq!(outcome, Ok(2));
+
+        assert_eq!(vault.get_records().len(), 2);
+        assert_eq!(vault.get_unsynced_records(10).unwrap().len(), 0);
+
+        let (ack_tx, ack_rx) = std::sync::mpsc::channel();
+        worker.tx.send(SyncCommand::Shutdown(ack_tx)).unwrap();
+        assert!(ack_rx.recv_timeout(std::time::Duration::from_secs(2)).is_ok());
+        handle.join().unwrap();
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_sync_worker_restore_legacy_fallback() {
+        let temp_dir = std::env::temp_dir().join(format!("rok_test_sync_worker_leg_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&temp_dir);
+        let vault = std::sync::Arc::new(crate::vault::MailVault::new(&temp_dir));
+
+        let leg_rec = dummy_record("m_legacy_1");
+        let leg_body = serde_json::to_string(&vec![
+            serde_json::json!({
+                "vault_data": {
+                    "version": 1,
+                    "last_updated": "2026-01-01",
+                    "total_records": 1,
+                    "records": [leg_rec]
+                }
+            })
+        ]).unwrap();
+
+        let (url, handle) = spawn_multi_mock_server(move |req| {
+            if req.starts_with("GET /rest/v1/report_records") {
+                (200, "OK", "[]".to_string())
+            } else if req.starts_with("GET /rest/v1/user_vaults") {
+                (200, "OK", leg_body.clone())
+            } else {
+                (404, "Not Found", "".to_string())
+            }
+        }, 2);
+
+        let mut cfg = crate::model::CloudAuthConfig::default();
+        cfg.supabase_url = Some(url);
+        cfg.anon_key = Some("test_anon".into());
+        cfg.access_token = Some("test_tok".into());
+        cfg.user_id = Some("user_legacy_test".into());
+
+        let worker = spawn_sync_worker(vault.clone(), cfg);
+        let (res_tx, res_rx) = std::sync::mpsc::channel();
+        worker.tx.send(SyncCommand::Restore(res_tx)).unwrap();
+
+        let outcome = res_rx.recv_timeout(std::time::Duration::from_secs(2)).unwrap();
+        assert_eq!(outcome, Ok(1));
+        assert_eq!(vault.get_records().len(), 1);
+        assert_eq!(vault.get_records()[0].mail_id, "m_legacy_1");
+
+        let (ack_tx, ack_rx) = std::sync::mpsc::channel();
+        worker.tx.send(SyncCommand::Shutdown(ack_tx)).unwrap();
+        assert!(ack_rx.recv_timeout(std::time::Duration::from_secs(2)).is_ok());
+        handle.join().unwrap();
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_sync_worker_auto_refresh_on_401() {
+        let temp_dir = std::env::temp_dir().join(format!("rok_test_sync_worker_401_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&temp_dir);
+        let mut vault_inst = crate::vault::MailVault::new(&temp_dir);
+        vault_inst.upsert(dummy_record("m_401"));
+        let vault = std::sync::Arc::new(vault_inst);
+
+        let (url, handle) = spawn_multi_mock_server(|req| {
+            if req.starts_with("POST /rest/v1/report_records") && req.contains("Bearer expired_tok") {
+                (401, "Unauthorized", r#"{"message":"JWT expired"}"#.to_string())
+            } else if req.starts_with("POST /auth/v1/token") {
+                (200, "OK", r#"{"access_token":"refreshed_tok","refresh_token":"refreshed_rt"}"#.to_string())
+            } else if req.starts_with("POST /rest/v1/report_records") && req.contains("Bearer refreshed_tok") {
+                (201, "Created", "[]".to_string())
+            } else {
+                (500, "Error", "".to_string())
+            }
+        }, 3);
+
+        let mut cfg = crate::model::CloudAuthConfig::default();
+        cfg.supabase_url = Some(url);
+        cfg.anon_key = Some("test_anon".into());
+        cfg.access_token = Some("expired_tok".into());
+        cfg.refresh_token = Some("valid_rt".into());
+        cfg.user_id = Some("user_401_test".into());
+
+        let worker = spawn_sync_worker(vault.clone(), cfg);
+        worker.tx.send(SyncCommand::SyncNow).unwrap();
+
+        let start = std::time::Instant::now();
+        while start.elapsed() < std::time::Duration::from_secs(2) {
+            if worker.state.read().unwrap().pending_records_count == 0 {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+
+        assert_eq!(worker.state.read().unwrap().pending_records_count, 0);
+        assert!(worker.state.read().unwrap().last_error.is_none());
+
+        let (ack_tx, ack_rx) = std::sync::mpsc::channel();
+        worker.tx.send(SyncCommand::Shutdown(ack_tx)).unwrap();
+        assert!(ack_rx.recv_timeout(std::time::Duration::from_secs(2)).is_ok());
+        handle.join().unwrap();
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_sync_worker_account_mismatch() {
+        let temp_dir = std::env::temp_dir().join(format!("rok_test_sync_mismatch_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&temp_dir);
+        let vault_inst = crate::vault::MailVault::new(&temp_dir);
+        vault_inst.set_cloud_user_id("account_A").unwrap();
+        let vault = std::sync::Arc::new(vault_inst);
+
+        let mut cfg = crate::model::CloudAuthConfig::default();
+        cfg.supabase_url = Some("http://127.0.0.1:9".into());
+        cfg.anon_key = Some("anon".into());
+        cfg.access_token = Some("tok".into());
+        cfg.user_id = Some("account_B".into());
+
+        let worker = spawn_sync_worker(vault, cfg);
+        worker.tx.send(SyncCommand::SyncNow).unwrap();
+
+        let start = std::time::Instant::now();
+        while start.elapsed() < std::time::Duration::from_secs(2) {
+            if worker.state.read().unwrap().last_error.is_some() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+
+        let err = worker.state.read().unwrap().last_error.clone().unwrap();
+        assert!(err.contains("không khớp với tài khoản đã đồng bộ trước đó"), "Err was: {}", err);
+
+        let (ack_tx, ack_rx) = std::sync::mpsc::channel();
+        worker.tx.send(SyncCommand::Shutdown(ack_tx)).unwrap();
+        assert!(ack_rx.recv_timeout(std::time::Duration::from_secs(2)).is_ok());
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_sync_worker_retry_backoff_on_network_failure() {
+        let temp_dir = std::env::temp_dir().join(format!("rok_test_sync_backoff_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&temp_dir);
+        let mut vault_inst = crate::vault::MailVault::new(&temp_dir);
+        vault_inst.upsert(dummy_record("m_fail"));
+        let vault = std::sync::Arc::new(vault_inst);
+
+        let (url, handle) = spawn_multi_mock_server(|_| {
+            (500, "Internal Server Error", r#"{"message":"Database down"}"#.to_string())
+        }, 1);
+
+        let mut cfg = crate::model::CloudAuthConfig::default();
+        cfg.supabase_url = Some(url);
+        cfg.anon_key = Some("test_anon".into());
+        cfg.access_token = Some("test_tok".into());
+        cfg.user_id = Some("user_fail_test".into());
+
+        let worker = spawn_sync_worker(vault, cfg);
+        worker.tx.send(SyncCommand::SyncNow).unwrap();
+
+        let start = std::time::Instant::now();
+        while start.elapsed() < std::time::Duration::from_secs(2) {
+            if worker.state.read().unwrap().last_error.is_some() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+
+        assert!(worker.state.read().unwrap().last_error.is_some());
+        assert_eq!(worker.state.read().unwrap().retry_in_secs, Some(2));
+
+        let (ack_tx, ack_rx) = std::sync::mpsc::channel();
+        worker.tx.send(SyncCommand::Shutdown(ack_tx)).unwrap();
+        assert!(ack_rx.recv_timeout(std::time::Duration::from_secs(2)).is_ok());
+        handle.join().unwrap();
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }

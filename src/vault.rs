@@ -536,6 +536,58 @@ impl MailVault {
         Ok(())
     }
 
+    pub fn restore_records_batch(&self, recs: &[BattleRecord], timestamp: i64) -> rusqlite::Result<usize> {
+        if recs.is_empty() {
+            return Ok(0);
+        }
+        let mut conn = self.conn();
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let mut restored = 0;
+        {
+            let mut insert_stmt = tx.prepare_cached(
+                "INSERT INTO battle_records (
+                    mail_id, filename, battle_type, time_raw, time_utc, time_vn,
+                    target, target_level, talent_add, pos_x, pos_y, damage_pct,
+                    plunder_tier, items_json, item_totals_json, content, dedup_key, synced_at
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)
+                ON CONFLICT(dedup_key) DO UPDATE SET
+                    synced_at = COALESCE(battle_records.synced_at, excluded.synced_at)"
+            )?;
+            for r in recs {
+                let dedup_key = get_record_dedup_key(r);
+                let items_json = serde_json::to_string(&r.items).unwrap_or_else(|_| "[]".to_string());
+                let item_totals_json = serde_json::to_string(&r.item_totals).unwrap_or_else(|_| "{}".to_string());
+                let changed = insert_stmt.execute(params![
+                    r.mail_id,
+                    r.filename,
+                    r.battle_type,
+                    r.time_raw,
+                    r.time_utc,
+                    r.time_vn,
+                    r.target,
+                    r.target_level,
+                    r.talent_add,
+                    r.pos_x,
+                    r.pos_y,
+                    r.damage_pct,
+                    r.plunder_tier,
+                    items_json,
+                    item_totals_json,
+                    r.content,
+                    dedup_key,
+                    timestamp,
+                ])?;
+                if changed > 0 {
+                    restored += 1;
+                }
+            }
+        }
+        tx.commit()?;
+        drop(conn);
+        let _ = self.save_to_disk();
+        Ok(restored)
+    }
+
     pub fn save_to_disk(&self) -> Result<(), String> {
         if self.is_corrupted {
             return Err(format!(
@@ -1785,6 +1837,29 @@ mod tests {
         assert_eq!(page2.len(), 2);
         assert_eq!(page2[0].0, "id:rec_2000");
         assert_eq!(page2[1].0, "id:rec_3000");
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_vault_restore_records_batch() {
+        let temp_dir = std::env::temp_dir().join(format!("rok_test_vault_restore_{}", std::process::id()));
+        let _ = fs::create_dir_all(&temp_dir);
+        let mut vault = MailVault::new(&temp_dir);
+
+        // Pre-insert an unsynced record
+        vault.upsert(create_test_record("pre_exist", 500));
+        assert_eq!(vault.get_unsynced_records(10).unwrap().len(), 1);
+
+        let rec1 = create_test_record("pre_exist", 500); // conflict with existing unsynced
+        let rec2 = create_test_record("new_restored", 600);
+        let restored = vault.restore_records_batch(&[rec1, rec2], 1700000000).unwrap();
+        assert_eq!(restored, 2);
+
+        // All should now have synced_at set, so unsynced is 0
+        let (total, unsynced) = vault.get_sync_counts().unwrap();
+        assert_eq!(total, 2);
+        assert_eq!(unsynced, 0);
 
         let _ = fs::remove_dir_all(&temp_dir);
     }
