@@ -156,12 +156,6 @@ pub enum ItemSortColumn {
     MaxInBattle,
 }
 
-struct CloudOpResult {
-    message: String,
-    is_backup: bool,
-    new_tokens: Option<(String, String)>,
-}
-
 pub struct RoKLootWatcherApp {
     pub watcher: Arc<RoKMailWatcher>,
     pub rx_ui: Receiver<WatcherUiEvent>,
@@ -206,12 +200,10 @@ pub struct RoKLootWatcherApp {
 
     pub cloud_auth: crate::model::CloudAuthConfig,
     cloud_rx: Option<std::sync::mpsc::Receiver<Result<crate::cloud_sync::CloudAuthResult, String>>>,
-    cloud_op_rx: Option<std::sync::mpsc::Receiver<Result<CloudOpResult, String>>>,
     pub sync_worker: Option<crate::cloud_sync::SyncWorkerHandle>,
     restore_rx: Option<std::sync::mpsc::Receiver<Result<usize, String>>>,
     cloud_busy: bool,
     pub has_unbacked_data: bool,
-    pub last_cloud_backup_time: Option<std::time::Instant>,
 
     pub cached_overlay_records: Vec<BattleRecord>,
     pub cached_sorted_battle_indices: Vec<usize>,
@@ -658,12 +650,10 @@ impl RoKLootWatcherApp {
 
             cloud_auth: config.cloud_auth.clone(),
             cloud_rx: None,
-            cloud_op_rx: None,
             sync_worker: Some(sync_worker),
             restore_rx: None,
             cloud_busy: false,
             has_unbacked_data: initial_has_unbacked,
-            last_cloud_backup_time: Some(std::time::Instant::now()),
 
             cached_overlay_records: initial_overlay_records,
             cached_sorted_battle_indices: Vec::new(),
@@ -779,25 +769,6 @@ impl RoKLootWatcherApp {
 
 
     fn poll_cloud_events(&mut self, ctx: &egui::Context) {
-        if !self.cloud_busy && self.cloud_auth.auto_backup && (self.cloud_auth.access_token.is_some() || self.cloud_auth.refresh_token.is_some()) && self.has_unbacked_data {
-            let interval_duration = std::time::Duration::from_secs(self.cloud_auth.clamped_interval_minutes() as u64 * 60);
-            let should_run = match self.last_cloud_backup_time {
-                Some(last) => {
-                    let elapsed = std::time::Instant::now().duration_since(last);
-                    if elapsed >= interval_duration {
-                        true
-                    } else {
-                        ctx.request_repaint_after(interval_duration - elapsed);
-                        false
-                    }
-                }
-                None => false,
-            };
-            if should_run {
-                self.trigger_cloud_backup();
-            }
-        }
-
         if let Some(res) = poll_cloud_receiver(&mut self.cloud_rx, &mut self.cloud_busy) {
             match res {
                 Ok(Ok(auth)) => {
@@ -870,44 +841,6 @@ impl RoKLootWatcherApp {
                 }
                 if state.is_syncing || state.is_restoring || state.retry_in_secs.is_some() {
                     ctx.request_repaint_after(std::time::Duration::from_millis(250));
-                }
-            }
-        }
-
-        if let Some(res) = poll_cloud_receiver(&mut self.cloud_op_rx, &mut self.cloud_busy) {
-            match res {
-                Ok(Ok(op_res)) => {
-                    let mut needs_save = false;
-                    if let Some((new_acc, new_ref)) = op_res.new_tokens {
-                        self.cloud_auth.access_token = Some(new_acc);
-                        self.cloud_auth.refresh_token = Some(new_ref);
-                        needs_save = true;
-                    }
-                    if op_res.is_backup {
-                        self.last_cloud_backup_time = Some(std::time::Instant::now());
-                        self.cloud_auth.last_synced = Some(chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string());
-                        needs_save = true;
-                    }
-                    if needs_save {
-                        self.save_config();
-                    }
-                    self.watcher.log("SUCCESS", &op_res.message);
-                }
-                Ok(Err(e)) => {
-                    self.last_cloud_backup_time = Some(std::time::Instant::now());
-                    self.has_unbacked_data = true;
-                    self.watcher.mark_cloud_dirty();
-                    self.watcher.log("ERROR", &e);
-                }
-                Err(()) => {
-                    self.last_cloud_backup_time = Some(std::time::Instant::now());
-                    self.has_unbacked_data = true;
-                    self.watcher.mark_cloud_dirty();
-                    let msg = match self.language {
-                        AppLanguage::Vietnamese => "Thao tác cloud thất bại: luồng xử lý bị đóng bất ngờ".to_string(),
-                        AppLanguage::English => "Cloud operation failed: worker thread disconnected".to_string(),
-                    };
-                    self.watcher.log("ERROR", &msg);
                 }
             }
         }
@@ -4409,12 +4342,6 @@ impl RoKLootWatcherApp {
                                 self.language.t(TrKey::CloudSyncStatusOffline).to_string()
                             };
                             (msg, c.error, false)
-                        } else if pending_count > 0 {
-                            (
-                                self.language.t(TrKey::CloudSyncStatusSyncing).replace("{0}", &pending_count.to_string()),
-                                c.crystal_cyan,
-                                false,
-                            )
                         } else {
                             (
                                 self.language.t(TrKey::CloudSyncStatusIdle).to_string(),
@@ -5882,8 +5809,16 @@ mod tests {
         let offline_vi = format!("{} ({}s)", AppLanguage::Vietnamese.t(TrKey::CloudSyncStatusOffline), state.retry_in_secs.unwrap());
         assert_eq!(offline_vi, "Đồng bộ: Mất kết nối, sẽ thử lại (15s)");
 
-        // 4. Up to date (Idle)
+        // 4. Idle with pending records (not actively syncing: shows Idle + pending label)
         state.retry_in_secs = None;
+        state.is_syncing = false;
+        state.pending_records_count = 5;
+        let idle_with_pending_vi = AppLanguage::Vietnamese.t(TrKey::CloudSyncStatusIdle);
+        assert_eq!(idle_with_pending_vi, "Đồng bộ: Đã cập nhật");
+        let pending_suffix_en = format!("({} pending records)", state.pending_records_count);
+        assert_eq!(pending_suffix_en, "(5 pending records)");
+
+        // 5. Up to date (Idle, 0 pending)
         state.pending_records_count = 0;
         let idle_vi = AppLanguage::Vietnamese.t(TrKey::CloudSyncStatusIdle);
         assert_eq!(idle_vi, "Đồng bộ: Đã cập nhật");
