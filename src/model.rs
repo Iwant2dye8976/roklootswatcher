@@ -371,7 +371,7 @@ impl SpeedupUnit {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ItemDrop {
     #[serde(rename = "type")]
     pub itype: u32,

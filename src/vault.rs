@@ -308,7 +308,11 @@ impl MailVault {
                 existing.battle_type = rec.battle_type;
                 modified = true;
             }
-            if !rec.items.is_empty() && (existing.items.is_empty() || rec.items.len() >= existing.items.len()) {
+            if !rec.items.is_empty()
+                && (existing.items.is_empty()
+                    || existing.items != rec.items
+                    || existing.item_totals != rec.item_totals)
+            {
                 existing.items = rec.items;
                 existing.item_totals = rec.item_totals;
                 modified = true;
@@ -359,7 +363,8 @@ impl MailVault {
                         time_vn = ?8,
                         time_raw = ?9,
                         items_json = ?10,
-                        item_totals_json = ?11
+                        item_totals_json = ?11,
+                        synced_at = NULL
                     WHERE dedup_key = ?12"
                 ) {
                     Ok(s) => s,
@@ -384,9 +389,13 @@ impl MailVault {
                     dedup_key,
                 ]) {
                     eprintln!("[!] Lỗi execute update for upsert: {}", e);
+                    false
+                } else {
+                    true
                 }
+            } else {
+                false
             }
-            false
         } else {
             let items_json = serde_json::to_string(&rec.items).unwrap_or_else(|_| "[]".to_string());
             let item_totals_json = serde_json::to_string(&rec.item_totals).unwrap_or_else(|_| "{}".to_string());
@@ -1880,6 +1889,49 @@ mod tests {
 
         let marked = vault.mark_records_synced(&["non_existent_key".to_string()], 12345).unwrap();
         assert_eq!(marked, 0);
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_upsert_modified_record_resets_synced_at() {
+        let temp_dir = std::env::temp_dir().join(format!("rok_test_vault_mod_{}", std::process::id()));
+        let _ = fs::create_dir_all(&temp_dir);
+        let mut vault = MailVault::new(&temp_dir);
+
+        let mut rec = create_test_record("mail_mod_1", 1000);
+        rec.damage_pct = 0;
+        rec.items = vec![];
+        assert!(vault.upsert(rec.clone()));
+
+        // Mark it synced
+        vault.mark_records_synced(&["id:mail_mod_1".to_string()], 1700000000).unwrap();
+        assert_eq!(vault.get_unsynced_records(10).unwrap().len(), 0);
+
+        // Upsert identical record -> modified is false -> returns false
+        assert!(!vault.upsert(rec.clone()));
+        assert_eq!(vault.get_unsynced_records(10).unwrap().len(), 0);
+
+        // Upsert with enriched items and damage_pct -> modified is true -> returns true & resets synced_at to NULL!
+        let mut updated = rec.clone();
+        updated.damage_pct = 50;
+        updated.items = vec![crate::model::ItemDrop {
+            itype: 1,
+            sub_type: 1,
+            value: 10,
+            pic: "".into(),
+            name_vi: "Item".into(),
+            name_en: "Item".into(),
+            category: "Loot".into(),
+            sprites: vec![],
+        }];
+        assert!(vault.upsert(updated));
+
+        // Now it must be unsynced again
+        let unsynced = vault.get_unsynced_records(10).unwrap();
+        assert_eq!(unsynced.len(), 1);
+        assert_eq!(unsynced[0].1.damage_pct, 50);
+        assert_eq!(unsynced[0].1.items.len(), 1);
 
         let _ = fs::remove_dir_all(&temp_dir);
     }

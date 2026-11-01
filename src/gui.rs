@@ -4352,10 +4352,16 @@ impl RoKLootWatcherApp {
                                 true,
                             )
                         } else if retry_secs.is_some() || (last_err.is_some() && pending_count > 0) {
-                            let msg = if let Some(secs) = retry_secs {
-                                format!("{} ({}s)", self.language.t(TrKey::CloudSyncStatusOffline), secs)
+                            let is_offline = is_network_offline_error(last_err.as_deref());
+                            let base_key = if is_offline {
+                                TrKey::CloudSyncStatusOffline
                             } else {
-                                self.language.t(TrKey::CloudSyncStatusOffline).to_string()
+                                TrKey::CloudSyncStatusError
+                            };
+                            let msg = if let Some(secs) = retry_secs {
+                                format!("{} ({}s)", self.language.t(base_key), secs)
+                            } else {
+                                self.language.t(base_key).to_string()
                             };
                             (msg, c.error, false)
                         } else {
@@ -5198,6 +5204,34 @@ fn report_non_target_column_count(is_gathering: bool, is_barb: bool) -> usize {
     }
 }
 
+pub(crate) fn is_network_offline_error(err: Option<&str>) -> bool {
+    let Some(e) = err else {
+        return true;
+    };
+    let lower = e.to_ascii_lowercase();
+    if lower.contains("http")
+        || lower.contains("403")
+        || lower.contains("401")
+        || lower.contains("404")
+        || lower.contains("500")
+        || lower.contains("502")
+        || lower.contains("503")
+        || lower.contains("permission")
+        || lower.contains("unauthorized")
+        || lower.contains("forbidden")
+    {
+        return false;
+    }
+    lower.contains("timeout")
+        || lower.contains("timed out")
+        || lower.contains("dns")
+        || lower.contains("connection refused")
+        || lower.contains("network")
+        || lower.contains("unreachable")
+        || lower.contains("offline")
+        || lower.contains("mất kết nối")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -5824,6 +5858,19 @@ mod tests {
         state.retry_in_secs = Some(15);
         let offline_vi = format!("{} ({}s)", AppLanguage::Vietnamese.t(TrKey::CloudSyncStatusOffline), state.retry_in_secs.unwrap());
         assert_eq!(offline_vi, "Đồng bộ: Mất kết nối, sẽ thử lại (15s)");
+
+        // 3b. Server/Auth error (e.g. HTTP 403) with retry backoff
+        let err_403 = "Cloud Sync HTTP 403 error: permission denied for table report_records";
+        assert!(!is_network_offline_error(Some(err_403)));
+        let err_vi = format!("{} ({}s)", AppLanguage::Vietnamese.t(TrKey::CloudSyncStatusError), state.retry_in_secs.unwrap());
+        assert_eq!(err_vi, "Đồng bộ: Lỗi, sẽ thử lại (15s)");
+        let err_en = format!("{} ({}s)", AppLanguage::English.t(TrKey::CloudSyncStatusError), state.retry_in_secs.unwrap());
+        assert_eq!(err_en, "Sync: Error, will retry (15s)");
+
+        // Network error should be classified as offline
+        assert!(is_network_offline_error(Some("Connection timed out")));
+        assert!(is_network_offline_error(Some("failed to lookup address information: dns failure")));
+        assert!(is_network_offline_error(None));
 
         // 4. Idle with pending records (not actively syncing: shows Idle + pending label)
         state.retry_in_secs = None;

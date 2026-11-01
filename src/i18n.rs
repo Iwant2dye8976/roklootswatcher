@@ -163,6 +163,7 @@ pub enum TrKey {
     CloudSyncStatusIdle,
     CloudSyncStatusSyncing,
     CloudSyncStatusOffline,
+    CloudSyncStatusError,
     CloudSyncStatusRestoring,
     SettingsCardVaultTitle,
     SettingsVaultSecured,
@@ -334,6 +335,7 @@ pub static ALL_KEYS: &[TrKey] = &[
     TrKey::CloudSyncStatusIdle,
     TrKey::CloudSyncStatusSyncing,
     TrKey::CloudSyncStatusOffline,
+    TrKey::CloudSyncStatusError,
     TrKey::CloudSyncStatusRestoring,
     TrKey::SettingsCardVaultTitle,
     TrKey::SettingsVaultSecured,
@@ -672,6 +674,8 @@ pub fn tr(key: TrKey, lang: AppLanguage) -> &'static str {
         (TrKey::CloudSyncStatusSyncing, AppLanguage::English) => "Sync: Uploading {0} records...",
         (TrKey::CloudSyncStatusOffline, AppLanguage::Vietnamese) => "Đồng bộ: Mất kết nối, sẽ thử lại",
         (TrKey::CloudSyncStatusOffline, AppLanguage::English) => "Sync: Offline, will retry",
+        (TrKey::CloudSyncStatusError, AppLanguage::Vietnamese) => "Đồng bộ: Lỗi, sẽ thử lại",
+        (TrKey::CloudSyncStatusError, AppLanguage::English) => "Sync: Error, will retry",
         (TrKey::CloudSyncStatusRestoring, AppLanguage::Vietnamese) => "Đồng bộ: Đang khôi phục từ Cloud ({0} bản ghi)...",
         (TrKey::CloudSyncStatusRestoring, AppLanguage::English) => "Sync: Restoring from Cloud ({0} records)...",
 
@@ -937,6 +941,9 @@ mod tests {
 
         assert_eq!(AppLanguage::Vietnamese.t(TrKey::CloudSyncStatusOffline), "Đồng bộ: Mất kết nối, sẽ thử lại");
         assert_eq!(AppLanguage::English.t(TrKey::CloudSyncStatusOffline), "Sync: Offline, will retry");
+
+        assert_eq!(AppLanguage::Vietnamese.t(TrKey::CloudSyncStatusError), "Đồng bộ: Lỗi, sẽ thử lại");
+        assert_eq!(AppLanguage::English.t(TrKey::CloudSyncStatusError), "Sync: Error, will retry");
 
         let vi_restoring = AppLanguage::Vietnamese.t(TrKey::CloudSyncStatusRestoring).replace("{0}", "100");
         let en_restoring = AppLanguage::English.t(TrKey::CloudSyncStatusRestoring).replace("{0}", "100");
