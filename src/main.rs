@@ -15,6 +15,7 @@ pub mod overlay_ui;
 mod single_instance;
 mod tray;
 mod vault;
+mod vault_migrate;
 mod watcher;
 
 use std::path::PathBuf;
