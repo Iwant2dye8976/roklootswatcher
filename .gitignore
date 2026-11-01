@@ -22,3 +22,6 @@ VAULT_SCALABILITY.md
 vault_solutions.md
 
 .worktrees/
+*.db
+*.db-*
+*.migrated
