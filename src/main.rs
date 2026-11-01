@@ -282,9 +282,8 @@ fn run_cli_mode(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             mode.as_str()
         );
         all_records
-            .iter()
+            .into_iter()
             .filter(|r| mode.matches(&r.battle_type))
-            .cloned()
             .collect()
     };
     active_records.sort_by_key(|r| r.time_raw);
@@ -659,7 +658,9 @@ mod tests {
     #[test]
     fn test_vault_init_performance() {
         let root_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        if !root_dir.join("rok_history_vault.json").exists() {
+        let db_exists = root_dir.join("rok_history_vault.db").exists();
+        let json_exists = root_dir.join("rok_history_vault.json").exists();
+        if !db_exists && !json_exists {
             return;
         }
         let start = std::time::Instant::now();
