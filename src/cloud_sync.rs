@@ -531,7 +531,7 @@ pub fn upload_report_records_batch(
         .map(|(dedup_key, rec)| build_report_record_payload(user_id, dedup_key, rec))
         .collect();
 
-    let url = format!("{}/rest/v1/report_records", supabase_url.trim_end_matches('/'));
+    let url = format!("{}/rest/v1/report_records?on_conflict=user_id,dedup_key", supabase_url.trim_end_matches('/'));
     let effective_timeout = timeout.unwrap_or(Duration::from_secs(15));
     let agent = ureq::builder().timeout(effective_timeout).build();
 
@@ -561,7 +561,7 @@ pub fn fetch_report_records_page(
     timeout: Option<Duration>,
 ) -> Result<(Vec<BattleRecord>, bool), String> {
     let url = format!(
-        "{}/rest/v1/report_records?user_id=eq.{}&order=time_raw.asc&limit={}&offset={}",
+        "{}/rest/v1/report_records?user_id=eq.{}&select=data&order=time_raw.asc,dedup_key.asc&limit={}&offset={}",
         supabase_url.trim_end_matches('/'),
         user_id,
         limit,
@@ -941,7 +941,7 @@ mod tests {
     #[test]
     fn test_upload_report_records_batch_success() {
         let (url, handle) = spawn_mock_server(|req| {
-            assert!(req.starts_with("POST /rest/v1/report_records"));
+            assert!(req.starts_with("POST /rest/v1/report_records?on_conflict=user_id,dedup_key"));
             assert!(req.to_lowercase().contains("prefer: resolution=merge-duplicates"));
             assert!(req.to_lowercase().contains("apikey: test_anon"));
             assert!(req.contains("Bearer test_token"));
@@ -998,7 +998,7 @@ mod tests {
         ]).unwrap();
 
         let (url, handle) = spawn_mock_server(move |req| {
-            assert!(req.starts_with("GET /rest/v1/report_records?user_id=eq.user_123&order=time_raw.asc&limit=2&offset=0"));
+            assert!(req.starts_with("GET /rest/v1/report_records?user_id=eq.user_123&select=data&order=time_raw.asc,dedup_key.asc&limit=2&offset=0"));
             assert!(req.to_lowercase().contains("apikey: test_anon"));
             assert!(req.contains("Bearer test_token"));
             (200, "OK", rows_json)
