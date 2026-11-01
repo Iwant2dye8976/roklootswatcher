@@ -45,7 +45,7 @@
   - `MailVault::get_cloud_user_id(&self) -> rusqlite::Result<Option<String>>`
   - `MailVault::set_cloud_user_id(&self, user_id: &str) -> rusqlite::Result<()>`
 
-- [ ] **Step 1: Write the failing tests in `src/vault.rs`**
+- [x] **Step 1: Write the failing tests in `src/vault.rs`**
 
 ```rust
 #[test]
@@ -71,12 +71,12 @@ fn test_vault_unsynced_and_mark_synced() {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cargo test test_vault_unsynced_and_mark_synced`
 Expected: FAIL with missing methods on `MailVault`
 
-- [ ] **Step 3: Implement index in `vault_migrate.rs` and methods in `vault.rs`**
+- [x] **Step 3: Implement index in `vault_migrate.rs` and methods in `vault.rs`**
 
 - In `vault_migrate.rs`: add `CREATE INDEX IF NOT EXISTS idx_synced_at ON battle_records(synced_at);`
 - In `vault.rs`:
@@ -85,12 +85,12 @@ Expected: FAIL with missing methods on `MailVault`
   - `get_sync_counts`: queries total rows and rows `WHERE synced_at IS NULL`
   - `get_cloud_user_id` / `set_cloud_user_id`: reads/writes `vault_meta` key `'synced_user_id'`
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cargo test test_vault_unsynced_and_mark_synced`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/vault.rs src/vault_migrate.rs
@@ -113,7 +113,7 @@ git commit -m "feat(vault): add unsynced querying, sync marking, and idx_synced_
   - `pub fn fetch_report_records_page(supabase_url: &str, anon_key: &str, access_token: &str, user_id: &str, limit: usize, offset: usize, timeout: Option<Duration>) -> Result<(Vec<BattleRecord>, bool), String>`
   - `pub fn check_legacy_user_vault(supabase_url: &str, anon_key: &str, access_token: &str, timeout: Option<Duration>) -> Result<Option<Vec<BattleRecord>>, String>`
 
-- [ ] **Step 1: Write failing unit test for payload formatting and page decoding**
+- [x] **Step 1: Write failing unit test for payload formatting and page decoding**
 
 ```rust
 #[test]
@@ -146,24 +146,24 @@ fn test_build_report_record_payload() {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cargo test test_build_report_record_payload`
 Expected: FAIL with "cannot find function `build_report_record_payload`"
 
-- [ ] **Step 3: Implement PostgREST client functions in `src/cloud_sync.rs`**
+- [x] **Step 3: Implement PostgREST client functions in `src/cloud_sync.rs`**
 
 - `build_report_record_payload`: constructs JSON with columns matching `report_records` schema.
 - `upload_report_records_batch`: sends array of payloads to `/rest/v1/report_records` with header `Prefer: resolution=merge-duplicates`. Handles HTTP 404 with a descriptive error.
 - `fetch_report_records_page`: GET `/rest/v1/report_records?user_id=eq.{user_id}&order=time_raw.asc&limit={limit}&offset={offset}`, extracts and deserializes `data` field of each row into `BattleRecord`. Returns `(records, has_more)`.
 - `check_legacy_user_vault`: calls legacy `/rest/v1/user_vaults?select=vault_data`, returns `None` if empty or 404, or `Some(Vec<BattleRecord>)` if legacy data exists.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `cargo test test_build_report_record_payload`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/cloud_sync.rs
@@ -185,7 +185,7 @@ git commit -m "feat(cloud_sync): implement report_records PostgREST batching and
   - `pub struct SyncWorkerHandle { pub tx: mpsc::Sender<SyncCommand>, pub state: Arc<RwLock<SyncWorkerState>> }`
   - `pub fn spawn_sync_worker(vault: Arc<MailVault>, config: CloudAuthConfig) -> SyncWorkerHandle`
 
-- [ ] **Step 1: Write test for worker commands and shutdown signaling**
+- [x] **Step 1: Write test for worker commands and shutdown signaling**
 
 ```rust
 #[test]
@@ -201,12 +201,12 @@ fn test_sync_worker_spawn_and_shutdown() {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cargo test test_sync_worker_spawn_and_shutdown`
 Expected: FAIL with "cannot find function `spawn_sync_worker`"
 
-- [ ] **Step 3: Implement `CloudSyncWorker` thread loop**
+- [x] **Step 3: Implement `CloudSyncWorker` thread loop**
 
 - Worker thread manages:
   - `last_sync_time`, `is_syncing`, `pending_records_count`, `last_error`
@@ -217,12 +217,12 @@ Expected: FAIL with "cannot find function `spawn_sync_worker`"
   - On `Shutdown(ack_tx)`: executes one bounded flush attempt (up to 2 seconds timeout), signals `ack_tx.send(())`, and exits thread.
   - Auto-retries on network failures with exponential backoff up to 60 seconds.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cargo test test_sync_worker_spawn_and_shutdown`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/cloud_sync.rs
@@ -244,7 +244,7 @@ git commit -m "feat(cloud_sync): introduce CloudSyncWorker actor and lifecycle p
   - `Watcher::set_sync_channel(&self, tx: mpsc::Sender<SyncCommand>)`
   - Automatic `TriggerDelta` signal emitted whenever `Watcher::process_mail_file` saves a new record to `MailVault`.
 
-- [ ] **Step 1: Write test verifying watcher notifies sync channel on new report**
+- [x] **Step 1: Write test verifying watcher notifies sync channel on new report**
 
 ```rust
 #[test]
@@ -254,22 +254,22 @@ fn test_watcher_triggers_sync_on_new_record() {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cargo test test_watcher_triggers_sync_on_new_record`
 Expected: FAIL
 
-- [ ] **Step 3: Implement channel hook in `src/watcher.rs`**
+- [x] **Step 3: Implement channel hook in `src/watcher.rs`**
 
 - Store optional `sync_tx: Arc<Mutex<Option<mpsc::Sender<SyncCommand>>>>` in `Watcher`.
 - When new battle or gathering report is inserted via `vault.upsert(&mut record)`, if `auto_backup` is enabled and credentials are present, send `SyncCommand::TriggerDelta`.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cargo test test_watcher_triggers_sync_on_new_record`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/watcher.rs src/main.rs
@@ -295,7 +295,7 @@ git commit -m "feat(watcher): wire report insertion events to CloudSyncWorker Tr
   - Live status indicator: `Idle`, `Syncing (N/Total)`, `Offline (retrying...)`.
   - Graceful exit sequence replacing `perform_exit_cloud_backup` with `Shutdown` signal (max 2-second join).
 
-- [ ] **Step 1: Add localization keys in `src/i18n.rs`**
+- [x] **Step 1: Add localization keys in `src/i18n.rs`**
 
 Add keys for:
 - `CloudSyncStatusIdle`: "Đồng bộ: Đã cập nhật" / "Sync: Up to date"
@@ -303,14 +303,14 @@ Add keys for:
 - `CloudSyncStatusOffline`: "Đồng bộ: Mất kết nối, sẽ thử lại" / "Sync: Offline, will retry"
 - `CloudSyncStatusRestoring`: "Đồng bộ: Đang khôi phục từ Cloud ({0} bản ghi)..." / "Sync: Restoring from Cloud ({0} records)..."
 
-- [ ] **Step 2: Update manual sync, restore and status display in `src/gui.rs`**
+- [x] **Step 2: Update manual sync, restore and status display in `src/gui.rs`**
 
 - In `LootWatcherApp`: attach `SyncWorkerHandle`.
 - In Settings view: show live sync state and unsynced counts from `sync_worker.state`.
 - "Sync Now" calls `sync_worker.tx.send(SyncCommand::SyncNow)`.
 - "Restore" sends `SyncCommand::Restore(resp_tx)` and tracks progress state.
 
-- [ ] **Step 3: Replace `perform_exit_cloud_backup` in `src/gui.rs`**
+- [x] **Step 3: Replace `perform_exit_cloud_backup` in `src/gui.rs`**
 
 - Replace synchronous JSON export and monolithic POST with:
   ```rust
@@ -321,12 +321,12 @@ Add keys for:
   }
   ```
 
-- [ ] **Step 4: Verify compilation and tests**
+- [x] **Step 4: Verify compilation and tests**
 
 Run: `cargo test` and `cargo check --release`
 Expected: Zero compilation errors and all tests pass
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/gui.rs src/i18n.rs
@@ -340,7 +340,7 @@ git commit -m "feat(gui): integrate CloudSyncWorker status, restore flow, and no
 **Files:**
 - Test: `tests/per_record_sync_integration.rs`
 
-- [ ] **Step 1: Write end-to-end integration test**
+- [x] **Step 1: Write end-to-end integration test**
 
 - Create mock local vault with 500 battle records.
 - Verify `get_unsynced_records(200)` returns 200 records.
@@ -349,17 +349,17 @@ git commit -m "feat(gui): integrate CloudSyncWorker status, restore flow, and no
 - Verify third batch leaves 0 unsynced.
 - Verify `Shutdown` completes cleanly within timeout.
 
-- [ ] **Step 2: Run all tests in the workspace**
+- [x] **Step 2: Run all tests in the workspace**
 
 Run: `cargo test --all`
 Expected: ALL PASS with zero failures
 
-- [ ] **Step 3: Build release binary to ensure compiler optimizations and clean strip**
+- [x] **Step 3: Build release binary to ensure compiler optimizations and clean strip**
 
 Run: `cargo build --release`
 Expected: Successful build with exit code 0
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add tests/ docs/superpowers/plans/2026-11-01-cloud-sync-per-record.md
