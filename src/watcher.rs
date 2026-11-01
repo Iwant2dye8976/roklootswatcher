@@ -315,10 +315,12 @@ impl RoKMailWatcher {
         self.vault.read().unwrap_or_else(|e| e.into_inner()).total_count()
     }
 
+    #[allow(dead_code)]
     pub fn get_vault_file_path(&self) -> PathBuf {
         self.vault.read().unwrap_or_else(|e| e.into_inner()).get_vault_file().to_path_buf()
     }
 
+    #[allow(dead_code)]
     pub fn reload_vault(&self) {
         let out_dir = self.out_dir.read().unwrap_or_else(|e| e.into_inner()).clone();
         let new_vault = crate::vault::MailVault::new(&out_dir);

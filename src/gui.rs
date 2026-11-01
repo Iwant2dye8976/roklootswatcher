@@ -4343,8 +4343,12 @@ impl RoKLootWatcherApp {
                         .rounding(Rounding::same(5.0));
 
                         if ui.add_sized([0.0, 28.0], btn_vjson).clicked() {
-                            let f = self.watcher.get_vault_file_path();
-                            let _ = open::that(&f);
+                            let out_dir = self.watcher.get_out_dir();
+                            let export_path = out_dir.join("rok_history_vault_export.json");
+                            if let Ok(json) = self.watcher.export_vault_json() {
+                                let _ = std::fs::write(&export_path, &json);
+                                let _ = open::that(&export_path);
+                            }
                         }
 
                         let btn_clean = egui::Button::new(
