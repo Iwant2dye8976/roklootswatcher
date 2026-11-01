@@ -671,6 +671,7 @@ pub enum SyncCommand {
     SyncNow,
     Restore(mpsc::Sender<Result<usize, String>>),
     Shutdown(mpsc::Sender<()>),
+    UpdateConfig(CloudAuthConfig),
 }
 
 #[derive(Debug, Clone, Default)]
@@ -948,8 +949,18 @@ fn perform_restore(
             Ok((records, has_more)) => {
                 let count = records.len();
                 if count > 0 {
-                    let saved = vault.restore_records_batch(&records, now_ts)
-                        .map_err(|e| format!("Lỗi ghi dữ liệu khôi phục vào SQLite: {}", e))?;
+                    let saved = match vault.restore_records_batch(&records, now_ts) {
+                        Ok(s) => s,
+                        Err(e) => {
+                            let err_msg = format!("Lỗi ghi dữ liệu khôi phục vào SQLite: {}", e);
+                            if let Ok(mut s) = state.write() {
+                                s.is_syncing = false;
+                                s.is_restoring = false;
+                                s.last_error = Some(err_msg.clone());
+                            }
+                            return Err(err_msg);
+                        }
+                    };
                     total_restored += saved;
                     offset += count;
                 }
@@ -996,11 +1007,32 @@ fn perform_restore(
             }
         }
 
-        if let Ok(Some(legacy_records)) = legacy_res {
-            if !legacy_records.is_empty() {
-                let saved = vault.restore_records_batch(&legacy_records, now_ts)
-                    .map_err(|e| format!("Lỗi ghi dữ liệu legacy vào SQLite: {}", e))?;
-                total_restored = saved;
+        match legacy_res {
+            Ok(Some(legacy_records)) => {
+                if !legacy_records.is_empty() {
+                    let saved = match vault.restore_records_batch(&legacy_records, now_ts) {
+                        Ok(s) => s,
+                        Err(e) => {
+                            let err_msg = format!("Lỗi ghi dữ liệu legacy vào SQLite: {}", e);
+                            if let Ok(mut s) = state.write() {
+                                s.is_syncing = false;
+                                s.is_restoring = false;
+                                s.last_error = Some(err_msg.clone());
+                            }
+                            return Err(err_msg);
+                        }
+                    };
+                    total_restored = saved;
+                }
+            }
+            Ok(None) => {}
+            Err(e) => {
+                if let Ok(mut s) = state.write() {
+                    s.is_syncing = false;
+                    s.is_restoring = false;
+                    s.last_error = Some(e.clone());
+                }
+                return Err(e);
             }
         }
     }
@@ -1041,8 +1073,17 @@ fn run_sync_worker_loop(
                 tick_timeout = rem.max(Duration::from_millis(10));
             }
         }
+        if let Some(retry_at) = next_retry_at {
+            let rem = retry_at.saturating_duration_since(now);
+            if rem < tick_timeout {
+                tick_timeout = rem.max(Duration::from_millis(10));
+            }
+        }
 
         match rx.recv_timeout(tick_timeout) {
+            Ok(SyncCommand::UpdateConfig(new_cfg)) => {
+                config = new_cfg;
+            }
             Ok(SyncCommand::Shutdown(ack_tx)) => {
                 let retry_allowed = next_retry_at.map(|r| Instant::now() >= r).unwrap_or(true);
                 if retry_allowed && config.backup_on_exit && can_sync_credentials(&config) {
@@ -1093,23 +1134,57 @@ fn run_sync_worker_loop(
             Err(mpsc::RecvTimeoutError::Timeout) => {
                 let now = Instant::now();
 
-                // 1. Debounced delta sync
+                // 1. Automatic retry when backoff delay expires
+                if let Some(retry_at) = next_retry_at {
+                    if now >= retry_at {
+                        next_retry_at = None;
+                        debounce_deadline = None;
+
+                        if can_sync_credentials(&config) {
+                            let (_, unsynced) = vault.get_sync_counts().unwrap_or((0, 0));
+                            if unsynced > 0 {
+                                match perform_delta_sync(&vault, &mut config, &state, Some(Duration::from_secs(15)), true) {
+                                    Ok(_) => {
+                                        current_backoff_secs = None;
+                                    }
+                                    Err(_) => {
+                                        let next_secs = current_backoff_secs.map(|s| (s * 2).min(60)).unwrap_or(2);
+                                        current_backoff_secs = Some(next_secs);
+                                        next_retry_at = Some(Instant::now() + Duration::from_secs(next_secs));
+                                        if let Ok(mut s) = state.write() {
+                                            s.retry_in_secs = Some(next_secs);
+                                        }
+                                    }
+                                }
+                            } else {
+                                current_backoff_secs = None;
+                                if let Ok(mut s) = state.write() {
+                                    s.retry_in_secs = None;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 2. Debounced delta sync (preserved if in backoff)
                 if let Some(deadline) = debounce_deadline {
                     if now >= deadline {
-                        debounce_deadline = None;
                         let retry_allowed = next_retry_at.map(|r| now >= r).unwrap_or(true);
-                        if retry_allowed && config.auto_backup && can_sync_credentials(&config) {
-                            match perform_delta_sync(&vault, &mut config, &state, Some(Duration::from_secs(15)), true) {
-                                Ok(_) => {
-                                    current_backoff_secs = None;
-                                    next_retry_at = None;
-                                }
-                                Err(_) => {
-                                    let next_secs = current_backoff_secs.map(|s| (s * 2).min(60)).unwrap_or(2);
-                                    current_backoff_secs = Some(next_secs);
-                                    next_retry_at = Some(Instant::now() + Duration::from_secs(next_secs));
-                                    if let Ok(mut s) = state.write() {
-                                        s.retry_in_secs = Some(next_secs);
+                        if retry_allowed {
+                            debounce_deadline = None;
+                            if config.auto_backup && can_sync_credentials(&config) {
+                                match perform_delta_sync(&vault, &mut config, &state, Some(Duration::from_secs(15)), true) {
+                                    Ok(_) => {
+                                        current_backoff_secs = None;
+                                        next_retry_at = None;
+                                    }
+                                    Err(_) => {
+                                        let next_secs = current_backoff_secs.map(|s| (s * 2).min(60)).unwrap_or(2);
+                                        current_backoff_secs = Some(next_secs);
+                                        next_retry_at = Some(Instant::now() + Duration::from_secs(next_secs));
+                                        if let Ok(mut s) = state.write() {
+                                            s.retry_in_secs = Some(next_secs);
+                                        }
                                     }
                                 }
                             }
@@ -1981,6 +2056,165 @@ mod tests {
 
         assert!(worker.state.read().unwrap().last_error.is_some());
         assert_eq!(worker.state.read().unwrap().retry_in_secs, Some(2));
+
+        let (ack_tx, ack_rx) = std::sync::mpsc::channel();
+        worker.tx.send(SyncCommand::Shutdown(ack_tx)).unwrap();
+        assert!(ack_rx.recv_timeout(std::time::Duration::from_secs(2)).is_ok());
+        handle.join().unwrap();
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_sync_worker_auto_retry_fires_after_backoff() {
+        let temp_dir = std::env::temp_dir().join(format!("rok_test_sync_autoretry_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&temp_dir);
+        let mut vault_inst = crate::vault::MailVault::new(&temp_dir);
+        vault_inst.upsert(dummy_record("m_autoretry"));
+        let vault = std::sync::Arc::new(vault_inst);
+
+        let attempts = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let attempts_clone = attempts.clone();
+        let (url, handle) = spawn_multi_mock_server(move |req| {
+            if req.starts_with("POST /rest/v1/report_records") {
+                let attempt = attempts_clone.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                if attempt == 0 {
+                    (500, "Internal Server Error", r#"{"message":"Database down"}"#.to_string())
+                } else {
+                    (201, "Created", "[]".to_string())
+                }
+            } else {
+                (404, "Not Found", "".to_string())
+            }
+        }, 2);
+
+        let mut cfg = crate::model::CloudAuthConfig::default();
+        cfg.supabase_url = Some(url);
+        cfg.anon_key = Some("test_anon".into());
+        cfg.access_token = Some("test_tok".into());
+        cfg.user_id = Some("user_retry_test".into());
+
+        let worker = spawn_sync_worker(vault.clone(), cfg);
+        worker.tx.send(SyncCommand::SyncNow).unwrap();
+
+        // 1. Initial attempt fails
+        let start = std::time::Instant::now();
+        while start.elapsed() < std::time::Duration::from_secs(2) {
+            if worker.state.read().unwrap().last_error.is_some() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+
+        assert!(worker.state.read().unwrap().last_error.is_some());
+        assert_eq!(worker.state.read().unwrap().retry_in_secs, Some(2));
+        assert_eq!(vault.get_unsynced_records(10).unwrap().len(), 1);
+
+        // 2. Wait for the 2-second backoff to expire; auto-retry fires and succeeds
+        let retry_start = std::time::Instant::now();
+        while retry_start.elapsed() < std::time::Duration::from_secs(4) {
+            if worker.state.read().unwrap().pending_records_count == 0 {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+
+        assert_eq!(worker.state.read().unwrap().pending_records_count, 0);
+        assert!(worker.state.read().unwrap().last_error.is_none());
+        assert_eq!(worker.state.read().unwrap().retry_in_secs, None);
+        assert_eq!(vault.get_unsynced_records(10).unwrap().len(), 0);
+
+        let (ack_tx, ack_rx) = std::sync::mpsc::channel();
+        worker.tx.send(SyncCommand::Shutdown(ack_tx)).unwrap();
+        assert!(ack_rx.recv_timeout(std::time::Duration::from_secs(2)).is_ok());
+        handle.join().unwrap();
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_sync_worker_update_config() {
+        let temp_dir = std::env::temp_dir().join(format!("rok_test_sync_update_cfg_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&temp_dir);
+        let mut vault_inst = crate::vault::MailVault::new(&temp_dir);
+        vault_inst.upsert(dummy_record("m_cfg_upd"));
+        let vault = std::sync::Arc::new(vault_inst);
+
+        let (url, handle) = spawn_multi_mock_server(|req| {
+            assert!(req.starts_with("POST /rest/v1/report_records"));
+            (201, "Created", "[]".to_string())
+        }, 1);
+
+        // Spawn with unconfigured credentials
+        let worker = spawn_sync_worker(vault.clone(), crate::model::CloudAuthConfig::default());
+        worker.tx.send(SyncCommand::SyncNow).unwrap();
+
+        let start = std::time::Instant::now();
+        while start.elapsed() < std::time::Duration::from_secs(2) {
+            if worker.state.read().unwrap().last_error.is_some() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        assert_eq!(worker.state.read().unwrap().last_error.as_deref(), Some("Chưa đăng nhập tài khoản Cloud"));
+
+        // Update config with valid credentials
+        let mut new_cfg = crate::model::CloudAuthConfig::default();
+        new_cfg.supabase_url = Some(url);
+        new_cfg.anon_key = Some("test_anon".into());
+        new_cfg.access_token = Some("test_tok".into());
+        new_cfg.user_id = Some("user_upd_test".into());
+
+        worker.tx.send(SyncCommand::UpdateConfig(new_cfg)).unwrap();
+        worker.tx.send(SyncCommand::SyncNow).unwrap();
+
+        let start = std::time::Instant::now();
+        while start.elapsed() < std::time::Duration::from_secs(2) {
+            if worker.state.read().unwrap().pending_records_count == 0 {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+
+        assert_eq!(worker.state.read().unwrap().pending_records_count, 0);
+        assert!(worker.state.read().unwrap().last_error.is_none());
+
+        let (ack_tx, ack_rx) = std::sync::mpsc::channel();
+        worker.tx.send(SyncCommand::Shutdown(ack_tx)).unwrap();
+        assert!(ack_rx.recv_timeout(std::time::Duration::from_secs(2)).is_ok());
+        handle.join().unwrap();
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_sync_worker_restore_legacy_error_propagates() {
+        let temp_dir = std::env::temp_dir().join(format!("rok_test_sync_leg_err_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&temp_dir);
+        let vault = std::sync::Arc::new(crate::vault::MailVault::new(&temp_dir));
+
+        let (url, handle) = spawn_multi_mock_server(|req| {
+            if req.starts_with("GET /rest/v1/report_records") {
+                (200, "OK", "[]".to_string())
+            } else if req.starts_with("GET /rest/v1/user_vaults") {
+                (500, "Internal Server Error", r#"{"message":"Corrupt table"}"#.to_string())
+            } else {
+                (404, "Not Found", "".to_string())
+            }
+        }, 2);
+
+        let mut cfg = crate::model::CloudAuthConfig::default();
+        cfg.supabase_url = Some(url);
+        cfg.anon_key = Some("test_anon".into());
+        cfg.access_token = Some("test_tok".into());
+        cfg.user_id = Some("user_leg_err".into());
+
+        let worker = spawn_sync_worker(vault, cfg);
+        let (res_tx, res_rx) = std::sync::mpsc::channel();
+        worker.tx.send(SyncCommand::Restore(res_tx)).unwrap();
+
+        let outcome = res_rx.recv_timeout(std::time::Duration::from_secs(2)).unwrap();
+        assert!(outcome.is_err(), "Expected error on 500 legacy restore");
+        assert_eq!(worker.state.read().unwrap().is_syncing, false);
+        assert_eq!(worker.state.read().unwrap().is_restoring, false);
+        assert!(worker.state.read().unwrap().last_error.is_some());
 
         let (ack_tx, ack_rx) = std::sync::mpsc::channel();
         worker.tx.send(SyncCommand::Shutdown(ack_tx)).unwrap();
