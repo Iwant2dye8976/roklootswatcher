@@ -699,14 +699,26 @@ pub fn perform_exit_cloud_backup(watcher: &RoKMailWatcher) {
         let token = token_opt.as_deref().unwrap_or("");
         let (url, key) = cfg.cloud_auth.get_credentials();
         let refresh_token = cfg.cloud_auth.refresh_token.as_deref();
-        let vault_path = watcher.get_vault_file_path();
+        let vault_json = match watcher.export_vault_json() {
+            Ok(json) => json,
+            Err(e) => {
+                watcher.mark_cloud_dirty();
+                let lang = watcher.get_language();
+                let msg = match lang {
+                    AppLanguage::Vietnamese => format!("Xuất dữ liệu sao lưu khi thoát thất bại: {}", e),
+                    AppLanguage::English => format!("Exit backup export failed: {}", e),
+                };
+                watcher.log("WARN", &msg);
+                return;
+            }
+        };
         match crate::cloud_sync::backup_vault(
             &url,
             &key,
             token,
             refresh_token,
             user_id,
-            &vault_path,
+            &vault_json,
             Some(std::time::Duration::from_secs(4)),
         ) {
             Ok((cnt, new_tokens)) => {
@@ -943,7 +955,6 @@ impl RoKLootWatcherApp {
             None => return,
         };
 
-        let vault_path = self.watcher.get_vault_file_path();
         let (tx, rx) = std::sync::mpsc::channel();
         self.cloud_op_rx = Some(rx);
         self.cloud_busy = true;
@@ -957,10 +968,18 @@ impl RoKLootWatcherApp {
             AppLanguage::English => "Uploading Vault data to Supabase Cloud...",
         });
 
+        let watcher_clone = Arc::clone(&self.watcher);
         let _ = std::thread::Builder::new()
             .name("rok-cloud-backup".into())
             .spawn(move || {
-                match crate::cloud_sync::backup_vault(&url, &key, &token, refresh_token.as_deref(), &user_id, &vault_path, None) {
+                let vault_json = match watcher_clone.export_vault_json() {
+                    Ok(json) => json,
+                    Err(e) => {
+                        let _ = tx.send(Err(e));
+                        return;
+                    }
+                };
+                match crate::cloud_sync::backup_vault(&url, &key, &token, refresh_token.as_deref(), &user_id, &vault_json, None) {
                     Ok((cnt, new_tokens)) => {
                         let success_msg = match lang {
                             AppLanguage::Vietnamese => format!("Đã sao lưu thành công {} chiến báo lên Cloud!", cnt),
@@ -991,7 +1010,6 @@ impl RoKLootWatcherApp {
         }
         let refresh_token = self.cloud_auth.refresh_token.clone();
 
-        let vault_path = self.watcher.get_vault_file_path();
         let (tx, rx) = std::sync::mpsc::channel();
         self.cloud_op_rx = Some(rx);
         self.cloud_busy = true;
@@ -1006,18 +1024,25 @@ impl RoKLootWatcherApp {
         let _ = std::thread::Builder::new()
             .name("rok-cloud-restore".into())
             .spawn(move || {
-                match crate::cloud_sync::restore_vault(&url, &key, &token, refresh_token.as_deref(), &vault_path) {
-                    Ok((cnt, updated_at, new_tokens)) => {
-                        watcher_clone.reload_vault();
-                        let success_msg = match lang {
-                            AppLanguage::Vietnamese => format!("Khôi phục thành công {} chiến báo từ Cloud (Bản sao lưu: {})!", cnt, updated_at),
-                            AppLanguage::English => format!("Successfully restored {} reports from Cloud (Backup: {})!", cnt, updated_at),
-                        };
-                        let _ = tx.send(Ok(CloudOpResult {
-                            message: success_msg,
-                            is_backup: false,
-                            new_tokens,
-                        }));
+                match crate::cloud_sync::restore_vault(&url, &key, &token, refresh_token.as_deref()) {
+                    Ok((vault_json, updated_at, new_tokens)) => {
+                        match watcher_clone.import_vault_json(&vault_json) {
+                            Ok(cnt) => {
+                                watcher_clone.recompute_filtered_records_and_stats();
+                                let success_msg = match lang {
+                                    AppLanguage::Vietnamese => format!("Khôi phục thành công {} chiến báo từ Cloud (Bản sao lưu: {})!", cnt, updated_at),
+                                    AppLanguage::English => format!("Successfully restored {} reports from Cloud (Backup: {})!", cnt, updated_at),
+                                };
+                                let _ = tx.send(Ok(CloudOpResult {
+                                    message: success_msg,
+                                    is_backup: false,
+                                    new_tokens,
+                                }));
+                            }
+                            Err(e) => {
+                                let _ = tx.send(Err(e));
+                            }
+                        }
                     }
                     Err(e) => {
                         let _ = tx.send(Err(e));

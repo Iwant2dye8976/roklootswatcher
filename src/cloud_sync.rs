@@ -1,8 +1,6 @@
 use std::collections::HashMap;
-use std::fs;
 use std::io::{Read, Write};
 use std::net::TcpListener;
-use std::path::Path;
 use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
@@ -395,14 +393,11 @@ pub fn backup_vault(
     access_token: &str,
     refresh_token: Option<&str>,
     user_id: &str,
-    vault_path: &Path,
+    vault_json: &str,
     timeout: Option<Duration>,
 ) -> Result<(usize, Option<(String, String)>), String> {
-    let data = fs::read_to_string(vault_path)
-        .map_err(|e| format!("Cannot read vault file {}: {}", vault_path.display(), e))?;
-
-    let parsed: serde_json::Value = serde_json::from_str(&data)
-        .map_err(|e| format!("Invalid local vault JSON: {}", e))?;
+    let parsed: serde_json::Value = serde_json::from_str(vault_json)
+        .map_err(|e| format!("Invalid vault JSON: {}", e))?;
 
     let record_count = parsed
         .get("records")
@@ -449,8 +444,7 @@ pub fn restore_vault(
     anon_key: &str,
     access_token: &str,
     refresh_token: Option<&str>,
-    vault_path: &Path,
-) -> Result<(usize, String, Option<(String, String)>), String> {
+) -> Result<(String, String, Option<(String, String)>), String> {
     let url = format!("{}/rest/v1/user_vaults?select=updated_at,vault_data", supabase_url.trim_end_matches('/'));
 
     let fetch_req = |tok: &str| {
@@ -494,26 +488,13 @@ pub fn restore_vault(
         .get("vault_data")
         .ok_or_else(|| "Dữ liệu bản sao lưu trống".to_string())?;
 
-    let storage_data: crate::vault::VaultStorageData = serde_json::from_value(vault_data.clone())
+    let _storage_data: crate::vault::VaultStorageData = serde_json::from_value(vault_data.clone())
         .map_err(|e| format!("Dữ liệu đám mây không đúng định dạng Vault: {}", e))?;
 
-    let record_count = storage_data.records.len();
-
-    let formatted = serde_json::to_string_pretty(vault_data)
+    let vault_json = serde_json::to_string_pretty(vault_data)
         .map_err(|e| format!("Format JSON error: {}", e))?;
 
-    if vault_path.exists() {
-        let bak_path = vault_path.with_extension("bak");
-        let _ = fs::copy(vault_path, &bak_path);
-    }
-
-    let tmp_path = vault_path.with_extension("tmp");
-    fs::write(&tmp_path, formatted)
-        .map_err(|e| format!("Write tmp file error: {}", e))?;
-    fs::rename(&tmp_path, vault_path)
-        .map_err(|e| format!("Replace vault file error: {}", e))?;
-
-    Ok((record_count, updated_at, new_tokens))
+    Ok((vault_json, updated_at, new_tokens))
 }
 
 #[cfg(test)]
@@ -614,19 +595,48 @@ mod tests {
     }
 
     #[test]
-    fn test_backup_vault_accepts_timeout_param() {
-        let dummy_path = std::path::Path::new("dummy_nonexistent_vault.json");
+    fn test_backup_vault_accepts_json_string() {
+        let vault_json = r#"{"version":1,"last_updated":"2026-01-01","total_records":0,"records":[]}"#;
         let res = backup_vault(
             "https://example.supabase.co",
             "dummy_key",
             "dummy_token",
             None,
             "dummy_user",
-            dummy_path,
+            vault_json,
+            Some(std::time::Duration::from_millis(100)),
+        );
+        assert!(res.is_err()); // Connection error expected, but the signature compiles
+    }
+
+    #[test]
+    fn test_backup_vault_accepts_timeout_param() {
+        let vault_json = r#"{"version":1,"last_updated":"2026-01-01","total_records":0,"records":[]}"#;
+        let res = backup_vault(
+            "https://example.supabase.co",
+            "dummy_key",
+            "dummy_token",
+            None,
+            "dummy_user",
+            vault_json,
             Some(std::time::Duration::from_secs(4)),
         );
         assert!(res.is_err());
-        assert!(res.unwrap_err().contains("Cannot read vault file"));
+    }
+
+    #[test]
+    fn test_backup_vault_rejects_invalid_json() {
+        let res = backup_vault(
+            "https://example.supabase.co",
+            "dummy_key",
+            "dummy_token",
+            None,
+            "dummy_user",
+            "{ invalid json",
+            None,
+        );
+        assert!(res.is_err());
+        assert!(res.unwrap_err().contains("Invalid vault JSON"));
     }
 
     #[test]
