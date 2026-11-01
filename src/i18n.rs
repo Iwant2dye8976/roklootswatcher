@@ -160,6 +160,10 @@ pub enum TrKey {
     SettingsCloudAutoBackupPeriodic,
     SettingsCloudAutoBackupMinutes,
     SettingsCloudAutoBackupOnExit,
+    CloudSyncStatusIdle,
+    CloudSyncStatusSyncing,
+    CloudSyncStatusOffline,
+    CloudSyncStatusRestoring,
     SettingsCardVaultTitle,
     SettingsVaultSecured,
     SettingsBtnOpenVaultDir,
@@ -327,6 +331,10 @@ pub static ALL_KEYS: &[TrKey] = &[
     TrKey::SettingsCloudAutoBackupPeriodic,
     TrKey::SettingsCloudAutoBackupMinutes,
     TrKey::SettingsCloudAutoBackupOnExit,
+    TrKey::CloudSyncStatusIdle,
+    TrKey::CloudSyncStatusSyncing,
+    TrKey::CloudSyncStatusOffline,
+    TrKey::CloudSyncStatusRestoring,
     TrKey::SettingsCardVaultTitle,
     TrKey::SettingsVaultSecured,
     TrKey::SettingsBtnOpenVaultDir,
@@ -658,6 +666,14 @@ pub fn tr(key: TrKey, lang: AppLanguage) -> &'static str {
         (TrKey::SettingsCloudAutoBackupMinutes, AppLanguage::English) => "minutes",
         (TrKey::SettingsCloudAutoBackupOnExit, AppLanguage::Vietnamese) => "Tự động sao lưu khi thoát ứng dụng",
         (TrKey::SettingsCloudAutoBackupOnExit, AppLanguage::English) => "Auto-backup on exit",
+        (TrKey::CloudSyncStatusIdle, AppLanguage::Vietnamese) => "Đồng bộ: Đã cập nhật",
+        (TrKey::CloudSyncStatusIdle, AppLanguage::English) => "Sync: Up to date",
+        (TrKey::CloudSyncStatusSyncing, AppLanguage::Vietnamese) => "Đồng bộ: Đang tải lên {0} bản ghi...",
+        (TrKey::CloudSyncStatusSyncing, AppLanguage::English) => "Sync: Uploading {0} records...",
+        (TrKey::CloudSyncStatusOffline, AppLanguage::Vietnamese) => "Đồng bộ: Mất kết nối, sẽ thử lại",
+        (TrKey::CloudSyncStatusOffline, AppLanguage::English) => "Sync: Offline, will retry",
+        (TrKey::CloudSyncStatusRestoring, AppLanguage::Vietnamese) => "Đồng bộ: Đang khôi phục từ Cloud ({0} bản ghi)...",
+        (TrKey::CloudSyncStatusRestoring, AppLanguage::English) => "Sync: Restoring from Cloud ({0} records)...",
 
         (TrKey::SettingsCardVaultTitle, AppLanguage::Vietnamese) => "KHO LƯU TRỮ VĨNH VIỄN (VAULT)",
         (TrKey::SettingsCardVaultTitle, AppLanguage::English) => "PERMANENT VAULT ARCHIVE",
@@ -907,5 +923,24 @@ mod tests {
         assert!(!AppLanguage::English.t(TrKey::SettingsCloudAutoBackupMinutes).is_empty());
         assert!(!AppLanguage::Vietnamese.t(TrKey::SettingsCloudAutoBackupOnExit).is_empty());
         assert!(!AppLanguage::English.t(TrKey::SettingsCloudAutoBackupOnExit).is_empty());
+    }
+
+    #[test]
+    fn test_cloud_sync_status_localization_keys() {
+        assert_eq!(AppLanguage::Vietnamese.t(TrKey::CloudSyncStatusIdle), "Đồng bộ: Đã cập nhật");
+        assert_eq!(AppLanguage::English.t(TrKey::CloudSyncStatusIdle), "Sync: Up to date");
+
+        let vi_syncing = AppLanguage::Vietnamese.t(TrKey::CloudSyncStatusSyncing).replace("{0}", "42");
+        let en_syncing = AppLanguage::English.t(TrKey::CloudSyncStatusSyncing).replace("{0}", "42");
+        assert_eq!(vi_syncing, "Đồng bộ: Đang tải lên 42 bản ghi...");
+        assert_eq!(en_syncing, "Sync: Uploading 42 records...");
+
+        assert_eq!(AppLanguage::Vietnamese.t(TrKey::CloudSyncStatusOffline), "Đồng bộ: Mất kết nối, sẽ thử lại");
+        assert_eq!(AppLanguage::English.t(TrKey::CloudSyncStatusOffline), "Sync: Offline, will retry");
+
+        let vi_restoring = AppLanguage::Vietnamese.t(TrKey::CloudSyncStatusRestoring).replace("{0}", "100");
+        let en_restoring = AppLanguage::English.t(TrKey::CloudSyncStatusRestoring).replace("{0}", "100");
+        assert_eq!(vi_restoring, "Đồng bộ: Đang khôi phục từ Cloud (100 bản ghi)...");
+        assert_eq!(en_restoring, "Sync: Restoring from Cloud (100 records)...");
     }
 }

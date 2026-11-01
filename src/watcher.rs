@@ -313,6 +313,15 @@ impl RoKMailWatcher {
         }
     }
 
+    pub fn send_sync_command(&self, cmd: crate::cloud_sync::SyncCommand) -> bool {
+        if let Ok(lock) = self.sync_tx.lock() {
+            if let Some(tx) = &*lock {
+                return tx.send(cmd).is_ok();
+            }
+        }
+        false
+    }
+
     pub fn process_mail_file(&self, path: &Path) {
         self.process_file_async(path);
     }
