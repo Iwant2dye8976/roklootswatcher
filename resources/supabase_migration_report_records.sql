@@ -28,3 +28,8 @@ WITH CHECK (auth.uid() = user_id);
 -- Performance Indexes
 CREATE INDEX IF NOT EXISTS idx_report_records_user_time ON report_records (user_id, time_raw);
 CREATE INDEX IF NOT EXISTS idx_report_records_user_type ON report_records (user_id, battle_type);
+
+-- Grant Table Privileges to authenticated users
+GRANT ALL ON TABLE report_records TO authenticated;
+GRANT ALL ON TABLE report_records TO service_role;
+

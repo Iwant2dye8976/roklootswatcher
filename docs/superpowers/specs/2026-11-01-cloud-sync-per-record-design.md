@@ -84,6 +84,11 @@ WITH CHECK (auth.uid() = user_id);
 -- Performance Indexes
 CREATE INDEX IF NOT EXISTS idx_report_records_user_time ON report_records (user_id, time_raw);
 CREATE INDEX IF NOT EXISTS idx_report_records_user_type ON report_records (user_id, battle_type);
+
+-- Table Privileges
+GRANT ALL ON TABLE report_records TO authenticated;
+GRANT ALL ON TABLE report_records TO service_role;
+
 ```
 
 Because the developer provisions `report_records` via SQL editor before release, the client code targets `report_records` as the authoritative store. If `report_records` returns HTTP 404, the client reports a clear configuration error ("Bảng report_records chưa được khởi tạo trên Supabase") rather than silently attempting an obsolete 50 MB monolithic upload.
