@@ -3,6 +3,7 @@ use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::time::Duration;
 use serde::{Deserialize, Serialize};
+use crate::model::BattleRecord;
 
 pub const DEFAULT_SUPABASE_URL: &str = match option_env!("ROK_SUPABASE_URL") {
     Some(val) => val,
@@ -497,6 +498,171 @@ pub fn restore_vault(
     Ok((vault_json, updated_at, new_tokens))
 }
 
+pub fn build_report_record_payload(
+    user_id: &str,
+    dedup_key: &str,
+    record: &BattleRecord,
+) -> serde_json::Value {
+    serde_json::json!({
+        "user_id": user_id,
+        "dedup_key": dedup_key,
+        "mail_id": record.mail_id,
+        "battle_type": record.battle_type,
+        "time_raw": record.time_raw,
+        "time_utc": record.time_utc,
+        "data": serde_json::to_value(record).unwrap_or(serde_json::Value::Null),
+    })
+}
+
+pub fn upload_report_records_batch(
+    supabase_url: &str,
+    anon_key: &str,
+    access_token: &str,
+    user_id: &str,
+    records: &[(String, BattleRecord)],
+    timeout: Option<Duration>,
+) -> Result<usize, String> {
+    if records.is_empty() {
+        return Ok(0);
+    }
+
+    let payloads: Vec<serde_json::Value> = records
+        .iter()
+        .map(|(dedup_key, rec)| build_report_record_payload(user_id, dedup_key, rec))
+        .collect();
+
+    let url = format!("{}/rest/v1/report_records", supabase_url.trim_end_matches('/'));
+    let effective_timeout = timeout.unwrap_or(Duration::from_secs(15));
+    let agent = ureq::builder().timeout(effective_timeout).build();
+
+    let resp = agent
+        .post(&url)
+        .set("apikey", anon_key)
+        .set("Authorization", &format!("Bearer {}", access_token))
+        .set("Prefer", "resolution=merge-duplicates")
+        .send_json(serde_json::Value::Array(payloads));
+
+    match resp {
+        Ok(_) => Ok(records.len()),
+        Err(ureq::Error::Status(404, _)) => Err(
+            "Bảng report_records chưa được khởi tạo trên Supabase (HTTP 404). Vui lòng chạy file migration SQL.".to_string(),
+        ),
+        Err(e) => Err(format_cloud_error(e, "Lỗi tải bản ghi lên cloud")),
+    }
+}
+
+pub fn fetch_report_records_page(
+    supabase_url: &str,
+    anon_key: &str,
+    access_token: &str,
+    user_id: &str,
+    limit: usize,
+    offset: usize,
+    timeout: Option<Duration>,
+) -> Result<(Vec<BattleRecord>, bool), String> {
+    let url = format!(
+        "{}/rest/v1/report_records?user_id=eq.{}&order=time_raw.asc&limit={}&offset={}",
+        supabase_url.trim_end_matches('/'),
+        user_id,
+        limit,
+        offset
+    );
+    let effective_timeout = timeout.unwrap_or(Duration::from_secs(15));
+    let agent = ureq::builder().timeout(effective_timeout).build();
+
+    let resp = match agent
+        .get(&url)
+        .set("apikey", anon_key)
+        .set("Authorization", &format!("Bearer {}", access_token))
+        .call()
+    {
+        Ok(r) => r,
+        Err(ureq::Error::Status(404, _)) => {
+            return Err(
+                "Bảng report_records chưa được khởi tạo trên Supabase (HTTP 404). Vui lòng chạy file migration SQL.".to_string(),
+            );
+        }
+        Err(e) => return Err(format_cloud_error(e, "Lỗi tải bản ghi từ cloud")),
+    };
+
+    let val: serde_json::Value = resp
+        .into_json()
+        .map_err(|e| format!("Parse JSON error: {}", e))?;
+
+    let rows = val
+        .as_array()
+        .ok_or_else(|| "Phản hồi từ cloud không hợp lệ (không phải mảng)".to_string())?;
+
+    let mut records = Vec::with_capacity(rows.len());
+    for row in rows {
+        let data = row
+            .get("data")
+            .ok_or_else(|| "Dòng thiếu trường data".to_string())?;
+        let rec: BattleRecord = serde_json::from_value(data.clone())
+            .map_err(|e| format!("Giải mã BattleRecord thất bại: {}", e))?;
+        records.push(rec);
+    }
+
+    let has_more = limit > 0 && rows.len() == limit;
+    Ok((records, has_more))
+}
+
+pub fn check_legacy_user_vault(
+    supabase_url: &str,
+    anon_key: &str,
+    access_token: &str,
+    timeout: Option<Duration>,
+) -> Result<Option<Vec<BattleRecord>>, String> {
+    let url = format!("{}/rest/v1/user_vaults?select=vault_data", supabase_url.trim_end_matches('/'));
+    let effective_timeout = timeout.unwrap_or(Duration::from_secs(15));
+    let agent = ureq::builder().timeout(effective_timeout).build();
+
+    let resp = match agent
+        .get(&url)
+        .set("apikey", anon_key)
+        .set("Authorization", &format!("Bearer {}", access_token))
+        .call()
+    {
+        Ok(r) => r,
+        Err(ureq::Error::Status(404, _)) => return Ok(None),
+        Err(e) => return Err(format_cloud_error(e, "Lỗi kiểm tra legacy user_vaults")),
+    };
+
+    let val: serde_json::Value = resp
+        .into_json()
+        .map_err(|e| format!("Parse JSON error: {}", e))?;
+
+    let rows = val
+        .as_array()
+        .ok_or_else(|| "Phản hồi từ cloud không hợp lệ".to_string())?;
+
+    if rows.is_empty() {
+        return Ok(None);
+    }
+
+    let first_row = &rows[0];
+    let vault_data = match first_row.get("vault_data") {
+        Some(v) if !v.is_null() => v,
+        _ => return Ok(None),
+    };
+
+    if let Ok(storage_data) = serde_json::from_value::<crate::vault::VaultStorageData>(vault_data.clone()) {
+        if storage_data.records.is_empty() {
+            return Ok(None);
+        }
+        return Ok(Some(storage_data.records));
+    }
+
+    if let Ok(records) = serde_json::from_value::<Vec<BattleRecord>>(vault_data.clone()) {
+        if records.is_empty() {
+            return Ok(None);
+        }
+        return Ok(Some(records));
+    }
+
+    Err("Dữ liệu legacy user_vaults không đúng định dạng".to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -649,5 +815,295 @@ mod tests {
         );
         assert!(res.is_err());
         assert!(res.unwrap_err().contains("Làm mới phiên thất bại"));
+    }
+
+    #[test]
+    fn test_build_report_record_payload() {
+        let rec = BattleRecord {
+            filename: "mail1.txt".into(),
+            mail_id: "m123".into(),
+            battle_type: "fort".into(),
+            time_raw: 1690000000,
+            time_utc: "2023-07-22T00:00:00Z".into(),
+            time_vn: "2023-07-22 07:00:00".into(),
+            target: "Barbarian Fort Level 5".into(),
+            target_level: "5".into(),
+            talent_add: 0,
+            pos_x: 100,
+            pos_y: 200,
+            damage_pct: 100,
+            plunder_tier: 1,
+            items: vec![],
+            item_totals: HashMap::new(),
+            content: "".into(),
+        };
+        let payload = build_report_record_payload("user_abc", "id:m123", &rec);
+        assert_eq!(payload["user_id"], "user_abc");
+        assert_eq!(payload["dedup_key"], "id:m123");
+        assert_eq!(payload["mail_id"], "m123");
+        assert_eq!(payload["battle_type"], "fort");
+        assert_eq!(payload["time_raw"], 1690000000);
+        assert!(payload["data"].is_object());
+    }
+
+    fn dummy_record(id: &str) -> BattleRecord {
+        BattleRecord {
+            filename: format!("{}.txt", id),
+            mail_id: id.into(),
+            battle_type: "fort".into(),
+            time_raw: 1690000000,
+            time_utc: "2023-07-22T00:00:00Z".into(),
+            time_vn: "2023-07-22 07:00:00".into(),
+            target: "Barbarian Fort Level 5".into(),
+            target_level: "5".into(),
+            talent_add: 0,
+            pos_x: 100,
+            pos_y: 200,
+            damage_pct: 100,
+            plunder_tier: 1,
+            items: vec![],
+            item_totals: HashMap::new(),
+            content: "".into(),
+        }
+    }
+
+    fn spawn_mock_server<F>(handler: F) -> (String, std::thread::JoinHandle<()>)
+    where
+        F: FnOnce(&str) -> (u16, &'static str, String) + Send + 'static,
+    {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let url = format!("http://{}", addr);
+        let handle = std::thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut req_bytes = Vec::new();
+                let mut buf = [0u8; 1024];
+                let mut content_length = 0;
+                let mut header_len = None;
+
+                loop {
+                    let n = match stream.read(&mut buf) {
+                        Ok(0) => break,
+                        Ok(n) => n,
+                        Err(_) => break,
+                    };
+                    req_bytes.extend_from_slice(&buf[..n]);
+                    if header_len.is_none() {
+                        if let Some(pos) = req_bytes.windows(4).position(|w| w == b"\r\n\r\n") {
+                            header_len = Some(pos + 4);
+                            let headers = String::from_utf8_lossy(&req_bytes[..pos]);
+                            for line in headers.lines() {
+                                if line.to_ascii_lowercase().starts_with("content-length:") {
+                                    if let Some(val) = line.split(':').nth(1) {
+                                        content_length = val.trim().parse::<usize>().unwrap_or(0);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if let Some(hlen) = header_len {
+                        if req_bytes.len() >= hlen + content_length {
+                            break;
+                        }
+                    }
+                }
+
+                let req_str = String::from_utf8_lossy(&req_bytes);
+                let (status, status_text, body) = handler(&req_str);
+                let resp = format!(
+                    "HTTP/1.1 {} {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    status,
+                    status_text,
+                    body.len(),
+                    body
+                );
+                let _ = stream.write_all(resp.as_bytes());
+                let _ = stream.flush();
+                let _ = stream.shutdown(std::net::Shutdown::Both);
+            }
+        });
+        (url, handle)
+    }
+
+    #[test]
+    fn test_upload_report_records_batch_empty() {
+        let res = upload_report_records_batch(
+            "http://127.0.0.1:9",
+            "dummy_key",
+            "dummy_token",
+            "user_1",
+            &[],
+            Some(Duration::from_millis(50)),
+        );
+        assert_eq!(res, Ok(0));
+    }
+
+    #[test]
+    fn test_upload_report_records_batch_success() {
+        let (url, handle) = spawn_mock_server(|req| {
+            assert!(req.starts_with("POST /rest/v1/report_records"));
+            assert!(req.to_lowercase().contains("prefer: resolution=merge-duplicates"));
+            assert!(req.to_lowercase().contains("apikey: test_anon"));
+            assert!(req.contains("Bearer test_token"));
+            (201, "Created", "[]".to_string())
+        });
+
+        let rec1 = dummy_record("m1");
+        let rec2 = dummy_record("m2");
+        let batch = vec![
+            ("id:m1".to_string(), rec1),
+            ("id:m2".to_string(), rec2),
+        ];
+
+        let res = upload_report_records_batch(
+            &url,
+            "test_anon",
+            "test_token",
+            "user_abc",
+            &batch,
+            Some(Duration::from_secs(2)),
+        );
+        assert_eq!(res, Ok(2));
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn test_upload_report_records_batch_404_error() {
+        let (url, handle) = spawn_mock_server(|_| {
+            (404, "Not Found", r#"{"message":"relation report_records does not exist"}"#.to_string())
+        });
+
+        let batch = vec![("id:m1".to_string(), dummy_record("m1"))];
+        let res = upload_report_records_batch(
+            &url,
+            "test_anon",
+            "test_token",
+            "user_abc",
+            &batch,
+            Some(Duration::from_secs(2)),
+        );
+        assert!(res.is_err());
+        let err = res.unwrap_err();
+        assert!(err.contains("Bảng report_records chưa được khởi tạo"), "Got error: {}", err);
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn test_fetch_report_records_page_success() {
+        let rec1 = dummy_record("m1");
+        let rec2 = dummy_record("m2");
+        let rows_json = serde_json::to_string(&vec![
+            serde_json::json!({ "data": rec1 }),
+            serde_json::json!({ "data": rec2 }),
+        ]).unwrap();
+
+        let (url, handle) = spawn_mock_server(move |req| {
+            assert!(req.starts_with("GET /rest/v1/report_records?user_id=eq.user_123&order=time_raw.asc&limit=2&offset=0"));
+            assert!(req.to_lowercase().contains("apikey: test_anon"));
+            assert!(req.contains("Bearer test_token"));
+            (200, "OK", rows_json)
+        });
+
+        let res = fetch_report_records_page(
+            &url,
+            "test_anon",
+            "test_token",
+            "user_123",
+            2,
+            0,
+            Some(Duration::from_secs(2)),
+        );
+        let (records, has_more) = res.expect("Should succeed");
+        assert_eq!(records.len(), 2);
+        assert_eq!(records[0].mail_id, "m1");
+        assert_eq!(records[1].mail_id, "m2");
+        assert!(has_more, "When records.len() == limit, has_more should be true");
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn test_fetch_report_records_page_partial_has_more_false() {
+        let rec1 = dummy_record("m1");
+        let rows_json = serde_json::to_string(&vec![
+            serde_json::json!({ "data": rec1 }),
+        ]).unwrap();
+
+        let (url, handle) = spawn_mock_server(move |_| {
+            (200, "OK", rows_json)
+        });
+
+        let res = fetch_report_records_page(
+            &url,
+            "test_anon",
+            "test_token",
+            "user_123",
+            5,
+            0,
+            Some(Duration::from_secs(2)),
+        );
+        let (records, has_more) = res.expect("Should succeed");
+        assert_eq!(records.len(), 1);
+        assert!(!has_more, "When records.len() < limit, has_more should be false");
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn test_fetch_report_records_page_404() {
+        let (url, handle) = spawn_mock_server(|_| {
+            (404, "Not Found", r#"{"message":"relation not found"}"#.to_string())
+        });
+
+        let res = fetch_report_records_page(
+            &url,
+            "test_anon",
+            "test_token",
+            "user_123",
+            10,
+            0,
+            Some(Duration::from_secs(2)),
+        );
+        assert!(res.is_err());
+        assert!(res.unwrap_err().contains("Bảng report_records chưa được khởi tạo"));
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn test_check_legacy_user_vault() {
+        // Case 1: 404 returns Ok(None)
+        let (url404, h404) = spawn_mock_server(|_| {
+            (404, "Not Found", "{}".to_string())
+        });
+        let res = check_legacy_user_vault(&url404, "k", "t", Some(Duration::from_secs(2)));
+        assert!(matches!(res, Ok(None)));
+        h404.join().unwrap();
+
+        // Case 2: empty array returns Ok(None)
+        let (url_empty, h_empty) = spawn_mock_server(|_| {
+            (200, "OK", "[]".to_string())
+        });
+        let res = check_legacy_user_vault(&url_empty, "k", "t", Some(Duration::from_secs(2)));
+        assert!(matches!(res, Ok(None)));
+        h_empty.join().unwrap();
+
+        // Case 3: legacy data with VaultStorageData
+        let rec = dummy_record("m_legacy");
+        let storage = crate::vault::VaultStorageData {
+            version: 1,
+            last_updated: "2026-01-01".into(),
+            total_records: 1,
+            records: vec![rec],
+        };
+        let body = serde_json::to_string(&vec![serde_json::json!({
+            "vault_data": storage
+        })]).unwrap();
+
+        let (url_data, h_data) = spawn_mock_server(move |_| {
+            (200, "OK", body)
+        });
+        let res = check_legacy_user_vault(&url_data, "k", "t", Some(Duration::from_secs(2)));
+        let records = res.expect("Should succeed").expect("Should have records");
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].mail_id, "m_legacy");
+        h_data.join().unwrap();
     }
 }
