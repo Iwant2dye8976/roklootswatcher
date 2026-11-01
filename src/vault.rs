@@ -369,7 +369,7 @@ impl MailVault {
                     }
                 };
 
-                let _ = update_stmt.execute(params![
+                if let Err(e) = update_stmt.execute(params![
                     existing.battle_type,
                     existing.damage_pct,
                     existing.plunder_tier,
@@ -382,7 +382,9 @@ impl MailVault {
                     items_json,
                     item_totals_json,
                     dedup_key,
-                ]);
+                ]) {
+                    eprintln!("[!] Lỗi execute update for upsert: {}", e);
+                }
             }
             false
         } else {
@@ -440,16 +442,28 @@ impl MailVault {
         if recs.is_empty() {
             return 0;
         }
-        let conn = self.conn();
-        let _ = conn.execute_batch("BEGIN IMMEDIATE;");
+        let mut conn = self.conn();
+        let tx = match conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate) {
+            Ok(t) => t,
+            Err(e) => {
+                eprintln!("[!] Lỗi khởi tạo transaction trong upsert_batch: {}", e);
+                return 0;
+            }
+        };
+
         let mut new_count = 0;
         for r in recs {
-            if Self::upsert_inner(&conn, r) {
+            if Self::upsert_inner(&tx, r) {
                 new_count += 1;
             }
         }
-        let _ = conn.execute_batch("COMMIT;");
+
+        if let Err(e) = tx.commit() {
+            eprintln!("[!] Lỗi commit transaction trong upsert_batch: {}", e);
+            return 0;
+        }
         drop(conn);
+
         if new_count > 0 {
             let _ = self.save_to_disk();
         }
@@ -641,18 +655,33 @@ impl MailVault {
 
         let removed = to_delete.len();
         if !to_delete.is_empty() || !to_update.is_empty() {
-            let conn = self.conn();
-            let _ = conn.execute_batch("BEGIN IMMEDIATE;");
+            let mut conn = self.conn();
+            let tx = match conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate) {
+                Ok(t) => t,
+                Err(e) => {
+                    eprintln!("[!] Lỗi khởi tạo transaction trong sanitize_records: {}", e);
+                    return 0;
+                }
+            };
+
             for key in &to_delete {
-                let _ = conn.execute("DELETE FROM battle_records WHERE dedup_key = ?1", params![key]);
+                if let Err(e) = tx.execute("DELETE FROM battle_records WHERE dedup_key = ?1", params![key]) {
+                    eprintln!("[!] Lỗi execute DELETE trong sanitize_records: {}", e);
+                }
             }
             for (key, new_tgt, new_lvl, new_cnt) in &to_update {
-                let _ = conn.execute(
+                if let Err(e) = tx.execute(
                     "UPDATE battle_records SET target = ?1, target_level = ?2, content = ?3 WHERE dedup_key = ?4",
                     params![new_tgt, new_lvl, new_cnt, key],
-                );
+                ) {
+                    eprintln!("[!] Lỗi execute UPDATE trong sanitize_records: {}", e);
+                }
             }
-            let _ = conn.execute_batch("COMMIT;");
+
+            if let Err(e) = tx.commit() {
+                eprintln!("[!] Lỗi commit transaction trong sanitize_records: {}", e);
+                return 0;
+            }
             drop(conn);
             let _ = self.save_to_disk();
         }
