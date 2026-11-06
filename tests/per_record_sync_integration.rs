@@ -40,6 +40,7 @@ fn create_test_record(id: usize, base_time: i64) -> BattleRecord {
         items: vec![],
         item_totals: HashMap::new(),
         content: format!("Combat report #{}", id),
+        ..Default::default()
     }
 }
 

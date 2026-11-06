@@ -1372,6 +1372,7 @@ mod tests {
             items: vec![],
             item_totals: HashMap::new(),
             content: "".into(),
+            ..Default::default()
         };
         let payload = build_report_record_payload("user_abc", "id:m123", &rec);
         assert_eq!(payload["user_id"], "user_abc");
@@ -1400,6 +1401,7 @@ mod tests {
             items: vec![],
             item_totals: HashMap::new(),
             content: "".into(),
+            ..Default::default()
         }
     }
 

@@ -611,6 +611,7 @@ mod tests {
             items: vec![],
             item_totals: HashMap::new(),
             content: "".into(),
+            ..Default::default()
         };
 
         let recs = vec![
@@ -662,6 +663,7 @@ mod tests {
             items: vec![],
             item_totals: HashMap::new(),
             content: "".into(),
+            ..Default::default()
         };
 
         let recs = vec![
@@ -719,6 +721,7 @@ mod tests {
             items,
             item_totals: HashMap::new(),
             content: "".into(),
+            ..Default::default()
         };
 
         let stats = generate_statistics(&[record]);
@@ -751,6 +754,7 @@ mod tests {
             items: vec![],
             item_totals: HashMap::new(),
             content: "".into(),
+            ..Default::default()
         };
 
         let rec_today = make_rec(today);
@@ -793,6 +797,7 @@ mod tests {
             }],
             item_totals: HashMap::new(),
             content: "".into(),
+            ..Default::default()
         };
 
         let rec_barb = BattleRecord {
@@ -821,6 +826,7 @@ mod tests {
             }],
             item_totals: HashMap::new(),
             content: "".into(),
+            ..Default::default()
         };
 
         let stats = generate_statistics(&[rec_motte, rec_barb]);
@@ -867,6 +873,7 @@ mod tests {
             ],
             item_totals: HashMap::new(),
             content: "".into(),
+            ..Default::default()
         };
 
         let rec2 = BattleRecord {
@@ -893,6 +900,7 @@ mod tests {
             ],
             item_totals: HashMap::new(),
             content: "".into(),
+            ..Default::default()
         };
 
         let rec3 = BattleRecord {
@@ -919,6 +927,7 @@ mod tests {
             ],
             item_totals: HashMap::new(),
             content: "".into(),
+            ..Default::default()
         };
 
         let stats = generate_statistics(&[rec1, rec2, rec3]);
@@ -1032,6 +1041,7 @@ mod tests {
                 items,
                 item_totals: HashMap::new(),
                 content: "".into(),
+            ..Default::default()
             }
         };
 
@@ -1092,6 +1102,7 @@ mod tests {
             ],
             item_totals: HashMap::new(),
             content: "".into(),
+            ..Default::default()
         };
 
         let econ = compute_ap_economics(&[gathering_record], &[]);

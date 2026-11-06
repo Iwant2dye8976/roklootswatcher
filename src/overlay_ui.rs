@@ -281,6 +281,7 @@ mod tests {
             items: vec![],
             item_totals,
             content: String::new(),
+            ..Default::default()
         };
 
         let card = format_card_data(&rec);

@@ -228,6 +228,8 @@ pub struct RoKMailWatcher {
     start_date: Arc<RwLock<Option<NaiveDate>>>,
     end_date: Arc<RwLock<Option<NaiveDate>>>,
     days: Arc<RwLock<Option<u32>>>,
+    selected_account: Arc<RwLock<Option<String>>>,
+    main_account_uids: Arc<RwLock<Vec<String>>>,
 
     active_records: Arc<RwLock<Arc<Vec<BattleRecord>>>>,
     stats: Arc<RwLock<Statistics>>,
@@ -271,6 +273,8 @@ impl RoKMailWatcher {
             start_date: Arc::new(RwLock::new(None)),
             end_date: Arc::new(RwLock::new(None)),
             days: Arc::new(RwLock::new(None)),
+            selected_account: Arc::new(RwLock::new(None)),
+            main_account_uids: Arc::new(RwLock::new(Vec::new())),
 
             active_records: Arc::new(RwLock::new(Arc::new(Vec::new()))),
             stats: Arc::new(RwLock::new(Statistics::default())),
@@ -417,9 +421,31 @@ impl RoKMailWatcher {
             vault.get_records()
         };
         let mode = self.get_mode();
+        let sel_acc = self.selected_account.read().unwrap_or_else(|e| e.into_inner()).clone();
+        let main_uids = self.main_account_uids.read().unwrap_or_else(|e| e.into_inner()).clone();
+        let matches_acc = |r: &BattleRecord| {
+            let clean_rec = r.account_id.strip_prefix("player_").unwrap_or(&r.account_id).trim();
+            if !main_uids.is_empty() {
+                let is_main = !clean_rec.is_empty() && main_uids.iter().any(|u| {
+                    let clean_u = u.strip_prefix("player_").unwrap_or(u).trim();
+                    clean_u == clean_rec
+                });
+                if !is_main {
+                    return false;
+                }
+            }
+            match &sel_acc {
+                Some(acc) => {
+                    let clean_acc = acc.strip_prefix("player_").unwrap_or(acc).trim();
+                    !clean_acc.is_empty() && clean_rec == clean_acc
+                }
+                None => true,
+            }
+        };
+
         let total_mode_count = all
             .iter()
-            .filter(|r| mode.matches(&r.battle_type))
+            .filter(|r| mode.matches(&r.battle_type) && matches_acc(r))
             .count();
 
         let s = *self.start_date.read().unwrap_or_else(|e| e.into_inner());
@@ -428,11 +454,11 @@ impl RoKMailWatcher {
 
         let active_vec = if s.is_none() && e.is_none() && d.is_none() {
             all.into_iter()
-                .filter(|r| mode.matches(&r.battle_type))
+                .filter(|r| mode.matches(&r.battle_type) && matches_acc(r))
                 .collect()
         } else {
             filter_records_by_date(
-                all.iter().filter(|r| mode.matches(&r.battle_type)),
+                all.iter().filter(|r| mode.matches(&r.battle_type) && matches_acc(r)),
                 s,
                 e,
                 d,
@@ -474,6 +500,103 @@ impl RoKMailWatcher {
             ),
         };
         self.log("SUCCESS", &msg2);
+    }
+
+    pub fn set_account_filter(&self, account: Option<String>) {
+        *self.selected_account.write().unwrap_or_else(|e| e.into_inner()) = account;
+        let (total_mode, active_cnt) = self.recompute_filtered_records_and_stats();
+        let lang = self.get_language();
+        let msg = match lang {
+            AppLanguage::Vietnamese => format!("Lọc tài khoản: Tìm thấy {} trận ({} trận khớp ngày).", total_mode, active_cnt),
+            AppLanguage::English => format!("Account filter: Found {} records ({} matching date).", total_mode, active_cnt),
+        };
+        self.log("INFO", &msg);
+    }
+
+    pub fn get_selected_account(&self) -> Option<String> {
+        self.selected_account.read().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    pub fn get_main_account_uids(&self) -> Vec<String> {
+        self.main_account_uids.read().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    pub fn set_main_account_uids(&self, uids: Vec<String>) {
+        *self.main_account_uids.write().unwrap_or_else(|e| e.into_inner()) = uids;
+        self.recompute_filtered_records_and_stats();
+    }
+
+    pub fn count_non_main_records(&self) -> usize {
+        let main_uids = self.get_main_account_uids();
+        if main_uids.is_empty() {
+            return 0;
+        }
+        let v = self.vault.read().unwrap_or_else(|e| e.into_inner());
+        v.count_records_except_uids(&main_uids)
+    }
+
+    pub fn delete_non_main_records(&self) -> usize {
+        let main_uids = self.get_main_account_uids();
+        if main_uids.is_empty() {
+            return 0;
+        }
+        let deleted = {
+            let mut v = self.vault.write().unwrap_or_else(|e| e.into_inner());
+            v.delete_records_except_uids(&main_uids)
+        };
+        if deleted > 0 {
+            self.recompute_filtered_records_and_stats();
+            self.notify_sync_trigger();
+        }
+        deleted
+    }
+
+    pub fn get_all_detected_accounts(&self) -> Vec<(String, String)> {
+        let all = {
+            let vault = self.vault.read().unwrap_or_else(|e| e.into_inner());
+            vault.get_records()
+        };
+        let mut map: HashMap<String, String> = HashMap::new();
+        for r in &all {
+            let clean_acc = r.account_id.strip_prefix("player_").unwrap_or(&r.account_id).trim();
+            if !clean_acc.is_empty() {
+                let entry = map.entry(clean_acc.to_string()).or_default();
+                if entry.is_empty() && !r.player_name.is_empty() {
+                    *entry = r.player_name.clone();
+                }
+            }
+        }
+        let mut list: Vec<(String, String)> = map
+            .into_iter()
+            .map(|(acc_id, p_name)| {
+                let label = if !p_name.is_empty() {
+                    format!("{} ({})", p_name, acc_id)
+                } else {
+                    format!("UID: {}", acc_id)
+                };
+                (acc_id, label)
+            })
+            .collect();
+        list.sort_by(|a, b| a.1.cmp(&b.1));
+        list
+    }
+
+    pub fn get_accounts(&self) -> Vec<(String, String)> {
+        let all_detected = self.get_all_detected_accounts();
+        let main_uids = self.get_main_account_uids();
+        if main_uids.is_empty() {
+            return all_detected;
+        }
+        all_detected
+            .into_iter()
+            .filter(|(acc_id, _)| {
+                let clean_acc = acc_id.strip_prefix("player_").unwrap_or(acc_id).trim();
+                main_uids.iter().any(|u| {
+                    let clean_u = u.strip_prefix("player_").unwrap_or(u).trim();
+                    clean_u == clean_acc
+                })
+            })
+            .collect()
     }
 
     pub fn get_active_records(&self) -> Arc<Vec<BattleRecord>> {
@@ -784,7 +907,7 @@ impl RoKMailWatcher {
             let mut to_decode = Vec::new();
             let mut skipped = 0;
             for (fname, p) in all_files_map {
-                if v.contains_file_or_id(&fname) {
+                if v.contains_file_or_id(&fname) && v.record_has_account_id(&fname) {
                     skipped += 1;
                 } else {
                     to_decode.push(p);
@@ -819,6 +942,7 @@ impl RoKMailWatcher {
         use rayon::prelude::*;
         let catalog = &self.catalog;
         let mut scanned_records: Vec<BattleRecord> = Vec::new();
+        let main_uids = self.get_main_account_uids();
 
         for chunk in files_to_decode.chunks(crate::lilith_stream::MAIL_DECODE_BATCH_SIZE) {
             let chunk_records: Vec<BattleRecord> = chunk
@@ -831,11 +955,22 @@ impl RoKMailWatcher {
                         return None;
                     }
                     let btype = classify_mail(&m)?;
+                    let rec = extract_motte_details(&m, &fname, catalog, Some(btype)).ok()?;
+                    if !main_uids.is_empty() {
+                        let clean_rec = rec.account_id.strip_prefix("player_").unwrap_or(&rec.account_id).trim();
+                        let is_main = !clean_rec.is_empty() && main_uids.iter().any(|u| {
+                            let clean_u = u.strip_prefix("player_").unwrap_or(u).trim();
+                            clean_u == clean_rec
+                        });
+                        if !is_main {
+                            return None;
+                        }
+                    }
                     let backup_dst = vault_dir.join(&*fname);
                     if !backup_dst.exists() && fpath.starts_with(&mail_dir) {
                         let _ = std::fs::copy(fpath, &backup_dst);
                     }
-                    extract_motte_details(&m, &fname, catalog, Some(btype)).ok()
+                    Some(rec)
                 })
                 .collect();
             scanned_records.extend(chunk_records);
@@ -1040,16 +1175,28 @@ impl RoKMailWatcher {
             None => return,
         };
 
+        let rec = match extract_motte_details(&m, &fname, &self.catalog, Some(btype)) {
+            Ok(r) => r,
+            Err(_) => return,
+        };
+
+        let main_uids = self.get_main_account_uids();
+        if !main_uids.is_empty() {
+            let clean_rec = rec.account_id.strip_prefix("player_").unwrap_or(&rec.account_id).trim();
+            let is_main = !clean_rec.is_empty() && main_uids.iter().any(|u| {
+                let clean_u = u.strip_prefix("player_").unwrap_or(u).trim();
+                clean_u == clean_rec
+            });
+            if !is_main {
+                return;
+            }
+        }
+
         let vault_dir = self.get_vault_binary_dir();
         let backup_dst = vault_dir.join(&fname);
         if !backup_dst.exists() {
             let _ = std::fs::write(&backup_dst, &file_buf);
         }
-
-        let rec = match extract_motte_details(&m, &fname, &self.catalog, Some(btype)) {
-            Ok(r) => r,
-            Err(_) => return,
-        };
 
         let is_new = {
             let mut v = self.vault.write().unwrap_or_else(|e| e.into_inner());
@@ -1155,6 +1302,8 @@ impl RoKMailWatcher {
             start_date: Arc::clone(&self.start_date),
             end_date: Arc::clone(&self.end_date),
             days: Arc::clone(&self.days),
+            selected_account: Arc::clone(&self.selected_account),
+            main_account_uids: Arc::clone(&self.main_account_uids),
             active_records: Arc::clone(&self.active_records),
             stats: Arc::clone(&self.stats),
             catalog: Arc::clone(&self.catalog),
@@ -1562,6 +1711,68 @@ mod tests {
         watcher.set_sync_channel(sync_tx);
         // Force notify:
         watcher.notify_sync_trigger();
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_account_filtering_and_separation() {
+        use std::sync::mpsc::channel;
+        let temp_dir = std::env::temp_dir().join(format!("rok_test_acc_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&temp_dir);
+
+        let (tx, _rx) = channel();
+        let watcher = RoKMailWatcher::new(
+            Some(temp_dir.clone()),
+            Some(temp_dir.clone()),
+            FilterMode::AllTargets,
+            LootCatalog::empty(),
+            tx,
+        );
+
+        let rec_a = BattleRecord {
+            mail_id: "m_a".into(),
+            account_id: "11111".into(),
+            player_name: "GovernorA".into(),
+            battle_type: "fort".into(),
+            ..Default::default()
+        };
+        let rec_b = BattleRecord {
+            mail_id: "m_b".into(),
+            account_id: "22222".into(),
+            player_name: "GovernorB".into(),
+            battle_type: "fort".into(),
+            ..Default::default()
+        };
+
+        {
+            let mut v = watcher.vault.write().unwrap();
+            v.upsert(rec_a);
+            v.upsert(rec_b);
+        }
+
+        // Initially no account filter -> 2 active records
+        watcher.recompute_filtered_records_and_stats();
+        assert_eq!(watcher.get_active_count(), 2);
+
+        let accounts = watcher.get_accounts();
+        assert_eq!(accounts.len(), 2);
+        assert_eq!(accounts[0], ("11111".to_string(), "GovernorA (11111)".to_string()));
+        assert_eq!(accounts[1], ("22222".to_string(), "GovernorB (22222)".to_string()));
+
+        // Filter for Account A only
+        watcher.set_account_filter(Some("11111".to_string()));
+        assert_eq!(watcher.get_active_count(), 1);
+        assert_eq!(watcher.get_active_records()[0].account_id, "11111");
+
+        // Filter for Account B only
+        watcher.set_account_filter(Some("22222".to_string()));
+        assert_eq!(watcher.get_active_count(), 1);
+        assert_eq!(watcher.get_active_records()[0].account_id, "22222");
+
+        // Clear account filter -> back to 2
+        watcher.set_account_filter(None);
+        assert_eq!(watcher.get_active_count(), 2);
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }

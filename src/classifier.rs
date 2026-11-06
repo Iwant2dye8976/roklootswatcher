@@ -49,6 +49,33 @@ pub fn format_timestamp(raw_time: i64) -> (String, String) {
     )
 }
 
+pub fn extract_account_info(mail: &LilithValue) -> (String, String) {
+    let mut account_id = mail
+        .get("receiver")
+        .and_then(|v| v.as_str())
+        .map(|r| r.strip_prefix("player_").unwrap_or(r).trim().to_string())
+        .unwrap_or_default();
+
+    let mut player_name = String::new();
+    if let Some(body) = mail.get("body") {
+        if let Some(content) = body.get("content") {
+            if let Some(self_char) = content.get("SelfChar") {
+                if let Some(name) = self_char.get("PName").and_then(|v| v.as_str()) {
+                    player_name = name.trim().to_string();
+                }
+                if account_id.is_empty() {
+                    if let Some(pid) = self_char.get("PId").and_then(|v| v.as_i64()) {
+                        if pid > 0 {
+                            account_id = pid.to_string();
+                        }
+                    }
+                }
+            }
+        }
+    }
+    (account_id, player_name)
+}
+
 pub fn is_barbarian_battle_report(mail: &LilithValue) -> bool {
     let body = match mail.get("body") {
         Some(b) => b,
@@ -310,6 +337,7 @@ pub fn extract_barbarian_battle_details(
     };
 
     let content_desc = target.clone();
+    let (account_id, player_name) = extract_account_info(mail);
 
     Ok(BattleRecord {
         filename: filename.to_string(),
@@ -328,6 +356,8 @@ pub fn extract_barbarian_battle_details(
         items,
         item_totals,
         content: content_desc,
+        account_id,
+        player_name,
     })
 }
 
@@ -401,6 +431,8 @@ pub fn extract_gathering_details(
         item_totals.insert(res_name.to_string(), base_val);
     }
 
+    let (account_id, player_name) = extract_account_info(mail);
+
     Ok(BattleRecord {
         filename: filename.to_string(),
         mail_id,
@@ -418,6 +450,8 @@ pub fn extract_gathering_details(
         items,
         item_totals,
         content: String::new(),
+        account_id,
+        player_name,
     })
 }
 
@@ -574,6 +608,8 @@ pub fn extract_motte_details(
         }
     }
 
+    let (account_id, player_name) = extract_account_info(mail);
+
     Ok(BattleRecord {
         filename: filename.to_string(),
         mail_id,
@@ -591,6 +627,8 @@ pub fn extract_motte_details(
         items,
         item_totals,
         content,
+        account_id,
+        player_name,
     })
 }
 
@@ -821,5 +859,28 @@ mod tests {
         assert_eq!(rec.items[0].name_vi, "Tài nguyên khác");
         assert_eq!(rec.items[0].name_en, "Other Resources");
         assert_eq!(rec.items[0].value, 50000);
+    }
+
+    #[test]
+    fn test_extract_account_info() {
+        use indexmap::IndexMap;
+        let mut self_char = IndexMap::new();
+        self_char.insert("PName".to_string(), LilithValue::String("GovernorOne".to_string()));
+        self_char.insert("PId".to_string(), LilithValue::Number(12345678.0));
+
+        let mut content = IndexMap::new();
+        content.insert("SelfChar".to_string(), LilithValue::Table(self_char));
+
+        let mut body = IndexMap::new();
+        body.insert("content".to_string(), LilithValue::Table(content));
+
+        let mut mail_map = IndexMap::new();
+        mail_map.insert("receiver".to_string(), LilithValue::String("player_12345678".to_string()));
+        mail_map.insert("body".to_string(), LilithValue::Table(body));
+
+        let mail = LilithValue::Table(mail_map);
+        let (acc_id, p_name) = extract_account_info(&mail);
+        assert_eq!(acc_id, "12345678");
+        assert_eq!(p_name, "GovernorOne");
     }
 }

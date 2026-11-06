@@ -168,6 +168,7 @@ pub struct RoKLootWatcherApp {
 
     mail_path_input: String,
     selected_mode: FilterMode,
+    selected_account: Option<String>,
 
     selected_date_preset: DateFilterPreset,
     date_from_input: String,
@@ -205,6 +206,9 @@ pub struct RoKLootWatcherApp {
     restore_rx: Option<std::sync::mpsc::Receiver<Result<usize, String>>>,
     cloud_busy: bool,
     pub has_unbacked_data: bool,
+    pub main_account_uids: Vec<String>,
+    pub new_main_uid_input: String,
+    pub confirm_delete_non_main: Option<usize>,
 
     pub cached_overlay_records: Vec<BattleRecord>,
     pub cached_sorted_battle_indices: Vec<usize>,
@@ -608,6 +612,10 @@ impl RoKLootWatcherApp {
         let sync_worker = crate::cloud_sync::spawn_sync_worker(sync_vault, config.cloud_auth.clone());
         watcher.set_sync_channel(sync_worker.tx.clone());
 
+        if !config.main_account_uids.is_empty() {
+            watcher.set_main_account_uids(config.main_account_uids.clone());
+        }
+
         Self {
             watcher,
             rx_ui,
@@ -619,6 +627,7 @@ impl RoKLootWatcherApp {
 
             mail_path_input: initial_path,
             selected_mode: initial_mode,
+            selected_account: None,
 
             selected_date_preset: DateFilterPreset::AllTime,
             date_from_input: String::new(),
@@ -656,6 +665,9 @@ impl RoKLootWatcherApp {
             restore_rx: None,
             cloud_busy: false,
             has_unbacked_data: initial_has_unbacked,
+            main_account_uids: config.main_account_uids.clone(),
+            new_main_uid_input: String::new(),
+            confirm_delete_non_main: None,
 
             cached_overlay_records: initial_overlay_records,
             cached_sorted_battle_indices: Vec::new(),
@@ -690,6 +702,7 @@ impl RoKLootWatcherApp {
             autostart_minimized: self.autostart_minimized,
             overlay: self.overlay_config.clone(),
             cloud_auth: self.cloud_auth.clone(),
+            main_account_uids: self.main_account_uids.clone(),
         };
         config.save();
     }
@@ -1117,7 +1130,7 @@ impl RoKLootWatcherApp {
                     .inner_margin(Margin::symmetric(5.0, 2.0))
                     .show(ui, |ui| {
                         ui.label(
-                            egui::RichText::new("v2.0")
+                            egui::RichText::new("v2.2.1")
                                 .font(egui::FontId::proportional(10.0))
                                 .strong()
                                 .color(c.text_muted),
@@ -1227,9 +1240,9 @@ impl RoKLootWatcherApp {
                         });
                     });
 
-                    ui.add_space(6.0);
+                    ui.add_space(8.0);
 
-                    let col_gap = 4.0;
+                    let col_gap = 8.0;
                     let btn_w = ((ui.available_width() - col_gap) / 2.0).max(40.0);
                     let btn_h = 26.0;
 
@@ -1294,7 +1307,7 @@ impl RoKLootWatcherApp {
                         }
                     });
 
-                    ui.add_space(4.0);
+                    ui.add_space(8.0);
 
                     ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = col_gap;
@@ -1431,6 +1444,47 @@ impl RoKLootWatcherApp {
                             ui.add_sized([80.0, 20.0], egui::TextEdit::singleline(&mut self.date_to_input));
                             if ui.button(self.language.t(TrKey::FilterApply)).clicked() {
                                 self.apply_custom_date_filter();
+                            }
+                        }
+
+                        let accounts = self.watcher.get_accounts();
+                        if !accounts.is_empty() {
+                            ui.add_space(10.0);
+                            let acc_lbl_tag = match self.language {
+                                AppLanguage::Vietnamese => "Tài khoản:",
+                                AppLanguage::English => "Account:",
+                            };
+                            ui.label(egui::RichText::new(acc_lbl_tag).strong().color(c.canvas_tint));
+
+                            let selected_text = match &self.selected_account {
+                                None => match self.language {
+                                    AppLanguage::Vietnamese => "Tất cả tài khoản".to_string(),
+                                    AppLanguage::English => "All Accounts".to_string(),
+                                },
+                                Some(acc) => accounts
+                                    .iter()
+                                    .find(|(id, _)| id == acc)
+                                    .map(|(_, l)| l.clone())
+                                    .unwrap_or_else(|| acc.clone()),
+                            };
+
+                            let prev_acc = self.selected_account.clone();
+                            egui::ComboBox::from_id_salt("dash_acc_combo")
+                                .selected_text(selected_text)
+                                .width(150.0)
+                                .show_ui(ui, |ui| {
+                                    let all_txt = match self.language {
+                                        AppLanguage::Vietnamese => "Tất cả tài khoản",
+                                        AppLanguage::English => "All Accounts",
+                                    };
+                                    ui.selectable_value(&mut self.selected_account, None, all_txt);
+                                    for (acc_id, label) in &accounts {
+                                        ui.selectable_value(&mut self.selected_account, Some(acc_id.clone()), label);
+                                    }
+                                });
+
+                            if self.selected_account != prev_acc {
+                                self.watcher.set_account_filter(self.selected_account.clone());
                             }
                         }
 
@@ -2449,6 +2503,47 @@ impl RoKLootWatcherApp {
                         }
                     }
 
+                    let accounts = self.watcher.get_accounts();
+                    if !accounts.is_empty() {
+                        ui.add_space(10.0);
+                        let acc_lbl_tag = match self.language {
+                            AppLanguage::Vietnamese => "Tài khoản:",
+                            AppLanguage::English => "Account:",
+                        };
+                        ui.label(egui::RichText::new(acc_lbl_tag).strong().color(c.canvas_tint));
+
+                        let selected_text = match &self.selected_account {
+                            None => match self.language {
+                                AppLanguage::Vietnamese => "Tất cả tài khoản".to_string(),
+                                AppLanguage::English => "All Accounts".to_string(),
+                            },
+                            Some(acc) => accounts
+                                .iter()
+                                .find(|(id, _)| id == acc)
+                                .map(|(_, l)| l.clone())
+                                .unwrap_or_else(|| acc.clone()),
+                        };
+
+                        let prev_acc = self.selected_account.clone();
+                        egui::ComboBox::from_id_salt("battles_acc_combo")
+                            .selected_text(selected_text)
+                            .width(150.0)
+                            .show_ui(ui, |ui| {
+                                let all_txt = match self.language {
+                                    AppLanguage::Vietnamese => "Tất cả tài khoản",
+                                    AppLanguage::English => "All Accounts",
+                                };
+                                ui.selectable_value(&mut self.selected_account, None, all_txt);
+                                for (acc_id, label) in &accounts {
+                                    ui.selectable_value(&mut self.selected_account, Some(acc_id.clone()), label);
+                                }
+                            });
+
+                        if self.selected_account != prev_acc {
+                            self.watcher.set_account_filter(self.selected_account.clone());
+                        }
+                    }
+
                     let cur_cnt = self.watcher.get_active_count();
                     let match_txt = self.language.t(TrKey::FilterMatchingBattles).replace("{}", &format_num(cur_cnt));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -2715,7 +2810,10 @@ impl RoKLootWatcherApp {
                         let matches = r.battle_type.contains(&search_lower)
                             || r.time_vn.contains(&search_lower)
                             || r.target.to_lowercase().contains(&search_lower)
-                            || r.display_target(cur_lang).to_lowercase().contains(&search_lower);
+                            || r.display_target(cur_lang).to_lowercase().contains(&search_lower)
+                            || r.account_id.contains(&search_lower)
+                            || format!("player_{}", r.account_id).contains(&search_lower)
+                            || r.player_name.to_lowercase().contains(&search_lower);
                         if matches { Some(idx) } else { None }
                     }
                 })
@@ -3588,7 +3686,7 @@ impl RoKLootWatcherApp {
                 card_frame.show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.label(
-                            egui::RichText::new(format!("{}", self.language.t(TrKey::SettingsCardMailTitle)))
+                            egui::RichText::new(self.language.t(TrKey::SettingsCardMailTitle))
                                 .font(egui::FontId::proportional(12.5))
                                 .strong()
                                 .color(c.focus_teal),
@@ -3697,7 +3795,7 @@ impl RoKLootWatcherApp {
 
                 card_frame.show(ui, |ui| {
                     ui.label(
-                        egui::RichText::new(format!("{}", self.language.t(TrKey::SettingsCardScanTitle)))
+                        egui::RichText::new(self.language.t(TrKey::SettingsCardScanTitle))
                             .font(egui::FontId::proportional(12.5))
                             .strong()
                             .color(c.accent_gold),
@@ -3731,7 +3829,7 @@ impl RoKLootWatcherApp {
                         }
 
                         let btn_rescan_force = egui::Button::new(
-                            egui::RichText::new(format!("{}", self.language.t(TrKey::SettingsBtnRescanForce)))
+                            egui::RichText::new(self.language.t(TrKey::SettingsBtnRescanForce))
                                 .font(egui::FontId::proportional(11.5))
                                 .strong()
                                 .color(c.accent_gold),
@@ -4072,7 +4170,7 @@ impl RoKLootWatcherApp {
 
                 card_frame.show(ui, |ui| {
                     ui.label(
-                        egui::RichText::new(format!("{}", self.language.t(TrKey::SettingsCardSystemTitle)))
+                        egui::RichText::new(self.language.t(TrKey::SettingsCardSystemTitle))
                             .font(egui::FontId::proportional(12.5))
                             .strong()
                             .color(c.canvas_tint),
@@ -4228,9 +4326,144 @@ impl RoKLootWatcherApp {
                 ui.add_space(12.0);
 
                 card_frame.show(ui, |ui| {
+                    let title = match self.language {
+                        AppLanguage::Vietnamese => "NHÂN VẬT CHÍNH (MAIN CHARACTERS)",
+                        AppLanguage::English => "MAIN CHARACTERS (UID FILTER)",
+                    };
+                    ui.label(
+                        egui::RichText::new(title)
+                            .font(egui::FontId::proportional(12.5))
+                            .strong()
+                            .color(c.crystal_cyan),
+                    );
+                    ui.add_space(4.0);
+
+                    let desc = match self.language {
+                        AppLanguage::Vietnamese => "Chọn nhân vật UID chính để theo dõi. Thư của các UID khác sẽ tự động bị bỏ qua.",
+                        AppLanguage::English => "Select main character UID(s) to track. Reports from other UIDs will be automatically ignored.",
+                    };
+                    ui.label(
+                        egui::RichText::new(desc)
+                            .font(egui::FontId::proportional(10.5))
+                            .color(c.text_muted),
+                    );
+                    ui.add_space(8.0);
+
+                    let all_detected = self.watcher.get_all_detected_accounts();
+                    let mut changed = false;
+
+                    if all_detected.is_empty() && self.main_account_uids.is_empty() {
+                        let no_acc_msg = match self.language {
+                            AppLanguage::Vietnamese => "Chưa phát hiện nhân vật nào trong dữ liệu thư.",
+                            AppLanguage::English => "No characters detected in mail data yet.",
+                        };
+                        ui.label(egui::RichText::new(no_acc_msg).font(egui::FontId::proportional(11.0)).color(c.text_muted));
+                    } else {
+                        egui::ScrollArea::vertical()
+                            .max_height(130.0)
+                            .show(ui, |ui| {
+                                for (acc_id, label) in &all_detected {
+                                    let clean_id = acc_id.strip_prefix("player_").unwrap_or(acc_id).trim();
+                                    let mut is_checked = self.main_account_uids.iter().any(|u| {
+                                        u.strip_prefix("player_").unwrap_or(u).trim() == clean_id
+                                    });
+                                    if ui.checkbox(&mut is_checked, egui::RichText::new(label).color(c.canvas_tint)).changed() {
+                                        if is_checked {
+                                            if !self.main_account_uids.iter().any(|u| u.strip_prefix("player_").unwrap_or(u).trim() == clean_id) {
+                                                self.main_account_uids.push(clean_id.to_string());
+                                            }
+                                        } else {
+                                            self.main_account_uids.retain(|u| u.strip_prefix("player_").unwrap_or(u).trim() != clean_id);
+                                        }
+                                        changed = true;
+                                    }
+                                }
+                            });
+                    }
+
+                    ui.add_space(6.0);
+
+                    ui.horizontal(|ui| {
+                        let add_lbl = match self.language {
+                            AppLanguage::Vietnamese => "Thêm UID:",
+                            AppLanguage::English => "Add UID:",
+                        };
+                        ui.label(egui::RichText::new(add_lbl).font(egui::FontId::proportional(11.0)).color(c.text_muted));
+                        ui.add_sized([120.0, 24.0], egui::TextEdit::singleline(&mut self.new_main_uid_input).hint_text("VD: 122980539"));
+                        let btn_add = egui::Button::new(
+                            egui::RichText::new("+ Thêm")
+                                .font(egui::FontId::proportional(11.0))
+                                .strong()
+                                .color(c.focus_teal)
+                        )
+                        .fill(c.primary)
+                        .stroke(Stroke::new(1.0_f32, c.focus_teal.linear_multiply(0.4)))
+                        .rounding(Rounding::same(4.0));
+
+                        if ui.add_sized([0.0, 24.0], btn_add).clicked() {
+                            let uid = self.new_main_uid_input.strip_prefix("player_").unwrap_or(&self.new_main_uid_input).trim().to_string();
+                            if !uid.is_empty() && !self.main_account_uids.contains(&uid) {
+                                self.main_account_uids.push(uid);
+                                self.new_main_uid_input.clear();
+                                changed = true;
+                            }
+                        }
+                    });
+
+                    if changed {
+                        self.watcher.set_main_account_uids(self.main_account_uids.clone());
+                        self.save_config();
+                    }
+
+                    ui.add_space(8.0);
+                    ui.separator();
+                    ui.add_space(8.0);
+
+                    let non_main_count = self.watcher.count_non_main_records();
+                    ui.horizontal(|ui| {
+                        let has_mains = !self.main_account_uids.is_empty();
+                        let btn_del_text = match self.language {
+                            AppLanguage::Vietnamese => format!("Xóa báo cáo UID phụ ({})", non_main_count),
+                            AppLanguage::English => format!("Delete Non-Main Reports ({})", non_main_count),
+                        };
+
+                        let btn_del = egui::Button::new(
+                            egui::RichText::new(btn_del_text)
+                                .font(egui::FontId::proportional(11.0))
+                                .strong()
+                                .color(if non_main_count > 0 && has_mains { c.error } else { c.text_muted })
+                        )
+                        .fill(c.primary)
+                        .stroke(Stroke::new(1.0_f32, if non_main_count > 0 && has_mains { c.error.linear_multiply(0.5) } else { c.hairline }))
+                        .rounding(Rounding::same(5.0));
+
+                        let resp = ui.add_sized([0.0, 26.0], btn_del);
+                        let resp = if !has_mains {
+                            resp.on_hover_text(match self.language {
+                                AppLanguage::Vietnamese => "Vui lòng chọn ít nhất 1 nhân vật chính trước khi dọn dẹp.",
+                                AppLanguage::English => "Please select at least 1 main character before cleaning up.",
+                            })
+                        } else if non_main_count == 0 {
+                            resp.on_hover_text(match self.language {
+                                AppLanguage::Vietnamese => "Không có báo cáo nào thuộc UID phụ trong dữ liệu.",
+                                AppLanguage::English => "No secondary UID reports in database.",
+                            })
+                        } else {
+                            resp
+                        };
+
+                        if has_mains && non_main_count > 0 && resp.clicked() {
+                            self.confirm_delete_non_main = Some(non_main_count);
+                        }
+                    });
+                });
+
+                ui.add_space(12.0);
+
+                card_frame.show(ui, |ui| {
                     let vault_total = self.watcher.get_vault_total_count();
                     ui.label(
-                        egui::RichText::new(format!("{}", self.language.t(TrKey::SettingsCardVaultTitle)))
+                        egui::RichText::new(self.language.t(TrKey::SettingsCardVaultTitle))
                             .font(egui::FontId::proportional(12.5))
                             .strong()
                             .color(c.accent_gold),
@@ -4240,7 +4473,7 @@ impl RoKLootWatcherApp {
                     let secured_str = self.language.t(TrKey::SettingsVaultSecured).replace("{}", &format_num(vault_total));
                     ui.horizontal(|ui| {
                         ui.label(
-                            egui::RichText::new(format!("{}", secured_str))
+                            egui::RichText::new(secured_str)
                                 .font(egui::FontId::proportional(11.0))
                                 .color(c.accent_gold),
                         );
@@ -4634,7 +4867,7 @@ impl RoKLootWatcherApp {
                 .show(&mut cols[1], |ui| {
                     ui.horizontal(|ui| {
                         ui.label(
-                            egui::RichText::new(format!("{}", self.language.t(TrKey::LogsTitle)))
+                            egui::RichText::new(self.language.t(TrKey::LogsTitle))
                                 .font(egui::FontId::proportional(12.5))
                                 .strong()
                                 .color(c.focus_teal),
@@ -5098,6 +5331,100 @@ impl eframe::App for RoKLootWatcherApp {
                         _ => self.render_view_dashboard(ui),
                     }
                 });
+
+            if let Some(count) = self.confirm_delete_non_main {
+                let title = match self.language {
+                    AppLanguage::Vietnamese => "Xác nhận xóa báo cáo UID phụ",
+                    AppLanguage::English => "Confirm Delete Secondary Reports",
+                };
+                let mut close_modal = false;
+                let mut do_delete = false;
+
+                let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Middle, egui::Id::new("delete_modal_backdrop")));
+                painter.rect_filled(ctx.screen_rect(), 0.0, egui::Color32::from_black_alpha(150));
+
+                egui::Window::new(title)
+                    .order(egui::Order::Foreground)
+                    .collapsible(false)
+                    .resizable(false)
+                    .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                    .show(ctx, |ui| {
+                        ui.set_max_width(380.0);
+                        ui.add_space(4.0);
+
+                        let warn_text = match self.language {
+                            AppLanguage::Vietnamese => format!(
+                                "Bạn có chắc chắn muốn xóa vĩnh viễn {} báo cáo của các nhân vật phụ khỏi cơ sở dữ liệu?\n\nThao tác này sẽ dọn dẹp sạch dữ liệu và không thể hoàn tác.",
+                                count
+                            ),
+                            AppLanguage::English => format!(
+                                "Are you sure you want to permanently delete {} secondary character reports from the database?\n\nThis will clean up the database and cannot be undone.",
+                                count
+                            ),
+                        };
+
+                        ui.label(
+                            egui::RichText::new(warn_text)
+                                .font(egui::FontId::proportional(12.0))
+                                .color(c.canvas_tint),
+                        );
+
+                        ui.add_space(14.0);
+
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 12.0;
+
+                            let cancel_btn = egui::Button::new(
+                                egui::RichText::new(match self.language {
+                                    AppLanguage::Vietnamese => "Hủy bỏ",
+                                    AppLanguage::English => "Cancel",
+                                })
+                                .font(egui::FontId::proportional(11.5))
+                                .color(c.canvas_tint),
+                            )
+                            .fill(c.primary)
+                            .stroke(Stroke::new(1.0_f32, c.hairline))
+                            .rounding(Rounding::same(5.0));
+
+                            if ui.add_sized([90.0, 28.0], cancel_btn).clicked() {
+                                close_modal = true;
+                            }
+
+                            let delete_btn = egui::Button::new(
+                                egui::RichText::new(match self.language {
+                                    AppLanguage::Vietnamese => "Xác nhận xóa",
+                                    AppLanguage::English => "Confirm Delete",
+                                })
+                                .font(egui::FontId::proportional(11.5))
+                                .strong()
+                                .color(c.error),
+                            )
+                            .fill(c.primary)
+                            .stroke(Stroke::new(1.0_f32, c.error.linear_multiply(0.7)))
+                            .rounding(Rounding::same(5.0));
+
+                            if ui.add_sized([120.0, 28.0], delete_btn).clicked() {
+                                do_delete = true;
+                                close_modal = true;
+                            }
+                        });
+                    });
+
+                if do_delete {
+                    let deleted = self.watcher.delete_non_main_records();
+                    self.reports_sort_dirty = true;
+                    self.ap_econ_dirty = true;
+                    self.refresh_cached_overlay_records();
+                    let msg = match self.language {
+                        AppLanguage::Vietnamese => format!("Đã xóa vĩnh viễn {} báo cáo của UID phụ khỏi cơ sở dữ liệu.", deleted),
+                        AppLanguage::English => format!("Permanently deleted {} secondary UID reports from database.", deleted),
+                    };
+                    self.watcher.log("SUCCESS", &msg);
+                }
+                if close_modal {
+                    self.confirm_delete_non_main = None;
+                }
+            }
 
         }
 
@@ -5640,6 +5967,7 @@ mod tests {
             items: vec![],
             item_totals: std::collections::HashMap::new(),
             content: String::new(),
+            ..Default::default()
         };
 
         let mut vault = crate::vault::MailVault::new(&temp_dir);

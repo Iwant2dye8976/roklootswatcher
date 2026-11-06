@@ -586,6 +586,10 @@ fn run_gui_mode(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         tx_ui,
     ));
 
+    if !config.main_account_uids.is_empty() {
+        watcher.set_main_account_uids(config.main_account_uids.clone());
+    }
+
     const EMBEDDED_ICON_BYTES: &[u8] = include_bytes!("../rok_icon.png");
     let window_icon = icon_path.as_ref().and_then(|p| {
         if let Ok(img) = image::open(p) {
@@ -627,6 +631,7 @@ fn run_gui_mode(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
 
     let native_options = eframe::NativeOptions {
         viewport,
+        centered: true,
         ..Default::default()
     };
 
@@ -693,6 +698,7 @@ mod tests {
             items: vec![],
             item_totals: std::collections::HashMap::new(),
             content: "".into(),
+            ..Default::default()
         };
         vault.upsert_batch(vec![rec]);
 

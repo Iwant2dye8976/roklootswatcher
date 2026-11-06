@@ -31,6 +31,8 @@ pub fn create_schema(conn: &Connection) -> rusqlite::Result<()> {
             items_json       TEXT NOT NULL DEFAULT '[]',
             item_totals_json TEXT NOT NULL DEFAULT '{}',
             content          TEXT NOT NULL DEFAULT '',
+            account_id       TEXT NOT NULL DEFAULT '',
+            player_name      TEXT NOT NULL DEFAULT '',
             dedup_key        TEXT NOT NULL,
             synced_at        INTEGER,
             PRIMARY KEY (dedup_key)
@@ -41,6 +43,9 @@ pub fn create_schema(conn: &Connection) -> rusqlite::Result<()> {
         CREATE INDEX IF NOT EXISTS idx_filename ON battle_records(filename);
         CREATE INDEX IF NOT EXISTS idx_synced_at ON battle_records(synced_at);",
     )?;
+    let _ = conn.execute("ALTER TABLE battle_records ADD COLUMN account_id TEXT NOT NULL DEFAULT ''", []);
+    let _ = conn.execute("ALTER TABLE battle_records ADD COLUMN player_name TEXT NOT NULL DEFAULT ''", []);
+    let _ = conn.execute("CREATE INDEX IF NOT EXISTS idx_account_id ON battle_records(account_id)", []);
     Ok(())
 }
 
@@ -71,8 +76,8 @@ pub fn migrate_from_json(json_path: &Path, conn: &Connection) -> Result<usize, S
         "INSERT OR IGNORE INTO battle_records (
             mail_id, filename, battle_type, time_raw, time_utc, time_vn,
             target, target_level, talent_add, pos_x, pos_y, damage_pct,
-            plunder_tier, items_json, item_totals_json, content, dedup_key, synced_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, NULL)"
+            plunder_tier, items_json, item_totals_json, content, account_id, player_name, dedup_key, synced_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, NULL)"
     ) {
         Ok(s) => s,
         Err(e) => {
@@ -104,6 +109,8 @@ pub fn migrate_from_json(json_path: &Path, conn: &Connection) -> Result<usize, S
             items_json,
             item_totals_json,
             rec.content,
+            rec.account_id,
+            rec.player_name,
             dedup_key,
         ]);
 

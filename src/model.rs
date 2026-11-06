@@ -424,7 +424,7 @@ impl ItemDrop {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct BattleRecord {
     pub filename: String,
     pub mail_id: String,
@@ -446,6 +446,10 @@ pub struct BattleRecord {
     pub item_totals: HashMap<String, i64>,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub content: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub account_id: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub player_name: String,
 }
 
 impl BattleRecord {
@@ -1824,6 +1828,8 @@ pub struct AppConfig {
     pub overlay: OverlayConfig,
     #[serde(default)]
     pub cloud_auth: CloudAuthConfig,
+    #[serde(default)]
+    pub main_account_uids: Vec<String>,
 }
 
 fn default_autostart_minimized() -> bool {
@@ -1843,6 +1849,7 @@ impl Default for AppConfig {
             autostart_minimized: true,
             overlay: OverlayConfig::default(),
             cloud_auth: CloudAuthConfig::default(),
+            main_account_uids: Vec::new(),
         }
     }
 }
@@ -1995,6 +2002,7 @@ mod tests {
             ],
             item_totals: HashMap::new(),
             content: "".into(),
+            ..Default::default()
         };
 
         assert_eq!(rec.item_quantity(1, 9), 750);
@@ -2232,6 +2240,7 @@ mod tests {
             ],
             item_totals: HashMap::new(),
             content: "".into(),
+            ..Default::default()
         };
 
         let res = rec.total_resources_breakdown();
@@ -2459,6 +2468,7 @@ mod tests {
             ],
             item_totals: HashMap::new(),
             content: "".into(),
+            ..Default::default()
         };
 
         assert_eq!(rec.univ_speedup_minutes(), 15);
@@ -2633,6 +2643,7 @@ mod tests {
             items: vec![],
             item_totals: HashMap::new(),
             content: "".into(),
+            ..Default::default()
         };
         assert_eq!(rec.display_target(AppLanguage::Vietnamese), "Pháo Đài Cấp 10");
         assert_eq!(rec.display_target(AppLanguage::English), "Barbarian Fort Level 10");

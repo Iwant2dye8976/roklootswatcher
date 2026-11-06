@@ -150,6 +150,7 @@ mod tests {
             items: vec![],
             item_totals: HashMap::new(),
             content: "".into(),
+            ..Default::default()
         };
 
         let csv_vi = generate_csv(std::slice::from_ref(&rec), AppLanguage::Vietnamese);
@@ -180,6 +181,7 @@ mod tests {
             items: vec![],
             item_totals: HashMap::new(),
             content: "".into(),
+            ..Default::default()
         };
 
         let csv = generate_csv(&[rec], AppLanguage::English);
