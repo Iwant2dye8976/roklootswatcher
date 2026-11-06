@@ -125,23 +125,22 @@ pub mod windows {
             let err = GetLastError();
             if err == ERROR_ALREADY_EXISTS {
                 let event_signaled = signal_activate_event_named(event_name_str);
-
                 let window_found = activate_existing_window();
 
-                if !event_signaled && !window_found {
-                    let event_wide = to_wide_null(event_name_str);
-                    let event = CreateEventW(std::ptr::null(), 0, 0, event_wide.as_ptr());
-                    return CheckResult::Running(SingleInstanceGuard {
-                        mutex_handle: mutex,
-                        event_handle: event,
-                    });
+                if event_signaled || window_found {
+                    if mutex != 0 {
+                        CloseHandle(mutex);
+                    }
+                    return CheckResult::AlreadyExists;
                 }
 
-                if mutex != 0 {
-                    CloseHandle(mutex);
-                }
-
-                return CheckResult::AlreadyExists;
+                // Mutex existed but no genuine instance event or window found (squatted mutex)
+                let event_wide = to_wide_null(event_name_str);
+                let event = CreateEventW(std::ptr::null(), 0, 0, event_wide.as_ptr());
+                return CheckResult::Running(SingleInstanceGuard {
+                    mutex_handle: mutex,
+                    event_handle: event,
+                });
             }
 
             let event_wide = to_wide_null(event_name_str);
@@ -212,9 +211,18 @@ pub mod windows {
                 let mut proc_id = 0u32;
                 GetWindowThreadProcessId(hwnd, &mut proc_id);
                 if proc_id != 0 {
+                    // Check if process image matches current executable
+                    if let Ok(current_exe) = std::env::current_exe() {
+                        if let Some(proc_path) = crate::overlay_tracker::get_process_exe_path(proc_id) {
+                            if proc_path != current_exe {
+                                return false;
+                            }
+                        } else {
+                            return false;
+                        }
+                    }
                     AllowSetForegroundWindow(proc_id);
                 }
-                AllowSetForegroundWindow(0xFFFFFFFF);
 
                 SetForegroundWindow(hwnd);
                 BringWindowToTop(hwnd);

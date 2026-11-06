@@ -89,6 +89,32 @@ pub fn is_rok_window_title(title: &str) -> bool {
         || lower.contains("code"))
 }
 
+#[cfg(windows)]
+pub fn get_process_exe_path(pid: u32) -> Option<std::path::PathBuf> {
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::System::Threading::{
+        OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+    if pid == 0 {
+        return None;
+    }
+    unsafe {
+        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if handle.is_null() {
+            return None;
+        }
+        let mut buf = [0u16; 1024];
+        let mut len = buf.len() as u32;
+        let ok = QueryFullProcessImageNameW(handle, 0, buf.as_mut_ptr(), &mut len);
+        CloseHandle(handle);
+        if ok != 0 && len > 0 {
+            Some(std::path::PathBuf::from(String::from_utf16_lossy(&buf[..len as usize])))
+        } else {
+            None
+        }
+    }
+}
+
 pub fn find_rok_window() -> Option<HWND> {
     #[cfg(windows)]
     unsafe {
@@ -101,7 +127,7 @@ pub fn find_rok_window() -> Option<HWND> {
             let data = &mut *(lparam as *mut SearchData);
             let mut proc_id = 0;
             GetWindowThreadProcessId(hwnd, &mut proc_id);
-            if proc_id == data.own_pid {
+            if proc_id == data.own_pid || proc_id == 0 {
                 return 1;
             }
 
@@ -114,8 +140,19 @@ pub fn find_rok_window() -> Option<HWND> {
             if len > 0 {
                 let title = String::from_utf16_lossy(&buf[..len as usize]);
                 if is_rok_window_title(&title) {
-                    data.found_hwnd = Some(hwnd);
-                    return 0;
+                    // Authenticate game process executable name
+                    if let Some(path) = get_process_exe_path(proc_id) {
+                        let fname = path
+                            .file_name()
+                            .map(|n| n.to_string_lossy().to_ascii_lowercase())
+                            .unwrap_or_default();
+                        if matches!(fname.as_str(), "mass.exe" | "rise of kingdoms.exe" | "riseofkingdoms.exe") {
+                            data.found_hwnd = Some(hwnd);
+                            return 0;
+                        }
+                    }
+                    // Not genuine game binary or could not verify process; keep searching
+                    return 1;
                 }
             }
             1

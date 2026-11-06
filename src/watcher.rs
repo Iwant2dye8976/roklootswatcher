@@ -35,10 +35,6 @@ pub fn probe_candidate_is_mailcache(path: &Path) -> bool {
 
 #[cfg(windows)]
 fn find_running_rok_mailcache() -> Option<PathBuf> {
-    use windows_sys::Win32::Foundation::CloseHandle;
-    use windows_sys::Win32::System::Threading::{
-        OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION,
-    };
     use windows_sys::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId;
 
     let hwnd = crate::overlay_tracker::find_rok_window()?;
@@ -48,18 +44,8 @@ fn find_running_rok_mailcache() -> Option<PathBuf> {
         if pid == 0 {
             return None;
         }
-        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
-        if handle.is_null() {
-            return None;
-        }
-        let mut buf = [0u16; 1024];
-        let mut len = buf.len() as u32;
-        let success = QueryFullProcessImageNameW(handle, 0, buf.as_mut_ptr(), &mut len);
-        CloseHandle(handle);
 
-        if success != 0 && len > 0 {
-            let exe_path_str = String::from_utf16_lossy(&buf[..len as usize]);
-            let exe_path = PathBuf::from(exe_path_str);
+        if let Some(exe_path) = crate::overlay_tracker::get_process_exe_path(pid) {
             if let Some(parent) = exe_path.parent() {
                 let candidate = parent.join("save").join("mailcache");
                 if probe_candidate_is_mailcache(&candidate) {

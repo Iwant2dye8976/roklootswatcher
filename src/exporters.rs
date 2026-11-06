@@ -83,14 +83,19 @@ pub fn export_individual_mails_json(
     let binary_vault_dir = out_dir.join("mail_vault");
 
     for r in records {
-        let out_file = mails_json_dir.join(format!("{}.json", r.filename));
+        // Confine writes to filtered_mails_json and reads to mail directories
+        let safe_fname = match Path::new(&r.filename).file_name().and_then(|n| n.to_str()) {
+            Some(name) if !name.is_empty() && name == r.filename && !name.contains(['/', '\\', ':']) => name,
+            _ => continue,
+        };
+        let out_file = mails_json_dir.join(format!("{}.json", safe_fname));
         if out_file.is_file() {
             continue;
         }
 
-        let mut src_path = mail_dir.join(&r.filename);
+        let mut src_path = mail_dir.join(safe_fname);
         if !src_path.is_file() {
-            src_path = binary_vault_dir.join(&r.filename);
+            src_path = binary_vault_dir.join(safe_fname);
         }
 
         if src_path.is_file() {

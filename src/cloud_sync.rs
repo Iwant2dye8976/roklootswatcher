@@ -181,7 +181,8 @@ pub fn start_google_login(supabase_url: &str, anon_key: &str) -> Result<CloudAut
     listener.set_nonblocking(true).map_err(|e| format!("Nonblocking listener error: {}", e))?;
 
     let expected_state = generate_secure_state();
-    let redirect_uri = format!("http://127.0.0.1:{}/callback", port);
+    // Embed expected_state as a query parameter in redirect_to so Supabase preserves it in the browser callback URL
+    let redirect_uri = format!("http://127.0.0.1:{}/callback?app_state={}", port, expected_state);
     let auth_url = format!(
         "{}/auth/v1/authorize?provider=google&redirect_to={}&state={}&prompt=consent&access_type=offline",
         supabase_url.trim_end_matches('/'),
@@ -216,8 +217,7 @@ pub fn start_google_login(supabase_url: &str, anon_key: &str) -> Result<CloudAut
         let req_str = String::from_utf8_lossy(&buf[..bytes_read]);
 
         if req_str.starts_with("GET /callback") {
-            let html = format!(
-                r#"<!DOCTYPE html>
+            let html = r#"<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"><title>RoK Loot Watcher - Login</title></head>
 <body style="font-family:sans-serif;text-align:center;padding:60px;background:#1e1e2e;color:#cdd6f4;">
@@ -227,24 +227,22 @@ pub fn start_google_login(supabase_url: &str, anon_key: &str) -> Result<CloudAut
     const hash = window.location.hash ? window.location.hash.substring(1) : '';
     const search = window.location.search ? window.location.search.substring(1) : '';
     const fullParams = (hash && search) ? (hash + '&' + search) : (hash || search);
-    const url = fullParams ? ('/token?app_state={0}&' + fullParams) : '/token?app_state={0}&error=empty_callback';
+    const url = fullParams ? ('/token?' + fullParams) : '/token?error=empty_callback';
     fetch(url)
-      .then(async res => {{
-        if (!res.ok) {{
+      .then(async res => {
+        if (!res.ok) {
           const txt = await res.text();
           throw new Error(txt || ('HTTP ' + res.status));
-        }}
+        }
         document.getElementById('msg').innerText = 'Đăng nhập thành công! Bạn có thể đóng tab này.';
         setTimeout(() => window.close(), 1500);
-      }})
-      .catch(err => {{
+      })
+      .catch(err => {
         document.getElementById('msg').innerText = 'Đăng nhập thất bại: ' + err.message;
-      }});
+      });
   </script>
 </body>
-</html>"#,
-                expected_state
-            );
+</html>"#;
             let resp = format!(
                 "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
                 html.len(),
@@ -271,7 +269,7 @@ pub fn start_google_login(supabase_url: &str, anon_key: &str) -> Result<CloudAut
                     );
                     let _ = stream.write_all(resp.as_bytes());
                     let _ = stream.flush();
-                    return Err(message);
+                    // Keep listening until valid callback arrives or timeout expires
                 }
             }
         }
