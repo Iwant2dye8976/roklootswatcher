@@ -1,5 +1,7 @@
 # RoK Loot Watcher (Rust)
 
+Lấy ý tưởng từ: [rokbattles](https://github.com/rokbattles/rokbattles)
+
 Ứng dụng Windows hiệu năng cao theo dõi thư mục `mailcache` của Rise of Kingdoms theo thời gian thực, tự động giải mã cấu trúc nhị phân Lilith, lưu trữ an toàn bằng SQLite Vault và hỗ trợ đồng bộ đám mây (Cloud Sync) từng bản ghi qua Supabase.
 
 ---
@@ -75,5 +77,3 @@ cargo build --release
 File thực thi sau khi biên dịch nằm tại `target/release/rok_watcher.exe`.
 
 ---
-
-Lấy ý tưởng từ: [rokbattles](https://github.com/rokbattles/rokbattles)
