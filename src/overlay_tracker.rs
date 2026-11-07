@@ -33,10 +33,11 @@ pub enum OverlayVisibilityAction {
 
 pub fn determine_overlay_visibility_action(
     overlay_enabled: bool,
+    mode: crate::model::OverlayDisplayMode,
     rok_window_found: bool,
     rok_is_active_and_visible: bool,
 ) -> OverlayVisibilityAction {
-    if overlay_enabled && rok_window_found && rok_is_active_and_visible {
+    if overlay_enabled && mode != crate::model::OverlayDisplayMode::Hidden && rok_window_found && rok_is_active_and_visible {
         OverlayVisibilityAction::Show
     } else {
         OverlayVisibilityAction::Hide
@@ -49,12 +50,33 @@ pub fn calculate_overlay_geometry(
     scale_factor: f32,
 ) -> OverlayGeometry {
     let scale = if scale_factor <= 0.0 { 1.0 } else { scale_factor };
-    let width = config.width.clamp(180.0, 450.0);
-    
-    let card_height = (config.font_size * 3.2 + 8.0).max(36.0);
-    let est_height = (card_height * 5.0 + 18.0).ceil();
-    let max_allowed_h = ((bounds.height as f32 - 20.0) / scale).max(100.0);
-    let height = est_height.min(max_allowed_h);
+    let (width, height) = match config.mode {
+        crate::model::OverlayDisplayMode::MiniHud => {
+            let h = (config.font_size * 2.2).clamp(28.0, 36.0);
+            let w = config.width.clamp(320.0, 600.0);
+            (w, h)
+        }
+        crate::model::OverlayDisplayMode::Cards => {
+            let card_height = (config.font_size * 3.2 + 8.0).max(36.0);
+            let est_height = (card_height * 5.0 + 18.0).ceil();
+            let w = config.width.clamp(180.0, 450.0);
+            (w, est_height)
+        }
+        crate::model::OverlayDisplayMode::Combined => {
+            let mini_h = (config.font_size * 2.2).clamp(28.0, 36.0);
+            let card_height = (config.font_size * 3.2 + 8.0).max(36.0);
+            let cards_h = (card_height * 5.0 + 18.0).ceil();
+            let total_h = mini_h + 6.0 + cards_h;
+            let w = config.width.max(420.0).clamp(420.0, 640.0);
+            (w, total_h)
+        }
+        crate::model::OverlayDisplayMode::Hidden => {
+            (config.width.clamp(180.0, 450.0), 30.0)
+        }
+    };
+
+    let max_allowed_h = ((bounds.height as f32 - 20.0) / scale).max(28.0);
+    let clamped_height = height.min(max_allowed_h);
 
     let min_x = bounds.x as f32 / scale;
     let max_x = ((bounds.x as f32 + bounds.width as f32) / scale - width - 8.0).max(min_x);
@@ -62,7 +84,7 @@ pub fn calculate_overlay_geometry(
     let pos_x = raw_pos_x.clamp(min_x, max_x);
 
     let min_y = bounds.y as f32 / scale;
-    let max_y = ((bounds.y as f32 + bounds.height as f32) / scale - height - 8.0).max(min_y);
+    let max_y = ((bounds.y as f32 + bounds.height as f32) / scale - clamped_height - 8.0).max(min_y);
     let raw_pos_y = (bounds.y as f32 + config.offset_y.max(0.0)) / scale;
     let pos_y = raw_pos_y.clamp(min_y, max_y);
 
@@ -70,7 +92,7 @@ pub fn calculate_overlay_geometry(
         pos_x,
         pos_y,
         width,
-        height,
+        height: clamped_height,
     }
 }
 
@@ -310,6 +332,102 @@ pub fn apply_click_through_styles(hwnd: HWND, opacity: f32) {
 #[cfg(not(windows))]
 pub fn apply_click_through_styles(_hwnd: HWND, _opacity: f32) {}
 
+#[cfg(windows)]
+pub struct OverlayHotkeyGuard {
+    thread_id: u32,
+    stop_tx: Option<std::sync::mpsc::Sender<()>>,
+}
+
+#[cfg(windows)]
+impl Drop for OverlayHotkeyGuard {
+    fn drop(&mut self) {
+        if let Some(tx) = self.stop_tx.take() {
+            let _ = tx.send(());
+        }
+        unsafe {
+            windows_sys::Win32::UI::WindowsAndMessaging::PostThreadMessageW(
+                self.thread_id,
+                windows_sys::Win32::UI::WindowsAndMessaging::WM_QUIT,
+                0,
+                0,
+            );
+        }
+    }
+}
+
+#[cfg(not(windows))]
+pub struct OverlayHotkeyGuard;
+
+pub fn start_overlay_hotkey_listener(
+    egui_ctx: eframe::egui::Context,
+    notify_tx: std::sync::mpsc::Sender<()>,
+) -> Option<OverlayHotkeyGuard> {
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+            RegisterHotKey, UnregisterHotKey, MOD_CONTROL, MOD_SHIFT,
+        };
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            GetMessageW, PeekMessageW, MSG, PM_NOREMOVE, WM_HOTKEY, WM_QUIT,
+        };
+
+        let (stop_tx, _stop_rx) = std::sync::mpsc::channel::<()>();
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel::<Option<u32>>();
+
+        let spawn_res = std::thread::Builder::new()
+            .name("rok-overlay-hotkey".to_string())
+            .spawn(move || {
+                let thread_id = unsafe { windows_sys::Win32::System::Threading::GetCurrentThreadId() };
+
+                unsafe {
+                    let mut msg: MSG = std::mem::zeroed();
+                    PeekMessageW(&mut msg, 0 as _, 0, 0, PM_NOREMOVE);
+                }
+
+                let reg_ok = unsafe {
+                    RegisterHotKey(0 as _, 0x9001, MOD_CONTROL | MOD_SHIFT, 0x48)
+                };
+
+                if reg_ok == 0 {
+                    let _ = ready_tx.send(None);
+                    return;
+                }
+
+                let _ = ready_tx.send(Some(thread_id));
+
+                unsafe {
+                    let mut msg: MSG = std::mem::zeroed();
+                    while GetMessageW(&mut msg, 0 as _, 0, 0) > 0 {
+                        if msg.message == WM_HOTKEY && msg.wParam == 0x9001 {
+                            let _ = notify_tx.send(());
+                            egui_ctx.request_repaint();
+                        } else if msg.message == WM_QUIT {
+                            break;
+                        }
+                    }
+                    UnregisterHotKey(0 as _, 0x9001);
+                }
+            });
+
+        if spawn_res.is_err() {
+            return None;
+        }
+
+        match ready_rx.recv() {
+            Ok(Some(thread_id)) => Some(OverlayHotkeyGuard {
+                thread_id,
+                stop_tx: Some(stop_tx),
+            }),
+            _ => None,
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (egui_ctx, notify_tx);
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -479,19 +597,34 @@ mod tests {
     #[test]
     fn test_determine_overlay_visibility_action_hides_when_rok_not_visible() {
         assert_eq!(
-            determine_overlay_visibility_action(true, true, false),
+            determine_overlay_visibility_action(
+                true,
+                crate::model::OverlayDisplayMode::Cards,
+                true,
+                false
+            ),
             OverlayVisibilityAction::Hide,
             "Overlay must hide when RoK is not visible"
         );
 
         assert_eq!(
-            determine_overlay_visibility_action(true, false, false),
+            determine_overlay_visibility_action(
+                true,
+                crate::model::OverlayDisplayMode::Cards,
+                false,
+                false
+            ),
             OverlayVisibilityAction::Hide,
             "Overlay must hide when RoK is not running"
         );
 
         assert_eq!(
-            determine_overlay_visibility_action(false, true, true),
+            determine_overlay_visibility_action(
+                false,
+                crate::model::OverlayDisplayMode::Cards,
+                true,
+                true
+            ),
             OverlayVisibilityAction::Hide,
             "Overlay must hide when disabled"
         );
@@ -500,10 +633,106 @@ mod tests {
     #[test]
     fn test_determine_overlay_visibility_action_shows_only_when_rok_active_and_visible() {
         assert_eq!(
-            determine_overlay_visibility_action(true, true, true),
+            determine_overlay_visibility_action(
+                true,
+                crate::model::OverlayDisplayMode::Cards,
+                true,
+                true
+            ),
             OverlayVisibilityAction::Show,
             "Overlay must show when enabled, RoK is found and RoK is active & visible"
         );
+    }
+
+    #[test]
+    fn test_determine_overlay_visibility_action_hides_when_mode_is_hidden() {
+        assert_eq!(
+            determine_overlay_visibility_action(
+                true,
+                crate::model::OverlayDisplayMode::Hidden,
+                true,
+                true
+            ),
+            OverlayVisibilityAction::Hide,
+            "Overlay must hide when mode is Hidden even if enabled and RoK is active"
+        );
+    }
+
+    #[test]
+    fn test_calculate_overlay_geometry_mini_hud() {
+        let bounds = RoKWindowBounds {
+            x: 0,
+            y: 0,
+            width: 1920,
+            height: 1080,
+        };
+        let cfg = crate::model::OverlayConfig {
+            mode: crate::model::OverlayDisplayMode::MiniHud,
+            font_size: 14.0,
+            width: 500.0,
+            ..Default::default()
+        };
+        let geom = calculate_overlay_geometry(&bounds, &cfg, 1.0);
+        assert_eq!(geom.width, 500.0);
+        assert!(
+            geom.height >= 28.0 && geom.height <= 36.0,
+            "MiniHud height {} must be between 28 and 36",
+            geom.height
+        );
+
+        let cfg_narrow = crate::model::OverlayConfig {
+            mode: crate::model::OverlayDisplayMode::MiniHud,
+            width: 200.0,
+            ..Default::default()
+        };
+        let geom_narrow = calculate_overlay_geometry(&bounds, &cfg_narrow, 1.0);
+        assert_eq!(
+            geom_narrow.width, 320.0,
+            "MiniHud width must clamp to minimum 320.0"
+        );
+    }
+
+    #[test]
+    fn test_calculate_overlay_geometry_combined() {
+        let bounds = RoKWindowBounds {
+            x: 0,
+            y: 0,
+            width: 1920,
+            height: 1080,
+        };
+        let cfg = crate::model::OverlayConfig {
+            mode: crate::model::OverlayDisplayMode::Combined,
+            width: 300.0,
+            ..Default::default()
+        };
+        let geom = calculate_overlay_geometry(&bounds, &cfg, 1.0);
+        assert!(
+            geom.width >= 420.0,
+            "Combined mode width {} must be at least 420.0",
+            geom.width
+        );
+        assert!(
+            geom.height > 200.0,
+            "Combined mode height {} must accommodate ribbon + cards",
+            geom.height
+        );
+    }
+
+    #[test]
+    fn test_calculate_overlay_geometry_hidden() {
+        let bounds = RoKWindowBounds {
+            x: 0,
+            y: 0,
+            width: 1920,
+            height: 1080,
+        };
+        let cfg = crate::model::OverlayConfig {
+            mode: crate::model::OverlayDisplayMode::Hidden,
+            ..Default::default()
+        };
+        let geom = calculate_overlay_geometry(&bounds, &cfg, 1.0);
+        assert_eq!(geom.height, 30.0);
+        assert!(geom.width >= 180.0 && geom.width <= 450.0);
     }
 
     #[test]

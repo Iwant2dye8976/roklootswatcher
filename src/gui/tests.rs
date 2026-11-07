@@ -769,6 +769,8 @@ fn test_calculate_today_pinned_chips_aggregation() {
         pending_overlay_save: false,
         pending_start_minimized_frames: 0,
         _single_instance: None,
+        hotkey_rx: std::sync::mpsc::channel().1,
+        _hotkey_guard: None,
         cloud_auth: CloudAuthConfig::default(),
         cloud_rx: None,
         sync_worker: None,

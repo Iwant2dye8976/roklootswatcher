@@ -97,6 +97,8 @@ pub struct RoKLootWatcherApp {
     pub(crate) pending_overlay_save: bool,
     pub(crate) pending_start_minimized_frames: u32,
     pub(crate) _single_instance: Option<crate::single_instance::windows::SingleInstanceGuard>,
+    pub(crate) hotkey_rx: std::sync::mpsc::Receiver<()>,
+    pub(crate) _hotkey_guard: Option<crate::overlay_tracker::OverlayHotkeyGuard>,
 
     pub cloud_auth: crate::model::CloudAuthConfig,
     pub(crate) cloud_rx: Option<std::sync::mpsc::Receiver<Result<crate::cloud_sync::CloudAuthResult, String>>>,
@@ -212,6 +214,12 @@ impl RoKLootWatcherApp {
             watcher.set_main_account_uids(config.main_account_uids.clone());
         }
 
+        let (hotkey_tx, hotkey_rx) = std::sync::mpsc::channel();
+        let _hotkey_guard = crate::overlay_tracker::start_overlay_hotkey_listener(
+            cc.egui_ctx.clone(),
+            hotkey_tx,
+        );
+
         let mut app = Self {
             watcher,
             rx_ui,
@@ -253,6 +261,8 @@ impl RoKLootWatcherApp {
             pending_overlay_save: false,
             pending_start_minimized_frames: if start_minimized { 5 } else { 0 },
             _single_instance: single_instance,
+            hotkey_rx,
+            _hotkey_guard,
 
             cloud_auth: config.cloud_auth.clone(),
             cloud_rx: None,
@@ -295,6 +305,14 @@ impl eframe::App for RoKLootWatcherApp {
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let _ = crate::tray::get_or_find_main_hwnd();
+
+        if self.overlay_config.hotkey_enabled {
+            while let Ok(()) = self.hotkey_rx.try_recv() {
+                self.overlay_config.mode = self.overlay_config.mode.next();
+                self.save_config();
+                ctx.request_repaint();
+            }
+        }
 
         self.poll_cloud_events(ctx);
 
@@ -558,6 +576,7 @@ impl eframe::App for RoKLootWatcherApp {
         let is_active = rok_hwnd.is_some_and(crate::overlay_tracker::is_rok_active_and_visible);
         let action = crate::overlay_tracker::determine_overlay_visibility_action(
             self.overlay_config.enabled,
+            self.overlay_config.mode,
             rok_found,
             is_active,
         );
