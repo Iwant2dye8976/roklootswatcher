@@ -3437,7 +3437,7 @@ dependencies = [
 
 [[package]]
 name = "rok_watcher"
-version = "2.2.2"
+version = "2.3.0"
 dependencies = [
  "chrono",
  "eframe",
