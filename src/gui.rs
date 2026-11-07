@@ -6,6 +6,7 @@ use eframe::egui::{self, Color32, Margin, Rounding, Stroke};
 
 pub mod theme;
 pub mod components;
+// pub mod lifecycle;
 
 use crate::analyzer::parse_date_str;
 use crate::i18n::{category_name, date_preset_label, filter_mode_label, TrKey};
