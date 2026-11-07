@@ -306,8 +306,8 @@ impl eframe::App for RoKLootWatcherApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let _ = crate::tray::get_or_find_main_hwnd();
 
-        if self.overlay_config.hotkey_enabled {
-            while let Ok(()) = self.hotkey_rx.try_recv() {
+        while let Ok(()) = self.hotkey_rx.try_recv() {
+            if self.overlay_config.hotkey_enabled {
                 self.overlay_config.mode = self.overlay_config.mode.next();
                 self.save_config();
                 ctx.request_repaint();
