@@ -234,7 +234,7 @@ pub struct RoKMailWatcher {
     active_records: Arc<RwLock<Arc<Vec<BattleRecord>>>>,
     stats: Arc<RwLock<Statistics>>,
     catalog: Arc<LootCatalog>,
-    vault: Arc<RwLock<MailVault>>,
+    pub(crate) vault: Arc<RwLock<MailVault>>,
 
     vault_dirty: Arc<AtomicBool>,
     has_unbacked_cloud_data: Arc<AtomicBool>,
@@ -615,6 +615,48 @@ impl RoKMailWatcher {
     pub fn get_latest_vault_records(&self, filter: FilterMode, limit: usize) -> Vec<BattleRecord> {
         let v = self.vault.read().unwrap_or_else(|e| e.into_inner());
         v.query_latest_filtered(filter, limit)
+    }
+
+    pub fn get_today_vault_records(&self, filter: FilterMode) -> Vec<BattleRecord> {
+        let all = {
+            let vault = self.vault.read().unwrap_or_else(|e| e.into_inner());
+            vault.get_records()
+        };
+        let today = crate::analyzer::current_date_vn();
+        let main_uids = self.get_main_account_uids();
+
+        let filtered_by_date = crate::analyzer::filter_records_by_date(
+            &all,
+            Some(today),
+            Some(today),
+            None,
+        );
+
+        filtered_by_date
+            .into_iter()
+            .filter(|r| {
+                if !main_uids.is_empty() {
+                    let clean_rec = r.account_id.strip_prefix("player_").unwrap_or(&r.account_id).trim();
+                    let is_main = !clean_rec.is_empty() && main_uids.iter().any(|u| {
+                        let clean_u = u.strip_prefix("player_").unwrap_or(u).trim();
+                        clean_u == clean_rec
+                    });
+                    if !is_main {
+                        return false;
+                    }
+                }
+
+                match filter {
+                    FilterMode::AllRewards => true,
+                    FilterMode::AllTargets => r.battle_type != "gathering",
+                    FilterMode::Fort => r.battle_type == "fort",
+                    FilterMode::Motte => r.battle_type == "motte",
+                    FilterMode::Barbarian => r.battle_type == "barbarian",
+                    FilterMode::Gathering => r.battle_type == "gathering",
+                    FilterMode::AllForts => matches!(r.battle_type.as_str(), "motte" | "fort"),
+                }
+            })
+            .collect()
     }
 
     pub fn get_active_count(&self) -> usize {

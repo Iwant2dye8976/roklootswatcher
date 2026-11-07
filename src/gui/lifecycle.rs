@@ -1,7 +1,7 @@
 use eframe::egui;
 
 use crate::analyzer::parse_date_str;
-use crate::model::{AppConfig, AppLanguage, DateFilterPreset};
+use crate::model::{AppConfig, AppLanguage, BattleRecord, DateFilterPreset};
 use crate::watcher::{RoKMailWatcher, WatcherUiEvent};
 use super::components::poll_cloud_receiver;
 use super::RoKLootWatcherApp;
@@ -13,9 +13,182 @@ pub fn perform_exit_cloud_backup(watcher: &RoKMailWatcher) {
     }
 }
 
+fn sum_item_in_record(rec: &BattleRecord, canonical_name: &str, itype: u32, isub: u32) -> i64 {
+    let mut total: i64 = 0;
+
+    for (k, v) in &rec.item_totals {
+        let is_match = match canonical_name {
+            "Gems" => {
+                k.eq_ignore_ascii_case("Gems") || k.eq_ignore_ascii_case("Đá quý")
+            }
+            "Book of Covenant" => {
+                k.eq_ignore_ascii_case("Book of Covenant")
+                    || k.eq_ignore_ascii_case("Sách giao ước")
+                    || k.eq_ignore_ascii_case("Sách Giao Ước")
+                    || k.eq_ignore_ascii_case("Sách ước nguyện")
+                    || k.eq_ignore_ascii_case("Sách Ước Nguyện")
+            }
+            "Arrow of Resistance" => {
+                k.eq_ignore_ascii_case("Arrow of Resistance")
+                    || k.eq_ignore_ascii_case("Mũi tên chống trả")
+                    || k.eq_ignore_ascii_case("Mũi Tên Chống Trả")
+                    || k.eq_ignore_ascii_case("Mũi tên kháng cự")
+                    || k.eq_ignore_ascii_case("Mũi Tên Kháng Cự")
+            }
+            _ => k.eq_ignore_ascii_case(canonical_name),
+        };
+        if is_match {
+            total += v;
+        }
+    }
+
+    if total > 0 {
+        return total;
+    }
+
+    if !rec.items.is_empty() {
+        let items_sum: i64 = rec
+            .items
+            .iter()
+            .filter_map(|it| {
+                let is_match = match canonical_name {
+                    "Gems" => {
+                        (it.itype == 1 && (it.sub_type == 5 || it.sub_type == isub))
+                            || it.name_vi.eq_ignore_ascii_case("Đá quý")
+                            || it.name_en.eq_ignore_ascii_case("Gems")
+                    }
+                    "Book of Covenant" => {
+                        (it.itype == 2 && (it.sub_type == 109 || it.sub_type == isub))
+                            || it.name_vi.eq_ignore_ascii_case("Sách giao ước")
+                            || it.name_vi.eq_ignore_ascii_case("Sách ước nguyện")
+                            || it.name_en.eq_ignore_ascii_case("Book of Covenant")
+                    }
+                    "Arrow of Resistance" => {
+                        (it.itype == 2 && (it.sub_type == 145 || it.sub_type == isub))
+                            || it.name_vi.eq_ignore_ascii_case("Mũi tên chống trả")
+                            || it.name_en.eq_ignore_ascii_case("Arrow of Resistance")
+                    }
+                    _ => {
+                        (it.itype == itype && it.sub_type == isub)
+                            || it.name_vi.eq_ignore_ascii_case(canonical_name)
+                            || it.name_en.eq_ignore_ascii_case(canonical_name)
+                    }
+                };
+                if is_match {
+                    Some(it.value)
+                } else {
+                    None
+                }
+            })
+            .sum();
+
+        if items_sum > 0 {
+            return items_sum;
+        }
+    }
+
+    if canonical_name == "Gems" {
+        let gems = rec.compute_gems();
+        if gems > 0 {
+            return gems;
+        }
+    }
+
+    0
+}
+
 impl RoKLootWatcherApp {
+    pub fn calculate_today_pinned_chips(
+        &self,
+        records: &[BattleRecord],
+    ) -> ((usize, usize, usize), Vec<crate::overlay_ui::CachedPinnedChip>) {
+        let mut fort_count = 0;
+        let mut motte_count = 0;
+        let mut barb_count = 0;
+
+        for rec in records {
+            match rec.battle_type.as_str() {
+                "fort" => fort_count += 1,
+                "motte" => motte_count += 1,
+                "barbarian" => barb_count += 1,
+                _ => {}
+            }
+        }
+
+        let c = self.colors();
+        let mut chips = Vec::with_capacity(self.overlay_config.pinned_items.len());
+
+        for item_key in &self.overlay_config.pinned_items {
+            match item_key {
+                crate::model::PinnedItemKey::SpeedupUniversal => {
+                    let total_mins: i64 = records.iter().map(|r| r.univ_speedup_minutes()).sum();
+                    chips.push(crate::overlay_ui::CachedPinnedChip {
+                        key: item_key.clone(),
+                        label: "SPEEDUP".to_string(),
+                        display_val: crate::overlay_ui::format_speedup_compact(total_mins),
+                        text_color: c.speedup_blue,
+                    });
+                }
+                crate::model::PinnedItemKey::SpeedupTraining => {
+                    let total_mins: i64 = records.iter().map(|r| r.training_speedup_minutes()).sum();
+                    chips.push(crate::overlay_ui::CachedPinnedChip {
+                        key: item_key.clone(),
+                        label: "TRAIN".to_string(),
+                        display_val: crate::overlay_ui::format_speedup_compact(total_mins),
+                        text_color: c.train_orange,
+                    });
+                }
+                crate::model::PinnedItemKey::SpeedupHealing => {
+                    let total_mins: i64 = records.iter().map(|r| r.heal_speedup_minutes()).sum();
+                    chips.push(crate::overlay_ui::CachedPinnedChip {
+                        key: item_key.clone(),
+                        label: "HEAL".to_string(),
+                        display_val: crate::overlay_ui::format_speedup_compact(total_mins),
+                        text_color: c.heal_blue,
+                    });
+                }
+                crate::model::PinnedItemKey::CatalogItem { canonical_name, itype, isub } => {
+                    let total: i64 = records
+                        .iter()
+                        .map(|r| sum_item_in_record(r, canonical_name, *itype, *isub))
+                        .sum();
+
+                    let label = match canonical_name.as_str() {
+                        "Gems" => "GEMS".to_string(),
+                        "Book of Covenant" => "BOOKS".to_string(),
+                        "Arrow of Resistance" => "ARROWS".to_string(),
+                        _ => {
+                            let upper = canonical_name.to_uppercase();
+                            upper.chars().take(8).collect()
+                        }
+                    };
+
+                    let text_color = match canonical_name.as_str() {
+                        "Gems" => c.crystal_cyan,
+                        "Book of Covenant" => c.accent_gold,
+                        "Arrow of Resistance" => c.train_orange,
+                        _ => c.canvas_tint,
+                    };
+
+                    chips.push(crate::overlay_ui::CachedPinnedChip {
+                        key: item_key.clone(),
+                        label,
+                        display_val: crate::model::format_num(total),
+                        text_color,
+                    });
+                }
+            }
+        }
+
+        ((fort_count, motte_count, barb_count), chips)
+    }
+
     pub fn refresh_cached_overlay_records(&mut self) {
         self.cached_overlay_records = self.watcher.get_latest_vault_records(self.overlay_config.filter, 5);
+        let today_recs = self.watcher.get_today_vault_records(self.overlay_config.filter);
+        let (run_counts, chips) = self.calculate_today_pinned_chips(&today_recs);
+        self.cached_today_run_counts = run_counts;
+        self.cached_today_pinned_chips = chips;
     }
 
     pub(crate) fn save_config(&self) {

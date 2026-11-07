@@ -1,5 +1,34 @@
 use eframe::egui::{self, Color32, Frame, Margin, Rounding, Stroke};
-use crate::model::{parse_hex_color, BattleRecord, OverlayConfig};
+use crate::model::{parse_hex_color, BattleRecord, OverlayConfig, PinnedItemKey};
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CachedPinnedChip {
+    pub key: PinnedItemKey,
+    pub label: String,        // e.g. "GEMS", "BOOKS", "ARROWS", "SPEEDUP"
+    pub display_val: String,  // e.g. "1,450", "32", "14h 30m"
+    pub text_color: Color32,
+}
+
+pub fn format_speedup_compact(minutes: i64) -> String {
+    if minutes <= 0 {
+        return "0m".to_string();
+    }
+    let days = minutes / 1440;
+    let rem = minutes % 1440;
+    let hours = rem / 60;
+    let mins = rem % 60;
+    let mut parts = Vec::new();
+    if days > 0 {
+        parts.push(format!("{}d", days));
+    }
+    if hours > 0 {
+        parts.push(format!("{}h", hours));
+    }
+    if mins > 0 || parts.is_empty() {
+        parts.push(format!("{}m", mins));
+    }
+    parts.join(" ")
+}
 
 #[derive(Debug, Clone)]
 pub struct CardDisplayData {

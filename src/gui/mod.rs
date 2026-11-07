@@ -110,6 +110,8 @@ pub struct RoKLootWatcherApp {
     pub confirm_delete_non_main: Option<usize>,
 
     pub cached_overlay_records: Vec<BattleRecord>,
+    pub cached_today_run_counts: (usize, usize, usize),
+    pub cached_today_pinned_chips: Vec<crate::overlay_ui::CachedPinnedChip>,
     pub cached_sorted_battle_indices: Vec<usize>,
     pub reports_sort_dirty: bool,
     pub last_applied_theme: Option<AppTheme>,
@@ -210,7 +212,7 @@ impl RoKLootWatcherApp {
             watcher.set_main_account_uids(config.main_account_uids.clone());
         }
 
-        Self {
+        let mut app = Self {
             watcher,
             rx_ui,
             tray,
@@ -264,6 +266,8 @@ impl RoKLootWatcherApp {
             confirm_delete_non_main: None,
 
             cached_overlay_records: initial_overlay_records,
+            cached_today_run_counts: (0, 0, 0),
+            cached_today_pinned_chips: Vec::new(),
             cached_sorted_battle_indices: Vec::new(),
             reports_sort_dirty: true,
             last_applied_theme: None,
@@ -277,7 +281,10 @@ impl RoKLootWatcherApp {
             ap_econ_dirty: true,
             last_ap_records_count: 0,
             last_ap_mode: initial_mode,
-        }
+        };
+
+        app.refresh_cached_overlay_records();
+        app
     }
 }
 

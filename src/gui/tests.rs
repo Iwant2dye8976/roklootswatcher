@@ -682,3 +682,336 @@ fn test_sync_worker_state_token_rotation_extraction() {
     assert_eq!(auth_cfg.refresh_token.as_deref(), Some("ref_rot_456"));
     assert!(state.read().unwrap().new_tokens.is_none());
 }
+
+#[test]
+fn test_format_speedup_compact() {
+    assert_eq!(crate::overlay_ui::format_speedup_compact(0), "0m");
+    assert_eq!(crate::overlay_ui::format_speedup_compact(-15), "0m");
+    assert_eq!(crate::overlay_ui::format_speedup_compact(45), "45m");
+    assert_eq!(crate::overlay_ui::format_speedup_compact(870), "14h 30m");
+    assert_eq!(crate::overlay_ui::format_speedup_compact(1440), "1d");
+    assert_eq!(crate::overlay_ui::format_speedup_compact(1440 + 30), "1d 30m");
+    assert_eq!(crate::overlay_ui::format_speedup_compact(1440 + 120 + 45), "1d 2h 45m");
+}
+
+#[test]
+fn test_format_num_discrete_items() {
+    assert_eq!(crate::model::format_num(0), "0");
+    assert_eq!(crate::model::format_num(32), "32");
+    assert_eq!(crate::model::format_num(1450), "1,450");
+    assert_eq!(crate::model::format_num(1000000), "1,000,000");
+}
+
+#[test]
+fn test_calculate_today_pinned_chips_aggregation() {
+    let app = RoKLootWatcherApp {
+        watcher: Arc::new(RoKMailWatcher::new(
+            None,
+            None,
+            FilterMode::AllRewards,
+            crate::loot_catalog::LootCatalog::empty(),
+            std::sync::mpsc::channel().0,
+        )),
+        rx_ui: std::sync::mpsc::channel().1,
+        tray: None,
+        theme: AppTheme::Dark,
+        language: AppLanguage::English,
+        watcher_status: WatcherStatus::Running(String::new()),
+        mail_path_input: String::new(),
+        selected_mode: FilterMode::AllRewards,
+        selected_account: None,
+        selected_date_preset: DateFilterPreset::AllTime,
+        date_from_input: String::new(),
+        date_to_input: String::new(),
+        current_tab: 0,
+        battle_search: String::new(),
+        item_search: String::new(),
+        item_category_filter: "All".to_string(),
+        log_auto_scroll: true,
+        battle_sort_col: None,
+        battle_sort_dir: SortDirection::Descending,
+        item_sort_col: None,
+        item_sort_dir: SortDirection::Descending,
+        console_logs: std::collections::VecDeque::new(),
+        selected_battle_detail: None,
+        speedup_unit: SpeedupUnit::Dhm,
+        close_behavior: CloseBehavior::Tray,
+        autostart: false,
+        autostart_minimized: false,
+        overlay_config: OverlayConfig {
+            enabled: true,
+            filter: FilterMode::AllRewards,
+            pinned_items: vec![
+                PinnedItemKey::CatalogItem {
+                    itype: 1,
+                    isub: 2,
+                    canonical_name: "Gems".to_string(),
+                },
+                PinnedItemKey::CatalogItem {
+                    itype: 2,
+                    isub: 3,
+                    canonical_name: "Book of Covenant".to_string(),
+                },
+                PinnedItemKey::CatalogItem {
+                    itype: 2,
+                    isub: 4,
+                    canonical_name: "Arrow of Resistance".to_string(),
+                },
+                PinnedItemKey::SpeedupUniversal,
+                PinnedItemKey::SpeedupTraining,
+                PinnedItemKey::SpeedupHealing,
+            ],
+            ..Default::default()
+        },
+        last_mail_arrival: std::time::Instant::now(),
+        overlay_styled_hwnd: None,
+        overlay_last_opacity: None,
+        pending_overlay_save: false,
+        pending_start_minimized_frames: 0,
+        _single_instance: None,
+        cloud_auth: CloudAuthConfig::default(),
+        cloud_rx: None,
+        sync_worker: None,
+        sync_rx: None,
+        restore_rx: None,
+        cloud_busy: false,
+        has_unbacked_data: false,
+        main_account_uids: Vec::new(),
+        new_main_uid_input: String::new(),
+        confirm_delete_non_main: None,
+        cached_overlay_records: Vec::new(),
+        cached_today_run_counts: (0, 0, 0),
+        cached_today_pinned_chips: Vec::new(),
+        cached_sorted_battle_indices: Vec::new(),
+        reports_sort_dirty: false,
+        last_applied_theme: None,
+        last_records_count: 0,
+        last_battle_search: String::new(),
+        last_battle_sort_col: None,
+        last_battle_sort_dir: SortDirection::Descending,
+        last_battle_mode: FilterMode::AllRewards,
+        last_battle_lang: AppLanguage::English,
+        cached_ap_econ: None,
+        ap_econ_dirty: false,
+        last_ap_records_count: 0,
+        last_ap_mode: FilterMode::AllRewards,
+    };
+
+    let mut rec1 = BattleRecord {
+        battle_type: "fort".to_string(),
+        items: vec![
+            ItemDrop {
+                itype: 2,
+                sub_type: 36, // 60 min univ speedup
+                value: 2,
+                name_vi: "Tăng tốc 60 phút".to_string(),
+                name_en: "60m Speedup".to_string(),
+                category: "Tăng tốc".to_string(),
+                sprites: vec![],
+                pic: String::new(),
+            },
+            ItemDrop {
+                itype: 2,
+                sub_type: 76, // 60 min train speedup
+                value: 3,
+                name_vi: "Tăng tốc huấn luyện 60 phút".to_string(),
+                name_en: "60m Training Speedup".to_string(),
+                category: "Tăng tốc".to_string(),
+                sprites: vec![],
+                pic: String::new(),
+            },
+        ],
+        ..Default::default()
+    };
+    rec1.item_totals.insert("Book of Covenant".to_string(), 12);
+    rec1.item_totals.insert("Đá quý".to_string(), 450);
+
+    let mut rec2 = BattleRecord {
+        battle_type: "fort".to_string(),
+        items: vec![
+            ItemDrop {
+                itype: 2,
+                sub_type: 96, // 60 min heal speedup
+                value: 5,
+                name_vi: "Tăng tốc chữa lành 60 phút".to_string(),
+                name_en: "60m Healing Speedup".to_string(),
+                category: "Tăng tốc".to_string(),
+                sprites: vec![],
+                pic: String::new(),
+            },
+        ],
+        ..Default::default()
+    };
+    rec2.item_totals.insert("Sách giao ước".to_string(), 20);
+    rec2.item_totals.insert("Gems".to_string(), 1000);
+    rec2.item_totals.insert("Arrow of Resistance".to_string(), 14);
+
+    let mut rec3 = BattleRecord {
+        battle_type: "motte".to_string(),
+        ..Default::default()
+    };
+    rec3.item_totals.insert("Mũi Tên Chống Trả".to_string(), 18);
+
+    let rec4 = BattleRecord {
+        battle_type: "barbarian".to_string(),
+        ..Default::default()
+    };
+
+    let records = vec![rec1, rec2, rec3, rec4];
+    let (runs, chips) = app.calculate_today_pinned_chips(&records);
+
+    // Runs: (Fort, Motte, Barbarian) -> (2, 1, 1)
+    assert_eq!(runs, (2, 1, 1));
+
+    // Pinned chips
+    assert_eq!(chips.len(), 6);
+
+    // Gems: 450 + 1000 = 1450 -> "1,450"
+    assert_eq!(chips[0].label, "GEMS");
+    assert_eq!(chips[0].display_val, "1,450");
+    assert_eq!(chips[0].text_color, app.colors().crystal_cyan);
+
+    // Books: 12 + 20 = 32 -> "32"
+    assert_eq!(chips[1].label, "BOOKS");
+    assert_eq!(chips[1].display_val, "32");
+    assert_eq!(chips[1].text_color, app.colors().accent_gold);
+
+    // Arrows: 14 + 18 = 32 -> "32"
+    assert_eq!(chips[2].label, "ARROWS");
+    assert_eq!(chips[2].display_val, "32");
+    assert_eq!(chips[2].text_color, app.colors().train_orange);
+
+    // Universal Speedup: 2 * 60 = 120 mins = 2h
+    assert_eq!(chips[3].label, "SPEEDUP");
+    assert_eq!(chips[3].display_val, "2h");
+    assert_eq!(chips[3].text_color, app.colors().speedup_blue);
+
+    // Training Speedup: 3 * 60 = 180 mins = 3h
+    assert_eq!(chips[4].label, "TRAIN");
+    assert_eq!(chips[4].display_val, "3h");
+    assert_eq!(chips[4].text_color, app.colors().train_orange);
+
+    // Healing Speedup: 5 * 60 = 300 mins = 5h
+    assert_eq!(chips[5].label, "HEAL");
+    assert_eq!(chips[5].display_val, "5h");
+    assert_eq!(chips[5].text_color, app.colors().heal_blue);
+}
+
+#[test]
+fn test_today_vault_records_filtering_and_account_isolation() {
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let temp_dir = std::env::temp_dir().join(format!("rok_test_today_v_{}_{}", std::process::id(), unique));
+    let _ = std::fs::create_dir_all(&temp_dir);
+
+    let (tx, _rx) = std::sync::mpsc::channel();
+    let watcher = RoKMailWatcher::new(
+        Some(temp_dir.clone()),
+        Some(temp_dir.clone()),
+        FilterMode::AllRewards,
+        crate::loot_catalog::LootCatalog::empty(),
+        tx,
+    );
+
+    let today = crate::analyzer::current_date_vn();
+    let yesterday = today - chrono::Duration::days(1);
+
+    // 1. Fort today (main account)
+    let mut rec1 = BattleRecord {
+        mail_id: "m1".to_string(),
+        battle_type: "fort".to_string(),
+        time_vn: format!("{} 10:00:00", today.format("%Y-%m-%d")),
+        account_id: "player_1001".to_string(),
+        ..Default::default()
+    };
+    rec1.item_totals.insert("Book of Covenant".to_string(), 5);
+
+    // 2. Motte today (main account)
+    let mut rec2 = BattleRecord {
+        mail_id: "m2".to_string(),
+        battle_type: "motte".to_string(),
+        time_vn: format!("{} 11:00:00", today.format("%Y-%m-%d")),
+        account_id: "player_1001".to_string(),
+        ..Default::default()
+    };
+    rec2.item_totals.insert("Arrow of Resistance".to_string(), 3);
+
+    // 3. Barbarian today (main account)
+    let rec3 = BattleRecord {
+        mail_id: "m3".to_string(),
+        battle_type: "barbarian".to_string(),
+        time_vn: format!("{} 12:00:00", today.format("%Y-%m-%d")),
+        account_id: "player_1001".to_string(),
+        ..Default::default()
+    };
+
+    // 4. Gathering today (main account)
+    let rec4 = BattleRecord {
+        mail_id: "m4".to_string(),
+        battle_type: "gathering".to_string(),
+        time_vn: format!("{} 13:00:00", today.format("%Y-%m-%d")),
+        account_id: "player_1001".to_string(),
+        ..Default::default()
+    };
+
+    // 5. Fort yesterday (main account) - should be excluded by today filter
+    let rec5 = BattleRecord {
+        mail_id: "m5".to_string(),
+        battle_type: "fort".to_string(),
+        time_vn: format!("{} 10:00:00", yesterday.format("%Y-%m-%d")),
+        account_id: "player_1001".to_string(),
+        ..Default::default()
+    };
+
+    // 6. Fort today from farm account (player_9999) - should be excluded when main_account_uids active
+    let rec6 = BattleRecord {
+        mail_id: "m6".to_string(),
+        battle_type: "fort".to_string(),
+        time_vn: format!("{} 14:00:00", today.format("%Y-%m-%d")),
+        account_id: "player_9999".to_string(),
+        ..Default::default()
+    };
+
+    {
+        let mut v = watcher.vault.write().unwrap();
+        v.upsert(rec1);
+        v.upsert(rec2);
+        v.upsert(rec3);
+        v.upsert(rec4);
+        v.upsert(rec5);
+        v.upsert(rec6);
+    }
+
+    // No main_account_uids set: all 5 today records returned for AllRewards
+    let all_today = watcher.get_today_vault_records(FilterMode::AllRewards);
+    assert_eq!(all_today.len(), 5);
+
+    // FilterMode restrictions without account isolation:
+    let forts = watcher.get_today_vault_records(FilterMode::Fort);
+    assert_eq!(forts.len(), 2); // rec1 and rec6
+
+    let mottes = watcher.get_today_vault_records(FilterMode::Motte);
+    assert_eq!(mottes.len(), 1); // rec2
+
+    let barbs = watcher.get_today_vault_records(FilterMode::Barbarian);
+    assert_eq!(barbs.len(), 1); // rec3
+
+    let combat_targets = watcher.get_today_vault_records(FilterMode::AllTargets);
+    assert_eq!(combat_targets.len(), 4); // rec1, rec2, rec3, rec6 (no gathering)
+
+    let gathering = watcher.get_today_vault_records(FilterMode::Gathering);
+    assert_eq!(gathering.len(), 1); // rec4
+
+    // Activate Account Isolation for UID "1001"
+    watcher.set_main_account_uids(vec!["1001".to_string()]);
+
+    let main_all_today = watcher.get_today_vault_records(FilterMode::AllRewards);
+    assert_eq!(main_all_today.len(), 4); // rec1, rec2, rec3, rec4 (rec6 excluded)
+
+    let main_forts = watcher.get_today_vault_records(FilterMode::Fort);
+    assert_eq!(main_forts.len(), 1); // only rec1
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
