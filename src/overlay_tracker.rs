@@ -53,13 +53,13 @@ pub fn calculate_overlay_geometry(
     let (width, height) = match config.mode {
         crate::model::OverlayDisplayMode::MiniHud => {
             let h = (config.font_size * 2.2).clamp(28.0, 36.0);
-            let w = config.width.clamp(320.0, 600.0);
+            let w = config.width.clamp(180.0, 750.0);
             (w, h)
         }
         crate::model::OverlayDisplayMode::Cards => {
             let card_height = (config.font_size * 3.2 + 8.0).max(36.0);
             let est_height = (card_height * 5.0 + 18.0).ceil();
-            let w = config.width.clamp(180.0, 450.0);
+            let w = config.width.clamp(180.0, 750.0);
             (w, est_height)
         }
         crate::model::OverlayDisplayMode::Combined => {
@@ -67,11 +67,11 @@ pub fn calculate_overlay_geometry(
             let card_height = (config.font_size * 3.2 + 8.0).max(36.0);
             let cards_h = (card_height * 5.0 + 18.0).ceil();
             let total_h = mini_h + 6.0 + cards_h;
-            let w = config.width.max(420.0).clamp(420.0, 640.0);
+            let w = config.width.clamp(180.0, 750.0);
             (w, total_h)
         }
         crate::model::OverlayDisplayMode::Hidden => {
-            (config.width.clamp(180.0, 450.0), 30.0)
+            (config.width.clamp(180.0, 750.0), 30.0)
         }
     };
 
@@ -682,13 +682,13 @@ mod tests {
 
         let cfg_narrow = crate::model::OverlayConfig {
             mode: crate::model::OverlayDisplayMode::MiniHud,
-            width: 200.0,
+            width: 120.0,
             ..Default::default()
         };
         let geom_narrow = calculate_overlay_geometry(&bounds, &cfg_narrow, 1.0);
         assert_eq!(
-            geom_narrow.width, 320.0,
-            "MiniHud width must clamp to minimum 320.0"
+            geom_narrow.width, 180.0,
+            "MiniHud width must clamp to minimum 180.0"
         );
     }
 
@@ -706,10 +706,20 @@ mod tests {
             ..Default::default()
         };
         let geom = calculate_overlay_geometry(&bounds, &cfg, 1.0);
-        assert!(
-            geom.width >= 420.0,
-            "Combined mode width {} must be at least 420.0",
+        assert_eq!(
+            geom.width, 300.0,
+            "Combined mode width {} should match requested 300.0",
             geom.width
+        );
+        let cfg_narrow = crate::model::OverlayConfig {
+            mode: crate::model::OverlayDisplayMode::Combined,
+            width: 150.0,
+            ..Default::default()
+        };
+        let geom_narrow = calculate_overlay_geometry(&bounds, &cfg_narrow, 1.0);
+        assert_eq!(
+            geom_narrow.width, 180.0,
+            "Combined mode width must clamp to minimum 180.0"
         );
         assert!(
             geom.height > 200.0,
@@ -732,7 +742,7 @@ mod tests {
         };
         let geom = calculate_overlay_geometry(&bounds, &cfg, 1.0);
         assert_eq!(geom.height, 30.0);
-        assert!(geom.width >= 180.0 && geom.width <= 450.0);
+        assert!(geom.width >= 180.0 && geom.width <= 750.0);
     }
 
     #[test]

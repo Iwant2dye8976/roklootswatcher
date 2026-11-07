@@ -638,7 +638,7 @@ impl RoKLootWatcherApp {
                         ui.horizontal(|ui| {
                             ui.label(egui::RichText::new(width_lbl).strong().color(c.canvas_tint));
                             ui.add(
-                                egui::Slider::new(&mut self.overlay_config.width, 180.0_f32..=380.0_f32)
+                                egui::Slider::new(&mut self.overlay_config.width, 180.0_f32..=750.0_f32)
                                     .custom_formatter(|n, _| format!("{:.0} px", n)),
                             );
                         });
@@ -1566,6 +1566,10 @@ impl PinnedItemKey {
                     AppLanguage::Vietnamese => "Đá quý",
                     AppLanguage::English => "Gems",
                 },
+                "Crystals" => match lang {
+                    AppLanguage::Vietnamese => "Pha Lê",
+                    AppLanguage::English => "Crystals",
+                },
                 "Book of Covenant" => match lang {
                     AppLanguage::Vietnamese => "Sách giao ước",
                     AppLanguage::English => "Book of Covenant",
@@ -1656,6 +1660,11 @@ pub fn available_pinned_item_options() -> Vec<PinnedItemKey> {
             canonical_name: "Gems".to_string(),
         },
         PinnedItemKey::CatalogItem {
+            itype: 1,
+            isub: 9,
+            canonical_name: "Crystals".to_string(),
+        },
+        PinnedItemKey::CatalogItem {
             itype: 2,
             isub: 3,
             canonical_name: "Book of Covenant".to_string(),
@@ -1707,7 +1716,7 @@ pub fn pinned_item_color(item: &PinnedItemKey, c: &crate::gui::theme::ThemeColor
         PinnedItemKey::SpeedupTraining => c.train_orange,
         PinnedItemKey::SpeedupHealing => c.heal_blue,
         PinnedItemKey::CatalogItem { canonical_name, .. } => match canonical_name.as_str() {
-            "Gems" => c.crystal_cyan,
+            "Gems" | "Crystals" => c.crystal_cyan,
             "Book of Covenant" | "Gold Key" => c.accent_gold,
             "Arrow of Resistance" => c.train_orange,
             "Silver Key" => c.rank_silver,

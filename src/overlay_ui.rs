@@ -168,6 +168,7 @@ pub fn render_mini_hud_ribbon(
         .stroke(card_stroke)
         .inner_margin(Margin::symmetric(8.0, 4.0))
         .show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing = egui::vec2(5.0, 0.0);
 
@@ -272,6 +273,7 @@ pub fn render_cards_stack(
             .rounding(Rounding::same(4.0))
             .inner_margin(Margin::symmetric(8.0, 6.0))
             .show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
                 ui.label(
                     egui::RichText::new("[RoK Overlay - No matching reports]")
                         .color(muted_text)
@@ -295,6 +297,7 @@ pub fn render_cards_stack(
                 bottom: pad_v,
             })
             .show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing = egui::vec2(4.0, 0.0);
                     ui.label(

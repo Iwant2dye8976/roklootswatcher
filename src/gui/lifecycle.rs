@@ -21,6 +21,12 @@ fn sum_item_in_record(rec: &BattleRecord, canonical_name: &str, itype: u32, isub
             "Gems" => {
                 k.eq_ignore_ascii_case("Gems") || k.eq_ignore_ascii_case("Đá quý")
             }
+            "Crystals" => {
+                k.eq_ignore_ascii_case("Crystals")
+                    || k.eq_ignore_ascii_case("Crystal")
+                    || k.eq_ignore_ascii_case("Pha Lê")
+                    || k.eq_ignore_ascii_case("Pha lê")
+            }
             "Book of Covenant" => {
                 k.eq_ignore_ascii_case("Book of Covenant")
                     || k.eq_ignore_ascii_case("Sách giao ước")
@@ -57,6 +63,13 @@ fn sum_item_in_record(rec: &BattleRecord, canonical_name: &str, itype: u32, isub
                             || it.name_vi.eq_ignore_ascii_case("Đá quý")
                             || it.name_en.eq_ignore_ascii_case("Gems")
                     }
+                    "Crystals" => {
+                        (it.itype == 1 && (it.sub_type == 9 || it.sub_type == isub))
+                            || it.name_vi.eq_ignore_ascii_case("Pha Lê")
+                            || it.name_vi.eq_ignore_ascii_case("Pha lê")
+                            || it.name_en.eq_ignore_ascii_case("Crystals")
+                            || it.name_en.eq_ignore_ascii_case("Crystal")
+                    }
                     "Book of Covenant" => {
                         (it.itype == 2 && (it.sub_type == 109 || it.sub_type == isub))
                             || it.name_vi.eq_ignore_ascii_case("Sách giao ước")
@@ -91,6 +104,13 @@ fn sum_item_in_record(rec: &BattleRecord, canonical_name: &str, itype: u32, isub
         let gems = rec.compute_gems();
         if gems > 0 {
             return gems;
+        }
+    }
+
+    if canonical_name == "Crystals" {
+        let crystals = rec.item_quantity(1, 9);
+        if crystals > 0 {
+            return crystals;
         }
     }
 
@@ -155,6 +175,7 @@ impl RoKLootWatcherApp {
 
                     let label = match canonical_name.as_str() {
                         "Gems" => "GEMS".to_string(),
+                        "Crystals" => "CRYSTALS".to_string(),
                         "Book of Covenant" => "BOOKS".to_string(),
                         "Arrow of Resistance" => "ARROWS".to_string(),
                         _ => {
@@ -164,7 +185,7 @@ impl RoKLootWatcherApp {
                     };
 
                     let text_color = match canonical_name.as_str() {
-                        "Gems" => c.crystal_cyan,
+                        "Gems" | "Crystals" => c.crystal_cyan,
                         "Book of Covenant" => c.accent_gold,
                         "Arrow of Resistance" => c.train_orange,
                         _ => c.canvas_tint,

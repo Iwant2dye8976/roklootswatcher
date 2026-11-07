@@ -702,9 +702,8 @@ fn test_format_num_discrete_items() {
     assert_eq!(crate::model::format_num(1000000), "1,000,000");
 }
 
-#[test]
-fn test_calculate_today_pinned_chips_aggregation() {
-    let app = RoKLootWatcherApp {
+fn make_test_app(pinned_items: Vec<PinnedItemKey>) -> RoKLootWatcherApp {
+    RoKLootWatcherApp {
         watcher: Arc::new(RoKMailWatcher::new(
             None,
             None,
@@ -741,26 +740,7 @@ fn test_calculate_today_pinned_chips_aggregation() {
         overlay_config: OverlayConfig {
             enabled: true,
             filter: FilterMode::AllRewards,
-            pinned_items: vec![
-                PinnedItemKey::CatalogItem {
-                    itype: 1,
-                    isub: 2,
-                    canonical_name: "Gems".to_string(),
-                },
-                PinnedItemKey::CatalogItem {
-                    itype: 2,
-                    isub: 3,
-                    canonical_name: "Book of Covenant".to_string(),
-                },
-                PinnedItemKey::CatalogItem {
-                    itype: 2,
-                    isub: 4,
-                    canonical_name: "Arrow of Resistance".to_string(),
-                },
-                PinnedItemKey::SpeedupUniversal,
-                PinnedItemKey::SpeedupTraining,
-                PinnedItemKey::SpeedupHealing,
-            ],
+            pinned_items,
             ..Default::default()
         },
         last_mail_arrival: std::time::Instant::now(),
@@ -797,7 +777,31 @@ fn test_calculate_today_pinned_chips_aggregation() {
         ap_econ_dirty: false,
         last_ap_records_count: 0,
         last_ap_mode: FilterMode::AllRewards,
-    };
+    }
+}
+
+#[test]
+fn test_calculate_today_pinned_chips_aggregation() {
+    let app = make_test_app(vec![
+        PinnedItemKey::CatalogItem {
+            itype: 1,
+            isub: 2,
+            canonical_name: "Gems".to_string(),
+        },
+        PinnedItemKey::CatalogItem {
+            itype: 2,
+            isub: 3,
+            canonical_name: "Book of Covenant".to_string(),
+        },
+        PinnedItemKey::CatalogItem {
+            itype: 2,
+            isub: 4,
+            canonical_name: "Arrow of Resistance".to_string(),
+        },
+        PinnedItemKey::SpeedupUniversal,
+        PinnedItemKey::SpeedupTraining,
+        PinnedItemKey::SpeedupHealing,
+    ]);
 
     let mut rec1 = BattleRecord {
         battle_type: "fort".to_string(),
@@ -1159,7 +1163,52 @@ fn test_overlay_settings_presets() {
     config.apply_pinned_preset(&gathering_heals);
     assert_eq!(config.pinned_items.len(), 5);
 
-    // Check available options list has all 12 items
+    // Check available options list has all 13 items (including Crystals)
     let options = crate::gui::views::settings::available_pinned_item_options();
-    assert_eq!(options.len(), 12);
+    assert_eq!(options.len(), 13);
+}
+
+#[test]
+fn test_pinned_item_crystals_configuration_and_aggregation() {
+    let options = crate::gui::views::settings::available_pinned_item_options();
+    let crystal_opt = options
+        .iter()
+        .find(|opt| opt.canonical_name() == "Crystals")
+        .expect("Crystals option must be available in pinned item options");
+
+    assert_eq!(crystal_opt.localized_name(AppLanguage::English), "Crystals");
+    assert_eq!(crystal_opt.localized_name(AppLanguage::Vietnamese), "Pha Lê");
+
+    let colors = crate::gui::theme::ThemeColors::dark();
+    assert_eq!(
+        crate::gui::views::settings::pinned_item_color(crystal_opt, &colors),
+        colors.crystal_cyan
+    );
+
+    let mut rec = BattleRecord {
+        mail_id: "rec_crys_1".to_string(),
+        battle_type: "fort".to_string(),
+        items: vec![
+            ItemDrop {
+                itype: 1,
+                sub_type: 9,
+                value: 350,
+                name_vi: "Pha Lê".to_string(),
+                name_en: "Crystals".to_string(),
+                category: "Vật phẩm đặc biệt".to_string(),
+                sprites: vec![],
+                pic: String::new(),
+            },
+        ],
+        ..Default::default()
+    };
+    rec.item_totals.insert("Crystals".to_string(), 350);
+
+    let app = make_test_app(vec![crystal_opt.clone()]);
+
+    let (_, chips) = app.calculate_today_pinned_chips(&[rec]);
+    assert_eq!(chips.len(), 1);
+    assert_eq!(chips[0].label, "CRYSTALS");
+    assert_eq!(chips[0].display_val, "350");
+    assert_eq!(chips[0].text_color, colors.crystal_cyan);
 }
