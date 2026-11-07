@@ -1508,6 +1508,38 @@ impl std::fmt::Display for AppLanguage {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum OverlayDisplayMode {
+    #[default]
+    Cards,
+    MiniHud,
+    Combined,
+    Hidden,
+}
+
+impl OverlayDisplayMode {
+    pub fn next(&self) -> Self {
+        match self {
+            Self::Cards => Self::MiniHud,
+            Self::MiniHud => Self::Combined,
+            Self::Combined => Self::Hidden,
+            Self::Hidden => Self::Cards,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PinnedItemKey {
+    CatalogItem {
+        itype: u32,
+        isub: u32,
+        canonical_name: String,
+    },
+    SpeedupUniversal,
+    SpeedupTraining,
+    SpeedupHealing,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct OverlayConfig {
     #[serde(default = "default_overlay_enabled")]
@@ -1528,6 +1560,12 @@ pub struct OverlayConfig {
     pub width: f32,
     #[serde(default = "default_overlay_font_size")]
     pub font_size: f32,
+    #[serde(default = "default_overlay_mode")]
+    pub mode: OverlayDisplayMode,
+    #[serde(default = "default_overlay_pinned_items")]
+    pub pinned_items: Vec<PinnedItemKey>,
+    #[serde(default = "default_overlay_hotkey_enabled")]
+    pub hotkey_enabled: bool,
 }
 
 fn default_overlay_enabled() -> bool {
@@ -1566,6 +1604,35 @@ fn default_overlay_font_size() -> f32 {
     10.5
 }
 
+pub fn default_overlay_mode() -> OverlayDisplayMode {
+    OverlayDisplayMode::Cards
+}
+
+pub fn default_overlay_pinned_items() -> Vec<PinnedItemKey> {
+    vec![
+        PinnedItemKey::CatalogItem {
+            itype: 1,
+            isub: 2,
+            canonical_name: "Gems".to_string(),
+        },
+        PinnedItemKey::CatalogItem {
+            itype: 2,
+            isub: 3,
+            canonical_name: "Book of Covenant".to_string(),
+        },
+        PinnedItemKey::CatalogItem {
+            itype: 2,
+            isub: 4,
+            canonical_name: "Arrow of Resistance".to_string(),
+        },
+        PinnedItemKey::SpeedupUniversal,
+    ]
+}
+
+pub fn default_overlay_hotkey_enabled() -> bool {
+    true
+}
+
 impl Default for OverlayConfig {
     fn default() -> Self {
         Self {
@@ -1578,6 +1645,9 @@ impl Default for OverlayConfig {
             offset_y: default_overlay_offset_y(),
             width: default_overlay_width(),
             font_size: default_overlay_font_size(),
+            mode: default_overlay_mode(),
+            pinned_items: default_overlay_pinned_items(),
+            hotkey_enabled: default_overlay_hotkey_enabled(),
         }
     }
 }
@@ -2842,6 +2912,52 @@ mod tests {
             offset_y: 200.0,
             width: 320.0,
             font_size: 13.0,
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&cfg).expect("Must serialize");
+        let back: OverlayConfig = serde_json::from_str(&json).expect("Must deserialize");
+        assert_eq!(back, cfg);
+    }
+
+    #[test]
+    fn test_overlay_display_mode_cycle() {
+        assert_eq!(OverlayDisplayMode::Cards.next(), OverlayDisplayMode::MiniHud);
+        assert_eq!(OverlayDisplayMode::MiniHud.next(), OverlayDisplayMode::Combined);
+        assert_eq!(OverlayDisplayMode::Combined.next(), OverlayDisplayMode::Hidden);
+        assert_eq!(OverlayDisplayMode::Hidden.next(), OverlayDisplayMode::Cards);
+    }
+
+    #[test]
+    fn test_overlay_config_backward_compat() {
+        let legacy_json = r##"{"enabled":true,"opacity":0.8,"text_color_hex":"#FFFFFF"}"##;
+        let config: OverlayConfig = serde_json::from_str(legacy_json).expect("Must parse legacy config");
+        assert_eq!(config.mode, OverlayDisplayMode::Cards);
+        assert_eq!(config.pinned_items, default_overlay_pinned_items());
+        assert!(config.hotkey_enabled);
+    }
+
+    #[test]
+    fn test_overlay_config_serde_roundtrip() {
+        let cfg = OverlayConfig {
+            enabled: true,
+            filter: FilterMode::Fort,
+            opacity: 0.9,
+            text_color_hex: "#FFFFFF".into(),
+            accent_color_hex: "#F59E0B".into(),
+            offset_x: 40.0,
+            offset_y: 80.0,
+            width: 350.0,
+            font_size: 12.0,
+            mode: OverlayDisplayMode::MiniHud,
+            pinned_items: vec![
+                PinnedItemKey::SpeedupTraining,
+                PinnedItemKey::CatalogItem {
+                    itype: 2,
+                    isub: 130,
+                    canonical_name: "Tome of Knowledge L3".into(),
+                },
+            ],
+            hotkey_enabled: false,
         };
         let json = serde_json::to_string(&cfg).expect("Must serialize");
         let back: OverlayConfig = serde_json::from_str(&json).expect("Must deserialize");

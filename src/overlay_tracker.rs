@@ -358,6 +358,7 @@ mod tests {
             offset_y: 150.0,
             width: 300.0,
             font_size: 12.0,
+            ..Default::default()
         };
         let geom = calculate_overlay_geometry(&bounds, &cfg, 1.0);
         assert_eq!(geom.pos_x, 350.0);
