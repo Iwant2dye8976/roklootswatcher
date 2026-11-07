@@ -166,11 +166,11 @@ pub fn render_mini_hud_ribbon(
         .fill(bg_color)
         .rounding(Rounding::same(5.0))
         .stroke(card_stroke)
-        .inner_margin(Margin::symmetric(8.0, 4.0))
+        .inner_margin(Margin::symmetric(8.0, 3.0))
         .show(ui, |ui| {
             ui.set_min_width(ui.available_width());
             ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
-            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+            ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing = egui::vec2(5.0, 0.0);
 
                 let badge_bg_alpha = if config.opacity <= 0.01 {
