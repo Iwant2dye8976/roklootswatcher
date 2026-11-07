@@ -34,7 +34,7 @@ impl RoKLootWatcherApp {
                     .inner_margin(Margin::symmetric(5.0, 2.0))
                     .show(ui, |ui| {
                         ui.label(
-                            egui::RichText::new("v2.2.1")
+                            egui::RichText::new(concat!("v", env!("CARGO_PKG_VERSION")))
                                 .font(egui::FontId::proportional(10.0))
                                 .strong()
                                 .color(c.text_muted),

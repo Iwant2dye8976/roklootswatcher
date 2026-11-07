@@ -106,4 +106,4 @@ Before completing any task:
 | **Debugging** | `systematic-debugging` | Root-cause file lock failures, decoding errors, or UI freeze issues before touching code. |
 | **New Parsers / Calculations** | `test-driven-development` | Write tests first for new item IDs, multiplier formulas, or binary tags. |
 | **GUI & Styling** | `ui-ux-pro-max` / `design-system` | Consult for `egui` responsive layouts, contrast tokens, and table column sizing. |
-| **Completion Check** | `verification-before-completion` | Run `cargo test` and `cargo clippy`, bump version in `Cargo.toml`, build release binary, and confirm clean output before claiming tasks done. |
+| **Completion Check** | `verification-before-completion` | Run `cargo test` and `cargo clippy`, bump version in `Cargo.toml` and in app version also, build release binary, and confirm clean output before claiming tasks done. |
