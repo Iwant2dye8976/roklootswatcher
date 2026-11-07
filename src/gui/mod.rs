@@ -604,6 +604,8 @@ impl eframe::App for RoKLootWatcherApp {
                         let overlay_records = &self.cached_overlay_records;
                         let overlay_cfg = self.overlay_config.clone();
                         let last_mail = self.last_mail_arrival;
+                        let run_counts = self.cached_today_run_counts;
+                        let pinned_chips = &self.cached_today_pinned_chips;
 
                         ctx.show_viewport_immediate(overlay_id, builder, |ctx, _class| {
                             crate::overlay_ui::render_overlay_viewport(
@@ -611,6 +613,8 @@ impl eframe::App for RoKLootWatcherApp {
                                 overlay_records,
                                 &overlay_cfg,
                                 last_mail,
+                                run_counts,
+                                pinned_chips,
                             );
                         });
 
