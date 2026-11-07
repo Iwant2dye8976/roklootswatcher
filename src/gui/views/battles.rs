@@ -1,8 +1,8 @@
 use eframe::egui::{self, Margin, Rounding, Stroke};
 
-use crate::i18n::{date_preset_label, filter_mode_label, TrKey};
+use crate::i18n::TrKey;
 use crate::model::{
-    format_in_millions, format_num, AppLanguage, DateFilterPreset, FilterMode, SpeedupUnit,
+    format_in_millions, format_num, AppLanguage, FilterMode,
 };
 use super::super::components::{
     render_sort_header_cell, report_non_target_column_count, report_table_dimensions,
@@ -20,145 +20,33 @@ impl RoKLootWatcherApp {
             .inner_margin(Margin::symmetric(12.0, 8.0))
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new(self.language.t(TrKey::FilterReportType)).strong().color(c.canvas_tint));
-                    let prev_mode = self.selected_mode;
-                    let modes = [
-                        (FilterMode::AllTargets, match self.language { AppLanguage::Vietnamese => "Tất cả", AppLanguage::English => "All" }),
-                        (FilterMode::Motte, "Motte"),
-                        (FilterMode::Fort, match self.language { AppLanguage::Vietnamese => "Pháo Đài", AppLanguage::English => "Forts" }),
-                        (FilterMode::Barbarian, match self.language { AppLanguage::Vietnamese => "Man Rợ", AppLanguage::English => "Barbarians" }),
-                        (FilterMode::AllForts, match self.language { AppLanguage::Vietnamese => "Tất cả pháo đài", AppLanguage::English => "All Forts" }),
-                        (FilterMode::AllRewards, match self.language { AppLanguage::Vietnamese => "Tất cả quà", AppLanguage::English => "All Loot" }),
-                        (FilterMode::Gathering, match self.language { AppLanguage::Vietnamese => "Thu Thập", AppLanguage::English => "Gathering" }),
-                    ];
-                    for (mode, label) in modes {
-                        ui.selectable_value(&mut self.selected_mode, mode, label)
-                            .on_hover_text(filter_mode_label(&mode, self.language));
-                    }
-
-                    if self.selected_mode != prev_mode {
-                        self.watcher.set_mode(self.selected_mode);
-                        self.save_config();
-                    }
-
-                    ui.add_space(12.0);
-                    ui.label(egui::RichText::new(self.language.t(TrKey::FilterDateRange)).strong().color(c.canvas_tint));
-                    let prev_preset = self.selected_date_preset.clone();
-                    egui::ComboBox::from_id_salt("battles_date_combo")
-                        .selected_text(date_preset_label(&self.selected_date_preset, self.language))
-                        .width(130.0)
-                        .show_ui(ui, |ui| {
-                            let presets = [
-                                DateFilterPreset::AllTime,
-                                DateFilterPreset::Today,
-                                DateFilterPreset::Yesterday,
-                                DateFilterPreset::Last3Days,
-                                DateFilterPreset::Last7Days,
-                                DateFilterPreset::Last14Days,
-                                DateFilterPreset::Last30Days,
-                                DateFilterPreset::Custom,
-                            ];
-                            for p in presets {
-                                let lbl = date_preset_label(&p, self.language);
-                                ui.selectable_value(&mut self.selected_date_preset, p, lbl);
-                            }
-                        });
-
-                    if self.selected_date_preset != prev_preset {
-                        let p = self.selected_date_preset.clone();
-                        self.apply_date_preset(p);
-                    }
-
-                    if self.selected_date_preset == DateFilterPreset::Custom {
-                        ui.label(egui::RichText::new(self.language.t(TrKey::FilterFrom)).color(c.text_muted));
-                        ui.add_sized([80.0, 20.0], egui::TextEdit::singleline(&mut self.date_from_input));
-                        ui.label(egui::RichText::new(self.language.t(TrKey::FilterTo)).color(c.text_muted));
-                        ui.add_sized([80.0, 20.0], egui::TextEdit::singleline(&mut self.date_to_input));
-                        if ui.button(self.language.t(TrKey::FilterApply)).clicked() {
-                            self.apply_custom_date_filter();
-                        }
-                    }
-
-                    let accounts = self.watcher.get_accounts();
-                    if !accounts.is_empty() {
-                        ui.add_space(10.0);
-                        let acc_lbl_tag = match self.language {
-                            AppLanguage::Vietnamese => "Tài khoản:",
-                            AppLanguage::English => "Account:",
-                        };
-                        ui.label(egui::RichText::new(acc_lbl_tag).strong().color(c.canvas_tint));
-
-                        let selected_text = match &self.selected_account {
-                            None => match self.language {
-                                AppLanguage::Vietnamese => "Tất cả tài khoản".to_string(),
-                                AppLanguage::English => "All Accounts".to_string(),
-                            },
-                            Some(acc) => accounts
-                                .iter()
-                                .find(|(id, _)| id == acc)
-                                .map(|(_, l)| l.clone())
-                                .unwrap_or_else(|| acc.clone()),
-                        };
-
-                        let prev_acc = self.selected_account.clone();
-                        egui::ComboBox::from_id_salt("battles_acc_combo")
-                            .selected_text(selected_text)
-                            .width(150.0)
-                            .show_ui(ui, |ui| {
-                                let all_txt = match self.language {
-                                    AppLanguage::Vietnamese => "Tất cả tài khoản",
-                                    AppLanguage::English => "All Accounts",
-                                };
-                                ui.selectable_value(&mut self.selected_account, None, all_txt);
-                                for (acc_id, label) in &accounts {
-                                    ui.selectable_value(&mut self.selected_account, Some(acc_id.clone()), label);
-                                }
-                            });
-
-                        if self.selected_account != prev_acc {
-                            self.watcher.set_account_filter(self.selected_account.clone());
-                        }
-                    }
-
-                    let cur_cnt = self.watcher.get_active_count();
-                    let match_txt = self.language.t(TrKey::FilterMatchingBattles).replace("{}", &format_num(cur_cnt));
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.label(
-                            egui::RichText::new(match_txt)
-                                .strong()
-                                .color(c.focus_teal),
-                        );
-                    });
-                });
-
-                ui.add_space(6.0);
-
-                ui.horizontal(|ui| {
                     ui.label(egui::RichText::new(self.language.t(TrKey::SearchLabel)).strong().color(c.canvas_tint));
-                    ui.add_sized([220.0, 22.0], egui::TextEdit::singleline(&mut self.battle_search).hint_text(self.language.t(TrKey::SearchPlaceholder)));
-
-                    ui.add_space(12.0);
-                    let spd_lbl = match self.language {
-                        AppLanguage::Vietnamese => "Tăng tốc:",
-                        AppLanguage::English => "Speedups:",
-                    };
-                    ui.label(egui::RichText::new(spd_lbl).color(c.text_muted));
-                    let prev_unit = self.speedup_unit;
-                    ui.selectable_value(&mut self.speedup_unit, SpeedupUnit::Minutes, self.language.t(TrKey::SpeedupUnitMinutes));
-                    ui.selectable_value(&mut self.speedup_unit, SpeedupUnit::Hours, self.language.t(TrKey::SpeedupUnitHours));
-                    ui.selectable_value(&mut self.speedup_unit, SpeedupUnit::Days, self.language.t(TrKey::SpeedupUnitDays));
-                    ui.selectable_value(&mut self.speedup_unit, SpeedupUnit::Dhm, self.language.t(TrKey::SpeedupUnitDhm));
-                    if self.speedup_unit != prev_unit {
-                        self.save_config();
-                    }
+                    ui.add_sized([260.0, 22.0], egui::TextEdit::singleline(&mut self.battle_search).hint_text(self.language.t(TrKey::SearchPlaceholder)));
 
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.spacing_mut().item_spacing.x = 8.0;
                         if ui.button(self.language.t(TrKey::BtnExportJson)).on_hover_text(self.language.t(TrKey::BtnExportJsonTooltip)).clicked() {
                             self.export_active_json();
                         }
                         if ui.button(self.language.t(TrKey::BtnExportCsv)).on_hover_text(self.language.t(TrKey::BtnExportCsvTooltip)).clicked() {
                             self.export_active_csv();
                         }
+
+                        let cur_cnt = self.watcher.get_active_count();
+                        let match_txt = self.language.t(TrKey::FilterMatchingBattles).replace("{}", &format_num(cur_cnt));
+                        egui::Frame::none()
+                            .fill(c.primary)
+                            .stroke(Stroke::new(1.0_f32, c.hairline))
+                            .rounding(Rounding::same(4.0))
+                            .inner_margin(Margin::symmetric(8.0, 2.0))
+                            .show(ui, |ui| {
+                                ui.label(
+                                    egui::RichText::new(match_txt)
+                                        .font(egui::FontId::monospace(11.0))
+                                        .strong()
+                                        .color(c.focus_teal),
+                                );
+                            });
                     });
                 });
             });
@@ -216,8 +104,9 @@ impl RoKLootWatcherApp {
 
         egui::Frame::none()
             .fill(c.card_surface)
-            .rounding(Rounding::same(4.0))
-            .inner_margin(Margin::symmetric(TABLE_PAD_X, 4.0))
+            .stroke(Stroke::new(1.0_f32, c.hairline))
+            .rounding(Rounding::same(6.0))
+            .inner_margin(Margin::symmetric(TABLE_PAD_X, 5.0))
             .show(ui, |ui| {
                 ui.set_width(dimensions.table_width - (TABLE_PAD_X * 2.0));
                 ui.horizontal(|ui| {
@@ -473,14 +362,20 @@ impl RoKLootWatcherApp {
                         ui.painter().rect_filled(
                             row_rect,
                             egui::Rounding::same(5.0),
-                            c.focus_teal.linear_multiply(0.12),
+                            c.primary_pressed,
                         );
                         ui.painter().rect_stroke(
                             row_rect,
                             egui::Rounding::same(5.0),
-                            egui::Stroke::new(1.0_f32, c.focus_teal.linear_multiply(0.40)),
+                            egui::Stroke::new(1.0_f32, c.focus_teal),
                         );
                         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                    } else if idx % 2 == 1 {
+                        ui.painter().rect_filled(
+                            row_rect,
+                            egui::Rounding::same(4.0),
+                            c.card_surface,
+                        );
                     }
                     if row_resp.clicked() {
                         clicked_record = Some(r.clone());

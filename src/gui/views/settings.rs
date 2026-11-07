@@ -4,22 +4,112 @@ use eframe::egui::{self, Color32, Margin, Rounding, Stroke};
 use crate::i18n::TrKey;
 use crate::model::{format_num, AppLanguage, CloseBehavior, FilterMode, OverlayConfig, OverlayDisplayMode, PinnedItemKey};
 use crate::watcher::detect_default_mail_dir;
-use super::super::components::is_network_offline_error;
+use super::super::components::{is_network_offline_error, SETTINGS_LOG_PANEL_HEIGHT};
 use super::super::RoKLootWatcherApp;
 
 impl RoKLootWatcherApp {
     pub(crate) fn render_view_settings(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         let c = self.colors();
 
+        egui::TopBottomPanel::bottom("settings_logs_bottom_panel")
+            .exact_height(SETTINGS_LOG_PANEL_HEIGHT)
+            .resizable(false)
+            .frame(egui::Frame::none().fill(c.ink).inner_margin(Margin {
+                left: 0.0,
+                right: 0.0,
+                top: 10.0,
+                bottom: 0.0,
+            }))
+            .show_inside(ui, |ui| {
+                egui::Frame::none()
+                    .fill(c.log_bg)
+                    .stroke(Stroke::new(1.0_f32, c.hairline))
+                    .rounding(Rounding::same(6.0))
+                    .inner_margin(Margin::same(12.0))
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                egui::RichText::new(self.language.t(TrKey::LogsTitle))
+                                    .font(egui::FontId::proportional(12.0))
+                                    .strong()
+                                    .color(c.focus_teal),
+                            );
+
+                            let count_str = self.language.t(TrKey::LogsLinesCount).replace("{}", &self.console_logs.len().to_string());
+                            ui.label(
+                                egui::RichText::new(format!("({})", count_str))
+                                    .font(egui::FontId::proportional(10.5))
+                                    .color(c.text_muted),
+                            );
+
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                let btn_clear = egui::Button::new(
+                                    egui::RichText::new(self.language.t(TrKey::LogsBtnClear))
+                                        .font(egui::FontId::proportional(10.5))
+                                        .color(c.canvas_tint),
+                                )
+                                .fill(c.primary)
+                                .stroke(Stroke::new(1.0_f32, c.hairline))
+                                .rounding(Rounding::same(4.0));
+
+                                if ui.add_sized([0.0, 22.0], btn_clear).clicked() {
+                                    self.console_logs.clear();
+                                }
+
+                                ui.checkbox(&mut self.log_auto_scroll, self.language.t(TrKey::LogsAutoScroll));
+                            });
+                        });
+
+                        ui.add_space(6.0);
+                        ui.separator();
+                        ui.add_space(6.0);
+
+                        egui::ScrollArea::vertical()
+                            .id_salt("settings_bottom_logs_scroll")
+                            .stick_to_bottom(self.log_auto_scroll)
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| {
+                                if self.console_logs.is_empty() {
+                                    ui.label(egui::RichText::new(self.language.t(TrKey::LogsEmpty)).color(c.text_muted));
+                                } else {
+                                    for line in &self.console_logs {
+                                        let text_color = if line.contains("[SUCCESS]") {
+                                            c.status_green
+                                        } else if line.contains("[WARN]") {
+                                            c.accent_gold
+                                        } else if line.contains("[ERROR]") {
+                                            c.error
+                                        } else if line.contains("[INFO]") {
+                                            c.focus_teal
+                                        } else {
+                                            c.canvas_tint
+                                        };
+
+                                        ui.label(
+                                            egui::RichText::new(line)
+                                                .font(egui::FontId::monospace(10.5))
+                                                .color(text_color),
+                                        );
+                                        ui.add_space(2.0);
+                                    }
+                                }
+                            });
+                    });
+            });
+
         let card_frame = egui::Frame::none()
             .fill(c.card_surface)
             .stroke(Stroke::new(1.0_f32, c.hairline))
-            .rounding(Rounding::same(8.0))
-            .inner_margin(Margin::symmetric(16.0, 14.0));
+            .rounding(Rounding::same(6.0))
+            .inner_margin(Margin::symmetric(14.0, 12.0));
 
-        ui.columns(2, |cols| {
-            egui::ScrollArea::vertical().auto_shrink([false, false]).show(&mut cols[0], |ui| {
-                card_frame.show(ui, |ui| {
+        egui::ScrollArea::vertical()
+            .id_salt("settings_bento_scroll")
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                ui.columns(2, |cols| {
+                    cols[0].vertical(|ui| {
+                        card_frame.show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.label(
                             egui::RichText::new(self.language.t(TrKey::SettingsCardMailTitle))
@@ -732,9 +822,9 @@ impl RoKLootWatcherApp {
                         });
                     }
                 });
+                    });
 
-                ui.add_space(12.0);
-
+                    cols[1].vertical(|ui| {
                 card_frame.show(ui, |ui| {
                     ui.label(
                         egui::RichText::new(self.language.t(TrKey::SettingsCardSystemTitle))
@@ -1424,82 +1514,9 @@ impl RoKLootWatcherApp {
                 });
 
                 ui.add_space(8.0);
-            });
-
-            egui::Frame::none()
-                .fill(c.log_bg)
-                .stroke(Stroke::new(1.0_f32, c.hairline))
-                .rounding(Rounding::same(8.0))
-                .inner_margin(Margin::same(14.0))
-                .show(&mut cols[1], |ui| {
-                    ui.horizontal(|ui| {
-                        ui.label(
-                            egui::RichText::new(self.language.t(TrKey::LogsTitle))
-                                .font(egui::FontId::proportional(12.5))
-                                .strong()
-                                .color(c.focus_teal),
-                        );
-
-                        let count_str = self.language.t(TrKey::LogsLinesCount).replace("{}", &self.console_logs.len().to_string());
-                        ui.label(
-                            egui::RichText::new(format!("({})", count_str))
-                                .font(egui::FontId::proportional(10.5))
-                                .color(c.text_muted),
-                        );
-
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            let btn_clear = egui::Button::new(
-                                egui::RichText::new(self.language.t(TrKey::LogsBtnClear))
-                                    .font(egui::FontId::proportional(10.5))
-                                    .color(c.canvas_tint),
-                            )
-                            .fill(c.primary)
-                            .stroke(Stroke::new(1.0_f32, c.hairline))
-                            .rounding(Rounding::same(5.0));
-
-                            if ui.add_sized([0.0, 24.0], btn_clear).clicked() {
-                                self.console_logs.clear();
-                            }
-
-                            ui.checkbox(&mut self.log_auto_scroll, self.language.t(TrKey::LogsAutoScroll));
-                        });
                     });
-
-                    ui.add_space(8.0);
-                    ui.separator();
-                    ui.add_space(8.0);
-
-                    egui::ScrollArea::vertical()
-                        .stick_to_bottom(self.log_auto_scroll)
-                        .auto_shrink([false, false])
-                        .show(ui, |ui| {
-                            if self.console_logs.is_empty() {
-                                ui.label(egui::RichText::new(self.language.t(TrKey::LogsEmpty)).color(c.text_muted));
-                            } else {
-                                for line in &self.console_logs {
-                                    let text_color = if line.contains("[SUCCESS]") {
-                                        c.status_green
-                                    } else if line.contains("[WARN]") {
-                                        c.accent_gold
-                                    } else if line.contains("[ERROR]") {
-                                        c.error
-                                    } else if line.contains("[INFO]") {
-                                        c.focus_teal
-                                    } else {
-                                        c.canvas_tint
-                                    };
-
-                                    ui.label(
-                                        egui::RichText::new(line)
-                                            .font(egui::FontId::monospace(10.5))
-                                            .color(text_color),
-                                    );
-                                    ui.add_space(2.0);
-                                }
-                            }
-                        });
                 });
-        });
+            });
     }
 }
 

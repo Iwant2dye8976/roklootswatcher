@@ -1,9 +1,9 @@
-use eframe::egui::{self, Color32, Margin, Rounding, Stroke};
+use eframe::egui::{self, Margin, Rounding, Stroke};
 
-use crate::i18n::{date_preset_label, filter_mode_label, TrKey};
+use crate::i18n::{filter_mode_label, TrKey};
 use crate::model::{
     format_in_millions, format_num, get_item_converted_display_for_lang, AppLanguage,
-    DateFilterPreset, FilterMode, SpeedupUnit,
+    SpeedupUnit,
 };
 use super::super::components::localize_benchmark_target;
 use super::super::theme::ThemeColors;
@@ -20,175 +20,17 @@ impl RoKLootWatcherApp {
             ui.vertical(|ui| {
                 ui.label(
                     egui::RichText::new(self.language.t(TrKey::DashboardTitle))
-                        .font(egui::FontId::proportional(18.0))
+                        .font(egui::FontId::proportional(16.5))
                         .strong()
                         .color(c.canvas_tint),
                 );
                 ui.add_space(2.0);
                 ui.label(
                     egui::RichText::new(self.language.t(TrKey::DashboardSubtitle))
-                        .font(egui::FontId::proportional(12.0))
+                        .font(egui::FontId::proportional(11.5))
                         .color(c.text_muted),
                 );
             });
-
-            ui.add_space(10.0);
-
-            egui::Frame::none()
-                .fill(c.card_surface)
-                .stroke(Stroke::new(1.0_f32, c.hairline))
-                .rounding(Rounding::same(6.0))
-                .inner_margin(Margin::symmetric(12.0, 8.0))
-                .show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new(self.language.t(TrKey::FilterReportType)).strong().color(c.canvas_tint));
-                        let prev_mode = self.selected_mode;
-                        let modes = [
-                            (FilterMode::AllTargets, match self.language { AppLanguage::Vietnamese => "Tất cả", AppLanguage::English => "All" }),
-                            (FilterMode::Motte, "Motte"),
-                            (FilterMode::Fort, match self.language { AppLanguage::Vietnamese => "Pháo Đài", AppLanguage::English => "Forts" }),
-                            (FilterMode::Barbarian, match self.language { AppLanguage::Vietnamese => "Dã Man", AppLanguage::English => "Barbarians" }),
-                            (FilterMode::AllForts, match self.language { AppLanguage::Vietnamese => "Cả 2 Pháo Đài", AppLanguage::English => "Both Forts" }),
-                            (FilterMode::AllRewards, match self.language { AppLanguage::Vietnamese => "Tất cả quà", AppLanguage::English => "All Loot" }),
-                            (FilterMode::Gathering, match self.language { AppLanguage::Vietnamese => "Thu Thập", AppLanguage::English => "Gathering" }),
-                        ];
-                        for (mode, label) in modes {
-                            ui.selectable_value(&mut self.selected_mode, mode, label)
-                                .on_hover_text(filter_mode_label(&mode, self.language));
-                        }
-
-                        if self.selected_mode != prev_mode {
-                            self.watcher.set_mode(self.selected_mode);
-                            self.save_config();
-                        }
-
-                        ui.add_space(14.0);
-                        ui.label(egui::RichText::new(self.language.t(TrKey::FilterDateRange)).strong().color(c.canvas_tint));
-                        let prev_preset = self.selected_date_preset.clone();
-                        egui::ComboBox::from_id_salt("dash_date_combo")
-                            .selected_text(date_preset_label(&self.selected_date_preset, self.language))
-                            .width(135.0)
-                            .show_ui(ui, |ui| {
-                                let presets = [
-                                    DateFilterPreset::AllTime,
-                                    DateFilterPreset::Today,
-                                    DateFilterPreset::Yesterday,
-                                    DateFilterPreset::Last3Days,
-                                    DateFilterPreset::Last7Days,
-                                    DateFilterPreset::Last14Days,
-                                    DateFilterPreset::Last30Days,
-                                    DateFilterPreset::Custom,
-                                ];
-                                for p in presets {
-                                    let lbl = date_preset_label(&p, self.language);
-                                    ui.selectable_value(&mut self.selected_date_preset, p, lbl);
-                                }
-                            });
-                        if self.selected_date_preset != prev_preset {
-                            let p = self.selected_date_preset.clone();
-                            self.apply_date_preset(p);
-                        }
-
-                        if self.selected_date_preset == DateFilterPreset::Custom {
-                            ui.label(egui::RichText::new(self.language.t(TrKey::FilterFrom)).color(c.text_muted));
-                            ui.add_sized([80.0, 20.0], egui::TextEdit::singleline(&mut self.date_from_input));
-                            ui.label(egui::RichText::new(self.language.t(TrKey::FilterTo)).color(c.text_muted));
-                            ui.add_sized([80.0, 20.0], egui::TextEdit::singleline(&mut self.date_to_input));
-                            if ui.button(self.language.t(TrKey::FilterApply)).clicked() {
-                                self.apply_custom_date_filter();
-                            }
-                        }
-
-                        let accounts = self.watcher.get_accounts();
-                        if !accounts.is_empty() {
-                            ui.add_space(10.0);
-                            let acc_lbl_tag = match self.language {
-                                AppLanguage::Vietnamese => "Tài khoản:",
-                                AppLanguage::English => "Account:",
-                            };
-                            ui.label(egui::RichText::new(acc_lbl_tag).strong().color(c.canvas_tint));
-
-                            let selected_text = match &self.selected_account {
-                                None => match self.language {
-                                    AppLanguage::Vietnamese => "Tất cả tài khoản".to_string(),
-                                    AppLanguage::English => "All Accounts".to_string(),
-                                },
-                                Some(acc) => accounts
-                                    .iter()
-                                    .find(|(id, _)| id == acc)
-                                    .map(|(_, l)| l.clone())
-                                    .unwrap_or_else(|| acc.clone()),
-                            };
-
-                            let prev_acc = self.selected_account.clone();
-                            egui::ComboBox::from_id_salt("dash_acc_combo")
-                                .selected_text(selected_text)
-                                .width(150.0)
-                                .show_ui(ui, |ui| {
-                                    let all_txt = match self.language {
-                                        AppLanguage::Vietnamese => "Tất cả tài khoản",
-                                        AppLanguage::English => "All Accounts",
-                                    };
-                                    ui.selectable_value(&mut self.selected_account, None, all_txt);
-                                    for (acc_id, label) in &accounts {
-                                        ui.selectable_value(&mut self.selected_account, Some(acc_id.clone()), label);
-                                    }
-                                });
-
-                            if self.selected_account != prev_acc {
-                                self.watcher.set_account_filter(self.selected_account.clone());
-                            }
-                        }
-
-                        let cur_battles = self.watcher.get_stats().total_battles;
-                        let battles_txt = self.language.t(TrKey::FilterRecordedBattles).replace("{}", &format_num(cur_battles));
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            ui.label(
-                                egui::RichText::new(battles_txt)
-                                    .strong()
-                                    .color(c.focus_teal),
-                            );
-                        });
-                    });
-
-                    ui.add_space(6.0);
-
-                    ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new(self.language.t(TrKey::SpeedupUnitChange)).strong().color(c.canvas_tint));
-                        let prev_unit = self.speedup_unit;
-                        ui.selectable_value(&mut self.speedup_unit, SpeedupUnit::Minutes, self.language.t(TrKey::SpeedupUnitMinutes));
-                        ui.selectable_value(&mut self.speedup_unit, SpeedupUnit::Hours, self.language.t(TrKey::SpeedupUnitHours));
-                        ui.selectable_value(&mut self.speedup_unit, SpeedupUnit::Days, self.language.t(TrKey::SpeedupUnitDays));
-                        ui.selectable_value(&mut self.speedup_unit, SpeedupUnit::Dhm, self.language.t(TrKey::SpeedupUnitDhm));
-                        if self.speedup_unit != prev_unit {
-                            self.save_config();
-                        }
-
-                        let cur_stats = self.watcher.get_stats();
-                        let (tr, he, un) = cur_stats.compute_speedups_by_category();
-                        let spd_total = tr + he + un;
-                        if spd_total > 0 {
-                            ui.add_space(10.0);
-                            let equiv_text = if self.speedup_unit == SpeedupUnit::Dhm {
-                                match self.language {
-                                    AppLanguage::Vietnamese => format!("≈ {:.1} giờ ({} phút)", spd_total as f64 / 60.0, format_num(spd_total)),
-                                    AppLanguage::English => format!("≈ {:.1} hours ({} minutes)", spd_total as f64 / 60.0, format_num(spd_total)),
-                                }
-                            } else {
-                                format!(
-                                    "≈ {}",
-                                    SpeedupUnit::Dhm.format_kpi(spd_total, self.language).0
-                                )
-                            };
-                            ui.label(
-                                egui::RichText::new(equiv_text)
-                                    .font(egui::FontId::proportional(11.5))
-                                    .strong()
-                                    .color(c.status_green),
-                            );
-                        }
-                    });
-                });
 
             ui.add_space(12.0);
 
@@ -260,11 +102,17 @@ impl RoKLootWatcherApp {
 
             ui.columns(4, |cols| {
                 for (i, (title, val, sub, color)) in kpi_cards.iter().enumerate() {
-                    egui::Frame::none()
+                    let accent_col = if i == 0 { c.focus_teal } else { *color };
+                    let frame_resp = egui::Frame::none()
                         .fill(c.card_surface)
                         .stroke(Stroke::new(1.0_f32, c.hairline))
                         .rounding(Rounding::same(6.0))
-                        .inner_margin(Margin::same(12.0))
+                        .inner_margin(Margin {
+                            left: 14.0,
+                            right: 12.0,
+                            top: 12.0,
+                            bottom: 12.0,
+                        })
                         .show(&mut cols[i], |ui| {
                             ui.label(egui::RichText::new(*title).font(egui::FontId::proportional(11.0)).strong().color(c.text_muted));
                             ui.add_space(4.0);
@@ -277,10 +125,16 @@ impl RoKLootWatcherApp {
                             ui.add_space(4.0);
                             ui.label(egui::RichText::new(sub).font(egui::FontId::proportional(10.0)).color(c.text_muted));
                         });
+                    let rect = frame_resp.response.rect;
+                    let stripe = egui::Rect::from_min_max(
+                        egui::pos2(rect.min.x, rect.min.y + 4.0),
+                        egui::pos2(rect.min.x + 3.0, rect.max.y - 4.0),
+                    );
+                    cols[i].painter().rect_filled(stripe, Rounding::same(1.5), accent_col);
                 }
             });
 
-            ui.add_space(14.0);
+            ui.add_space(12.0);
 
             let active_records = self.watcher.get_active_records();
             let mut motte_cnt = 0usize;
@@ -589,7 +443,7 @@ impl RoKLootWatcherApp {
                                 ui.painter().rect_filled(
                                     card_rect,
                                     Rounding::same(5.0),
-                                    if is_hovered { c.primary_pressed } else { c.ink },
+                                    if is_hovered { c.primary_pressed } else { c.ink_deep },
                                 );
                                 ui.painter().rect_stroke(
                                     card_rect,
@@ -745,11 +599,16 @@ impl RoKLootWatcherApp {
 
         ui.columns(4, |cols| {
             for (i, (title, val, sub, color)) in cards.iter().enumerate() {
-                egui::Frame::none()
+                let frame_resp = egui::Frame::none()
                     .fill(c.card_surface)
                     .stroke(Stroke::new(1.0_f32, c.hairline))
                     .rounding(Rounding::same(6.0))
-                    .inner_margin(Margin::symmetric(8.0, 5.0))
+                    .inner_margin(Margin {
+                        left: 12.0,
+                        right: 10.0,
+                        top: 8.0,
+                        bottom: 8.0,
+                    })
                     .show(&mut cols[i], |ui| {
                         ui.add(
                             egui::Label::new(
@@ -764,7 +623,7 @@ impl RoKLootWatcherApp {
                         ui.add(
                             egui::Label::new(
                                 egui::RichText::new(val)
-                                    .font(egui::FontId::monospace(14.0))
+                                    .font(egui::FontId::monospace(14.5))
                                     .strong()
                                     .color(*color),
                             )
@@ -780,10 +639,16 @@ impl RoKLootWatcherApp {
                             .truncate(),
                         ).on_hover_text(sub);
                     });
+                let rect = frame_resp.response.rect;
+                let stripe = egui::Rect::from_min_max(
+                    egui::pos2(rect.min.x, rect.min.y + 4.0),
+                    egui::pos2(rect.min.x + 3.0, rect.max.y - 4.0),
+                );
+                cols[i].painter().rect_filled(stripe, Rounding::same(1.5), *color);
             }
         });
 
-        ui.add_space(6.0);
+        ui.add_space(8.0);
 
         const BENCHMARK_CARD_HEIGHT: f32 = 160.0;
 
@@ -833,7 +698,7 @@ impl RoKLootWatcherApp {
                         egui::Sense::hover(),
                     );
                     let painter = ui.painter();
-                    painter.rect_filled(chart_rect, Rounding::same(4.0), c.ink);
+                    painter.rect_filled(chart_rect, Rounding::same(4.0), c.ink_deep);
 
                     let days_count = ap_econ.daily_timeline.len().max(1);
                     let slot_w = chart_rect.width() / days_count as f32;
@@ -1050,14 +915,15 @@ impl RoKLootWatcherApp {
                                                 };
                                                 ui.add_sized([col_cov, 20.0], egui::Label::new(egui::RichText::new(cov_str).font(egui::FontId::monospace(10.0)).color(if b.battle_count > 0 && is_fort_or_motte { c.accent_gold } else { c.text_muted })).truncate().halign(egui::Align::Center));
 
-                                                let (badge_bg, badge_fg) = match b.tier_badge {
-                                                    "TIER S+" => (Color32::from_rgb(255, 77, 77).linear_multiply(0.22), Color32::from_rgb(255, 95, 95)),
-                                                    "TIER S" => (Color32::from_rgb(255, 127, 127).linear_multiply(0.22), Color32::from_rgb(255, 140, 140)),
-                                                    "TIER A" => (Color32::from_rgb(255, 191, 127).linear_multiply(0.22), Color32::from_rgb(255, 200, 140)),
-                                                    "TIER B" => (Color32::from_rgb(255, 255, 127).linear_multiply(0.20), Color32::from_rgb(255, 255, 140)),
-                                                    "TIER C" => (Color32::from_rgb(191, 255, 127).linear_multiply(0.20), Color32::from_rgb(200, 255, 140)),
-                                                    _ => (Color32::from_rgb(127, 191, 255).linear_multiply(0.22), Color32::from_rgb(140, 200, 255)),
+                                                let badge_fg = match b.tier_badge {
+                                                    "TIER S+" => c.motte_accent,
+                                                    "TIER S" => c.train_orange,
+                                                    "TIER A" => c.accent_gold,
+                                                    "TIER B" => c.status_green,
+                                                    "TIER C" => c.speedup_blue,
+                                                    _ => c.focus_teal,
                                                 };
+                                                let badge_bg = badge_fg.linear_multiply(0.18);
                                                 let (badge_rect, _) = ui.allocate_exact_size(egui::vec2(col_tier, 18.0), egui::Sense::hover());
                                                 if b.battle_count > 0 {
                                                     ui.painter().rect_filled(badge_rect, Rounding::same(3.0), badge_bg);

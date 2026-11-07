@@ -364,17 +364,18 @@ impl eframe::App for RoKLootWatcherApp {
                 egui::Visuals::light()
             };
             visuals.override_text_color = Some(c.canvas_tint);
-            visuals.window_fill = c.ink_deep;
+            visuals.window_fill = c.card_surface;
             visuals.panel_fill = c.ink;
             visuals.faint_bg_color = c.ink_deep;
-            visuals.extreme_bg_color = if self.theme == AppTheme::Dark {
-                c.ink
-            } else {
-                Color32::from_rgb(0xeb, 0xee, 0xf2)
-            };
+            visuals.extreme_bg_color = c.ink_deep;
 
             visuals.window_shadow = egui::epaint::Shadow::NONE;
             visuals.popup_shadow = egui::epaint::Shadow::NONE;
+
+            visuals.widgets.noninteractive.rounding = Rounding::same(4.0);
+            visuals.widgets.noninteractive.bg_fill = c.card_surface;
+            visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0_f32, c.canvas_tint);
+            visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0_f32, c.hairline);
 
             visuals.widgets.inactive.rounding = Rounding::same(4.0);
             visuals.widgets.inactive.bg_fill = c.primary;
@@ -400,12 +401,25 @@ impl eframe::App for RoKLootWatcherApp {
 
             visuals.widgets.open.rounding = Rounding::same(4.0);
             visuals.widgets.open.bg_fill = c.primary_pressed;
+            visuals.widgets.open.fg_stroke = Stroke::new(1.0_f32, c.canvas_tint);
+            visuals.widgets.open.bg_stroke = Stroke::new(1.0_f32, c.focus_teal);
 
             visuals.window_rounding = Rounding::same(8.0);
             visuals.window_stroke = Stroke::new(1.0_f32, c.hairline);
 
-            visuals.selection.bg_fill = c.primary_pressed;
-            visuals.selection.stroke = Stroke::new(1.0_f32, c.focus_teal);
+            visuals.selection.bg_fill = if self.theme == AppTheme::Dark {
+                Color32::from_rgb(0x16, 0x4e, 0x63)
+            } else {
+                Color32::from_rgb(0xba, 0xe6, 0xfd)
+            };
+            visuals.selection.stroke = Stroke::new(
+                1.5_f32,
+                if self.theme == AppTheme::Dark {
+                    c.focus_teal
+                } else {
+                    Color32::from_rgb(0x07, 0x59, 0x85)
+                },
+            );
 
             ctx.set_visuals(visuals);
         }
@@ -418,7 +432,7 @@ impl eframe::App for RoKLootWatcherApp {
 
         if !crate::tray::is_hidden_to_tray() {
             egui::SidePanel::left("left_sidebar_panel")
-                .exact_width(220.0)
+                .exact_width(components::SIDEBAR_WIDTH)
                 .resizable(false)
                 .frame(
                     egui::Frame::none()
@@ -434,7 +448,7 @@ impl eframe::App for RoKLootWatcherApp {
             let inspector_record = self.selected_battle_detail.clone();
             if let Some(ref record) = inspector_record {
                 egui::SidePanel::right("inspector_side_panel")
-                    .exact_width(380.0)
+                    .exact_width(components::INSPECTOR_WIDTH)
                     .resizable(false)
                     .frame(
                         egui::Frame::none()
@@ -448,6 +462,19 @@ impl eframe::App for RoKLootWatcherApp {
             }
             if close_inspector {
                 self.selected_battle_detail = None;
+            }
+
+            if components::should_show_global_filter_bar(self.current_tab) {
+                egui::TopBottomPanel::top("global_filter_bar_panel")
+                    .frame(
+                        egui::Frame::none()
+                            .fill(c.card_surface)
+                            .stroke(Stroke::new(1.0_f32, c.hairline))
+                            .inner_margin(Margin::symmetric(16.0, 10.0)),
+                    )
+                    .show(ctx, |ui| {
+                        self.render_global_filter_bar(ui);
+                    });
             }
 
             egui::CentralPanel::default()

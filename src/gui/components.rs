@@ -6,6 +6,16 @@ use crate::watcher::WatcherStatus;
 use super::theme::ThemeColors;
 use super::{BattleSortColumn, ItemSortColumn, SortDirection};
 
+pub const SIDEBAR_WIDTH: f32 = 180.0;
+pub const INSPECTOR_WIDTH: f32 = 360.0;
+pub const SETTINGS_LOG_PANEL_HEIGHT: f32 = 190.0;
+
+#[inline]
+pub fn should_show_global_filter_bar(current_tab: usize) -> bool {
+    current_tab < 3
+}
+
+
 #[allow(clippy::too_many_arguments)]
 pub fn render_sort_header_cell(
     ui: &mut egui::Ui,

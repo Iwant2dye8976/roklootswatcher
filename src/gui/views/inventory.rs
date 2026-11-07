@@ -490,18 +490,18 @@ impl RoKLootWatcherApp {
                         ui.painter().rect_filled(
                             row_rect,
                             Rounding::same(4.0),
-                            c.focus_teal.linear_multiply(0.12),
+                            c.primary_pressed,
                         );
                         ui.painter().rect_stroke(
                             row_rect,
                             Rounding::same(4.0),
-                            Stroke::new(1.0_f32, c.focus_teal.linear_multiply(0.40)),
+                            Stroke::new(1.0_f32, c.focus_teal),
                         );
                     } else if idx % 2 == 1 {
                         ui.painter().rect_filled(
                             row_rect,
                             Rounding::same(4.0),
-                            c.hairline.linear_multiply(0.12),
+                            c.card_surface,
                         );
                     }
 

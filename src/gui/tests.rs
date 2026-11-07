@@ -124,20 +124,25 @@ fn test_light_mode_contrast_and_palette() {
     assert!(dark.is_dark);
 
     assert_eq!(light.card_surface, Color32::from_rgb(0xff, 0xff, 0xff));
-    assert_eq!(light.ink, Color32::from_rgb(0xf8, 0xfa, 0xfc));
+    assert_eq!(light.ink, Color32::from_rgb(0xe6, 0xec, 0xf5));
+    assert_eq!(light.ink_deep, Color32::from_rgb(0xee, 0xf2, 0xf8));
 
-    assert_eq!(light.log_bg, Color32::from_rgb(0xff, 0xff, 0xff));
-    assert_eq!(dark.log_bg, Color32::from_rgb(0x0d, 0x0f, 0x14));
+    assert_eq!(light.log_bg, Color32::from_rgb(0xf8, 0xfa, 0xfc));
+    assert_eq!(dark.log_bg, Color32::from_rgb(0x08, 0x0b, 0x11));
 
     assert_eq!(light.canvas_tint, Color32::from_rgb(0x0f, 0x17, 0x2a));
-    assert_eq!(light.text_muted, Color32::from_rgb(0x47, 0x55, 0x69));
+    assert_eq!(light.text_muted, Color32::from_rgb(0x33, 0x41, 0x55));
 
     assert_eq!(light.train_orange, Color32::from_rgb(0xc2, 0x41, 0x0c));
     assert_eq!(light.heal_blue, Color32::from_rgb(0x03, 0x69, 0xa1));
     assert_eq!(light.status_green, Color32::from_rgb(0x04, 0x78, 0x57));
     assert_eq!(light.accent_gold, Color32::from_rgb(0xb4, 0x53, 0x09));
-    assert_eq!(light.speedup_blue, Color32::from_rgb(58, 147, 230));
+    assert_eq!(light.speedup_blue, Color32::from_rgb(0x1d, 0x4e, 0xd8));
     assert_eq!(light.crystal_cyan, Color32::from_rgb(0x0e, 0x74, 0x90));
+
+    assert_eq!(dark.ink, Color32::from_rgb(0x0b, 0x0f, 0x17));
+    assert_eq!(dark.card_surface, Color32::from_rgb(0x19, 0x22, 0x31));
+    assert_eq!(dark.text_muted, Color32::from_rgb(0xb0, 0xc0, 0xd4));
 
     assert_eq!(category_badge_color("Vật liệu", &light), light.heal_blue);
     assert_eq!(category_badge_color("Vật liệu", &dark), dark.heal_blue);
@@ -1212,3 +1217,38 @@ fn test_pinned_item_crystals_configuration_and_aggregation() {
     assert_eq!(chips[0].display_val, "350");
     assert_eq!(chips[0].text_color, colors.crystal_cyan);
 }
+
+#[test]
+fn test_layout_constants_and_global_filter_bar_visibility() {
+    assert_eq!(SIDEBAR_WIDTH, 180.0);
+    assert_eq!(INSPECTOR_WIDTH, 360.0);
+    assert_eq!(SETTINGS_LOG_PANEL_HEIGHT, 190.0);
+
+    assert!(should_show_global_filter_bar(0));
+    assert!(should_show_global_filter_bar(1));
+    assert!(should_show_global_filter_bar(2));
+    assert!(!should_show_global_filter_bar(3));
+    assert!(!should_show_global_filter_bar(99));
+}
+
+#[test]
+fn test_gui_translations_and_badges_contain_no_emojis() {
+    let is_emoji = |ch: char| -> bool {
+        let code = ch as u32;
+        (0x1F300..=0x1FAFF).contains(&code) || (0x2600..=0x27BF).contains(&code)
+    };
+
+    for &key in TrKey::all() {
+        for lang in [AppLanguage::Vietnamese, AppLanguage::English] {
+            let text = lang.t(key);
+            assert!(
+                !text.chars().any(is_emoji),
+                "Emoji found in TrKey::{:?} ({:?}): {}",
+                key,
+                lang,
+                text
+            );
+        }
+    }
+}
+
