@@ -53,7 +53,7 @@ pub fn calculate_overlay_geometry(
     let (width, height) = match config.mode {
         crate::model::OverlayDisplayMode::MiniHud => {
             let h = (config.font_size * 2.2).clamp(28.0, 36.0);
-            let w = config.width.clamp(180.0, 750.0);
+            let w = config.width.clamp(280.0, 750.0);
             (w, h)
         }
         crate::model::OverlayDisplayMode::Cards => {
@@ -67,7 +67,7 @@ pub fn calculate_overlay_geometry(
             let card_height = (config.font_size * 3.2 + 8.0).max(36.0);
             let cards_h = (card_height * 5.0 + 18.0).ceil();
             let total_h = mini_h + 6.0 + cards_h;
-            let w = config.width.clamp(180.0, 750.0);
+            let w = config.width.clamp(300.0, 750.0);
             (w, total_h)
         }
         crate::model::OverlayDisplayMode::Hidden => {
@@ -687,8 +687,8 @@ mod tests {
         };
         let geom_narrow = calculate_overlay_geometry(&bounds, &cfg_narrow, 1.0);
         assert_eq!(
-            geom_narrow.width, 180.0,
-            "MiniHud width must clamp to minimum 180.0"
+            geom_narrow.width, 280.0,
+            "MiniHud width must clamp to minimum 280.0"
         );
     }
 
@@ -702,13 +702,13 @@ mod tests {
         };
         let cfg = crate::model::OverlayConfig {
             mode: crate::model::OverlayDisplayMode::Combined,
-            width: 300.0,
+            width: 350.0,
             ..Default::default()
         };
         let geom = calculate_overlay_geometry(&bounds, &cfg, 1.0);
         assert_eq!(
-            geom.width, 300.0,
-            "Combined mode width {} should match requested 300.0",
+            geom.width, 350.0,
+            "Combined mode width {} should match requested 350.0",
             geom.width
         );
         let cfg_narrow = crate::model::OverlayConfig {
@@ -718,8 +718,8 @@ mod tests {
         };
         let geom_narrow = calculate_overlay_geometry(&bounds, &cfg_narrow, 1.0);
         assert_eq!(
-            geom_narrow.width, 180.0,
-            "Combined mode width must clamp to minimum 180.0"
+            geom_narrow.width, 300.0,
+            "Combined mode width must clamp to minimum 300.0"
         );
         assert!(
             geom.height > 200.0,

@@ -169,7 +169,8 @@ pub fn render_mini_hud_ribbon(
         .inner_margin(Margin::symmetric(8.0, 4.0))
         .show(ui, |ui| {
             ui.set_min_width(ui.available_width());
-            ui.horizontal_centered(|ui| {
+            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                 ui.spacing_mut().item_spacing = egui::vec2(5.0, 0.0);
 
                 let badge_bg_alpha = if config.opacity <= 0.01 {
@@ -223,55 +224,46 @@ pub fn render_mini_hud_ribbon(
                             .size(10.0),
                     );
                 } else {
-                    for chip in pinned_chips {
-                        let col = chip.text_color;
-                        let pill_stroke = if badge_stroke_alpha == 0 {
-                            Stroke::NONE
-                        } else {
-                            Stroke::new(
-                                1.0_f32,
-                                Color32::from_rgba_unmultiplied(col.r(), col.g(), col.b(), badge_stroke_alpha),
-                            )
-                        };
-                        let pill_bg = Color32::from_rgba_unmultiplied(col.r(), col.g(), col.b(), badge_bg_alpha);
+                    for (idx, chip) in pinned_chips.iter().enumerate() {
+                        if idx > 0 {
+                            ui.label(
+                                RichText::new("•")
+                                    .color(Color32::from_rgb(0x47, 0x55, 0x69).linear_multiply(text_alpha))
+                                    .size(10.0),
+                            );
+                        }
 
-                        Frame::none()
-                            .fill(pill_bg)
-                            .rounding(Rounding::same(3.0))
-                            .stroke(pill_stroke)
-                            .inner_margin(Margin::symmetric(4.0, 2.0))
-                            .show(ui, |ui| {
-                                let mut job = egui::text::LayoutJob::default();
-                                job.wrap.max_rows = 1;
-                                job.append(
-                                    &chip.label,
-                                    0.0,
-                                    egui::TextFormat {
-                                        font_id: FontId::proportional(10.0),
-                                        color: chip.text_color.linear_multiply(text_alpha),
-                                        ..Default::default()
-                                    },
-                                );
-                                job.append(
-                                    " ",
-                                    0.0,
-                                    egui::TextFormat {
-                                        font_id: FontId::proportional(10.0),
-                                        color: chip.text_color.linear_multiply(text_alpha),
-                                        ..Default::default()
-                                    },
-                                );
-                                job.append(
-                                    &chip.display_val,
-                                    0.0,
-                                    egui::TextFormat {
-                                        font_id: FontId::proportional(10.0),
-                                        color: text_color,
-                                        ..Default::default()
-                                    },
-                                );
-                                ui.label(job);
-                            });
+                        let mut job = egui::text::LayoutJob::default();
+                        job.wrap.max_rows = 1;
+                        job.wrap.break_anywhere = false;
+                        job.append(
+                            &chip.label,
+                            0.0,
+                            egui::TextFormat {
+                                font_id: FontId::proportional(10.0),
+                                color: chip.text_color.linear_multiply(text_alpha),
+                                ..Default::default()
+                            },
+                        );
+                        job.append(
+                            " ",
+                            0.0,
+                            egui::TextFormat {
+                                font_id: FontId::proportional(10.0),
+                                color: chip.text_color.linear_multiply(text_alpha),
+                                ..Default::default()
+                            },
+                        );
+                        job.append(
+                            &chip.display_val,
+                            0.0,
+                            egui::TextFormat {
+                                font_id: FontId::proportional(10.0),
+                                color: text_color,
+                                ..Default::default()
+                            },
+                        );
+                        ui.add(egui::Label::new(job).wrap_mode(egui::TextWrapMode::Extend));
                     }
                 }
             });
