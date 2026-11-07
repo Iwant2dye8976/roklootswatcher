@@ -1017,3 +1017,149 @@ fn test_today_vault_records_filtering_and_account_isolation() {
 
     let _ = std::fs::remove_dir_all(&temp_dir);
 }
+
+#[test]
+fn test_overlay_settings_mode_selection() {
+    let mut config = OverlayConfig::default();
+    assert_eq!(config.mode, OverlayDisplayMode::Cards);
+
+    // Switch mode
+    config.mode = OverlayDisplayMode::MiniHud;
+    assert_eq!(config.mode, OverlayDisplayMode::MiniHud);
+
+    config.mode = OverlayDisplayMode::Combined;
+    assert_eq!(config.mode, OverlayDisplayMode::Combined);
+
+    // Verify cycling through .next()
+    assert_eq!(config.mode.next(), OverlayDisplayMode::Hidden);
+    assert_eq!(OverlayDisplayMode::Hidden.next(), OverlayDisplayMode::Cards);
+    assert_eq!(OverlayDisplayMode::Cards.next(), OverlayDisplayMode::MiniHud);
+    assert_eq!(OverlayDisplayMode::MiniHud.next(), OverlayDisplayMode::Combined);
+
+    // Verify hotkey toggle state
+    assert!(config.hotkey_enabled);
+    config.hotkey_enabled = false;
+    assert!(!config.hotkey_enabled);
+}
+
+#[test]
+fn test_overlay_settings_pinned_items_add_remove() {
+    let mut config = OverlayConfig {
+        pinned_items: Vec::new(),
+        ..Default::default()
+    };
+    assert_eq!(config.pinned_items.len(), 0);
+
+    let gems = PinnedItemKey::CatalogItem {
+        itype: 1,
+        isub: 2,
+        canonical_name: "Gems".to_string(),
+    };
+    let book = PinnedItemKey::CatalogItem {
+        itype: 2,
+        isub: 3,
+        canonical_name: "Book of Covenant".to_string(),
+    };
+    let arrow = PinnedItemKey::CatalogItem {
+        itype: 2,
+        isub: 4,
+        canonical_name: "Arrow of Resistance".to_string(),
+    };
+
+    // Add 1
+    assert!(config.add_pinned_item(gems.clone()));
+    assert_eq!(config.pinned_items.len(), 1);
+
+    // Prevent duplicate
+    assert!(!config.add_pinned_item(gems.clone()));
+    assert_eq!(config.pinned_items.len(), 1);
+
+    // Add 2 and 3
+    assert!(config.add_pinned_item(book.clone()));
+    assert!(config.add_pinned_item(arrow.clone()));
+    assert_eq!(config.pinned_items.len(), 3);
+
+    // Add 4 and 5
+    assert!(config.add_pinned_item(PinnedItemKey::SpeedupUniversal));
+    assert!(config.add_pinned_item(PinnedItemKey::SpeedupTraining));
+    assert_eq!(config.pinned_items.len(), 5);
+
+    // Cap at 5: cannot add 6th item
+    assert!(!config.add_pinned_item(PinnedItemKey::SpeedupHealing));
+    assert_eq!(config.pinned_items.len(), 5);
+
+    // Remove item at index 1 (book)
+    let removed = config.remove_pinned_item(1);
+    assert_eq!(removed, Some(book));
+    assert_eq!(config.pinned_items.len(), 4);
+    assert!(!config.pinned_items.contains(&PinnedItemKey::CatalogItem {
+        itype: 2,
+        isub: 3,
+        canonical_name: "Book of Covenant".to_string(),
+    }));
+
+    // Can now add another item
+    assert!(config.add_pinned_item(PinnedItemKey::SpeedupHealing));
+    assert_eq!(config.pinned_items.len(), 5);
+
+    // Out of bounds remove
+    assert_eq!(config.remove_pinned_item(10), None);
+}
+
+#[test]
+fn test_overlay_settings_presets() {
+    let mut config = OverlayConfig {
+        pinned_items: Vec::new(),
+        ..Default::default()
+    };
+
+    // Apply Castle Push preset: Book of Covenant, Arrow of Resistance, Gems
+    let castle_push = crate::gui::views::settings::preset_castle_push();
+    assert_eq!(castle_push.len(), 3);
+    config.apply_pinned_preset(&castle_push);
+
+    assert_eq!(config.pinned_items.len(), 3);
+    assert_eq!(
+        config.pinned_items[0],
+        PinnedItemKey::CatalogItem {
+            itype: 2,
+            isub: 3,
+            canonical_name: "Book of Covenant".to_string(),
+        }
+    );
+    assert_eq!(
+        config.pinned_items[1],
+        PinnedItemKey::CatalogItem {
+            itype: 2,
+            isub: 4,
+            canonical_name: "Arrow of Resistance".to_string(),
+        }
+    );
+    assert_eq!(
+        config.pinned_items[2],
+        PinnedItemKey::CatalogItem {
+            itype: 1,
+            isub: 2,
+            canonical_name: "Gems".to_string(),
+        }
+    );
+
+    // Apply War & Training preset: Universal Speedup, Training Speedup, Gems
+    // Gems is already present, so Universal and Training are added (3 + 2 = 5)
+    let war_training = crate::gui::views::settings::preset_war_and_training();
+    assert_eq!(war_training.len(), 3);
+    config.apply_pinned_preset(&war_training);
+
+    assert_eq!(config.pinned_items.len(), 5);
+    assert_eq!(config.pinned_items[3], PinnedItemKey::SpeedupUniversal);
+    assert_eq!(config.pinned_items[4], PinnedItemKey::SpeedupTraining);
+
+    // Try applying Gathering & Heals preset when already at 5 items -> capped at 5
+    let gathering_heals = crate::gui::views::settings::preset_gathering_and_heals();
+    config.apply_pinned_preset(&gathering_heals);
+    assert_eq!(config.pinned_items.len(), 5);
+
+    // Check available options list has all 12 items
+    let options = crate::gui::views::settings::available_pinned_item_options();
+    assert_eq!(options.len(), 12);
+}

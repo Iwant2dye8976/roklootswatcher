@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use eframe::egui::{self, Color32, Margin, Rounding, Stroke};
 
 use crate::i18n::TrKey;
-use crate::model::{format_num, AppLanguage, CloseBehavior, FilterMode};
+use crate::model::{format_num, AppLanguage, CloseBehavior, FilterMode, OverlayConfig, OverlayDisplayMode, PinnedItemKey};
 use crate::watcher::detect_default_mail_dir;
 use super::super::components::is_network_offline_error;
 use super::super::RoKLootWatcherApp;
@@ -230,6 +230,237 @@ impl RoKLootWatcherApp {
                     });
 
                     if self.overlay_config.enabled {
+                        ui.add_space(10.0);
+                        ui.separator();
+                        ui.add_space(10.0);
+
+                        // Mode Switcher
+                        let mode_lbl = match self.language {
+                            AppLanguage::Vietnamese => "Chế độ hiển thị:",
+                            AppLanguage::English => "Display Mode:",
+                        };
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 6.0;
+                            ui.label(egui::RichText::new(mode_lbl).strong().color(c.canvas_tint));
+
+                            let modes = [
+                                (OverlayDisplayMode::Cards, "Cards"),
+                                (OverlayDisplayMode::MiniHud, "Mini HUD"),
+                                (OverlayDisplayMode::Combined, "Combined"),
+                            ];
+
+                            for (m, label) in modes {
+                                let is_selected = self.overlay_config.mode == m;
+                                let fill = if is_selected { c.primary_pressed } else { c.primary };
+                                let stroke = if is_selected {
+                                    Stroke::new(1.0_f32, c.focus_teal)
+                                } else {
+                                    Stroke::new(1.0_f32, c.hairline)
+                                };
+                                let col = if is_selected { c.focus_teal } else { c.text_muted };
+
+                                let btn = egui::Button::new(
+                                    egui::RichText::new(label)
+                                        .font(egui::FontId::proportional(11.0))
+                                        .strong()
+                                        .color(col),
+                                )
+                                .fill(fill)
+                                .stroke(stroke)
+                                .rounding(Rounding::same(5.0));
+
+                                if ui.add_sized([0.0, 26.0], btn).clicked() && !is_selected {
+                                    self.overlay_config.mode = m;
+                                    self.save_config();
+                                    ctx.request_repaint();
+                                }
+                            }
+
+                            if self.overlay_config.mode == OverlayDisplayMode::Hidden {
+                                let hidden_hint = match self.language {
+                                    AppLanguage::Vietnamese => "(Đang ẩn)",
+                                    AppLanguage::English => "(Hidden)",
+                                };
+                                ui.label(egui::RichText::new(hidden_hint).font(egui::FontId::proportional(10.0)).color(c.text_muted));
+                            }
+                        });
+
+                        ui.add_space(8.0);
+
+                        // Global Hotkey Toggle
+                        let hotkey_lbl = match self.language {
+                            AppLanguage::Vietnamese => "Phím tắt (Ctrl + Shift + H)",
+                            AppLanguage::English => "Global Hotkey (Ctrl + Shift + H)",
+                        };
+                        let prev_hotkey = self.overlay_config.hotkey_enabled;
+                        ui.checkbox(
+                            &mut self.overlay_config.hotkey_enabled,
+                            egui::RichText::new(hotkey_lbl).strong().color(c.canvas_tint),
+                        );
+                        if self.overlay_config.hotkey_enabled != prev_hotkey {
+                            self.save_config();
+                            ctx.request_repaint();
+                        }
+
+                        let hotkey_hint = match self.language {
+                            AppLanguage::Vietnamese => "Nhấn Ctrl + Shift + H trong game để chuyển nhanh giữa các chế độ (Cards -> Mini HUD -> Combined -> Ẩn).",
+                            AppLanguage::English => "Press Ctrl + Shift + H in-game to cycle overlay modes (Cards -> Mini HUD -> Combined -> Hidden).",
+                        };
+                        ui.label(egui::RichText::new(hotkey_hint).font(egui::FontId::proportional(10.0)).color(c.text_muted));
+
+                        ui.add_space(10.0);
+
+                        // Pinned Items Manager
+                        let pinned_lbl = match self.language {
+                            AppLanguage::Vietnamese => "Mục theo dõi nhanh (Tối đa 5 mục):",
+                            AppLanguage::English => "Pinned Counters (Max 5 items):",
+                        };
+                        ui.label(egui::RichText::new(pinned_lbl).strong().color(c.canvas_tint));
+                        ui.add_space(4.0);
+
+                        let mut remove_idx: Option<usize> = None;
+                        if self.overlay_config.pinned_items.is_empty() {
+                            let empty_hint = match self.language {
+                                AppLanguage::Vietnamese => "(Chưa ghim mục nào)",
+                                AppLanguage::English => "(No items pinned)",
+                            };
+                            ui.label(egui::RichText::new(empty_hint).font(egui::FontId::proportional(10.5)).color(c.text_muted));
+                        } else {
+                            ui.horizontal_wrapped(|ui| {
+                                ui.spacing_mut().item_spacing = egui::vec2(6.0, 6.0);
+                                for (idx, item) in self.overlay_config.pinned_items.iter().enumerate() {
+                                    let col = pinned_item_color(item, &c);
+                                    let name = item.localized_name(self.language);
+
+                                    egui::Frame::none()
+                                        .fill(c.primary)
+                                        .stroke(Stroke::new(1.0_f32, c.hairline))
+                                        .rounding(Rounding::same(4.0))
+                                        .inner_margin(Margin::symmetric(6.0, 3.0))
+                                        .show(ui, |ui| {
+                                            ui.horizontal(|ui| {
+                                                ui.spacing_mut().item_spacing.x = 4.0;
+                                                ui.label(
+                                                    egui::RichText::new(name)
+                                                        .font(egui::FontId::proportional(10.5))
+                                                        .strong()
+                                                        .color(col),
+                                                );
+                                                let btn_del = egui::Button::new(
+                                                    egui::RichText::new("x")
+                                                        .font(egui::FontId::monospace(10.0))
+                                                        .strong()
+                                                        .color(c.text_muted),
+                                                )
+                                                .fill(Color32::TRANSPARENT)
+                                                .stroke(Stroke::NONE)
+                                                .min_size(egui::vec2(10.0, 10.0));
+
+                                                if ui.add(btn_del).clicked() {
+                                                    remove_idx = Some(idx);
+                                                }
+                                            });
+                                        });
+                                }
+                            });
+                        }
+
+                        if let Some(idx) = remove_idx {
+                            self.overlay_config.remove_pinned_item(idx);
+                            self.refresh_cached_overlay_records();
+                            self.save_config();
+                            ctx.request_repaint();
+                        }
+
+                        if self.overlay_config.pinned_items.len() < OverlayConfig::MAX_PINNED_ITEMS {
+                            ui.add_space(6.0);
+
+                            // Presets row
+                            ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing.x = 6.0;
+                                let preset_btn = |text: &str| {
+                                    egui::Button::new(
+                                        egui::RichText::new(text)
+                                            .font(egui::FontId::proportional(10.5))
+                                            .strong()
+                                            .color(c.canvas_tint),
+                                    )
+                                    .fill(c.primary)
+                                    .stroke(Stroke::new(1.0_f32, c.hairline))
+                                    .rounding(Rounding::same(4.0))
+                                };
+
+                                if ui.add_sized([0.0, 24.0], preset_btn("[+ Castle Push]")).clicked() {
+                                    self.overlay_config.apply_pinned_preset(&preset_castle_push());
+                                    self.refresh_cached_overlay_records();
+                                    self.save_config();
+                                    ctx.request_repaint();
+                                }
+
+                                if ui.add_sized([0.0, 24.0], preset_btn("[+ War & Training]")).clicked() {
+                                    self.overlay_config.apply_pinned_preset(&preset_war_and_training());
+                                    self.refresh_cached_overlay_records();
+                                    self.save_config();
+                                    ctx.request_repaint();
+                                }
+
+                                if ui.add_sized([0.0, 24.0], preset_btn("[+ Gathering & Heals]")).clicked() {
+                                    self.overlay_config.apply_pinned_preset(&preset_gathering_and_heals());
+                                    self.refresh_cached_overlay_records();
+                                    self.save_config();
+                                    ctx.request_repaint();
+                                }
+                            });
+
+                            ui.add_space(6.0);
+
+                            // Add Item Dropdown
+                            let add_lbl = match self.language {
+                                AppLanguage::Vietnamese => "Thêm mục:",
+                                AppLanguage::English => "Add Item:",
+                            };
+                            let mut selected_to_add: Option<PinnedItemKey> = None;
+                            ui.horizontal(|ui| {
+                                ui.label(egui::RichText::new(add_lbl).color(c.text_muted));
+                                egui::ComboBox::from_id_salt("overlay_add_pinned_item_select")
+                                    .selected_text(match self.language {
+                                        AppLanguage::Vietnamese => "+ Chọn mục để thêm...",
+                                        AppLanguage::English => "+ Select item to add...",
+                                    })
+                                    .show_ui(ui, |ui| {
+                                        for opt in available_pinned_item_options() {
+                                            let is_pinned = self.overlay_config.pinned_items.contains(&opt);
+                                            let opt_name = opt.localized_name(self.language);
+                                            let label = if is_pinned {
+                                                let suffix = match self.language {
+                                                    AppLanguage::Vietnamese => "(Đã ghim)",
+                                                    AppLanguage::English => "(Pinned)",
+                                                };
+                                                format!("{} {}", opt_name, suffix)
+                                            } else {
+                                                opt_name.to_string()
+                                            };
+                                            let color = if is_pinned {
+                                                c.text_muted
+                                            } else {
+                                                pinned_item_color(&opt, &c)
+                                            };
+                                            if ui.add_enabled(!is_pinned, egui::SelectableLabel::new(false, egui::RichText::new(label).color(color))).clicked() {
+                                                selected_to_add = Some(opt);
+                                            }
+                                        }
+                                    });
+                            });
+
+                            if let Some(item) = selected_to_add {
+                                if self.overlay_config.add_pinned_item(item) {
+                                    self.refresh_cached_overlay_records();
+                                    self.save_config();
+                                    ctx.request_repaint();
+                                }
+                            }
+                        }
+
                         ui.add_space(10.0);
                         ui.separator();
                         ui.add_space(10.0);
@@ -1269,5 +1500,222 @@ impl RoKLootWatcherApp {
                         });
                 });
         });
+    }
+}
+
+impl OverlayConfig {
+    pub const MAX_PINNED_ITEMS: usize = 5;
+
+    pub fn add_pinned_item(&mut self, item: PinnedItemKey) -> bool {
+        if self.pinned_items.len() >= Self::MAX_PINNED_ITEMS {
+            return false;
+        }
+        if self.pinned_items.contains(&item) {
+            return false;
+        }
+        self.pinned_items.push(item);
+        true
+    }
+
+    pub fn remove_pinned_item(&mut self, index: usize) -> Option<PinnedItemKey> {
+        if index < self.pinned_items.len() {
+            Some(self.pinned_items.remove(index))
+        } else {
+            None
+        }
+    }
+
+    pub fn apply_pinned_preset(&mut self, preset_items: &[PinnedItemKey]) {
+        for item in preset_items {
+            if self.pinned_items.len() >= Self::MAX_PINNED_ITEMS {
+                break;
+            }
+            if !self.pinned_items.contains(item) {
+                self.pinned_items.push(item.clone());
+            }
+        }
+    }
+}
+
+impl PinnedItemKey {
+    pub fn canonical_name(&self) -> &str {
+        match self {
+            Self::CatalogItem { canonical_name, .. } => canonical_name.as_str(),
+            Self::SpeedupUniversal => "Universal Speedup",
+            Self::SpeedupTraining => "Training Speedup",
+            Self::SpeedupHealing => "Healing Speedup",
+        }
+    }
+
+    pub fn localized_name(&self, lang: AppLanguage) -> &str {
+        match self {
+            Self::SpeedupUniversal => match lang {
+                AppLanguage::Vietnamese => "Tăng tốc Đa Năng",
+                AppLanguage::English => "Universal Speedup",
+            },
+            Self::SpeedupTraining => match lang {
+                AppLanguage::Vietnamese => "Tăng tốc Huấn Luyện",
+                AppLanguage::English => "Training Speedup",
+            },
+            Self::SpeedupHealing => match lang {
+                AppLanguage::Vietnamese => "Tăng tốc Chữa Lành",
+                AppLanguage::English => "Healing Speedup",
+            },
+            Self::CatalogItem { canonical_name, .. } => match canonical_name.as_str() {
+                "Gems" => match lang {
+                    AppLanguage::Vietnamese => "Đá quý",
+                    AppLanguage::English => "Gems",
+                },
+                "Book of Covenant" => match lang {
+                    AppLanguage::Vietnamese => "Sách giao ước",
+                    AppLanguage::English => "Book of Covenant",
+                },
+                "Arrow of Resistance" => match lang {
+                    AppLanguage::Vietnamese => "Mũi tên kháng cự",
+                    AppLanguage::English => "Arrow of Resistance",
+                },
+                "Gold Key" => match lang {
+                    AppLanguage::Vietnamese => "Chìa khóa vàng",
+                    AppLanguage::English => "Gold Key",
+                },
+                "Silver Key" => match lang {
+                    AppLanguage::Vietnamese => "Chìa khóa bạc",
+                    AppLanguage::English => "Silver Key",
+                },
+                "Iron Ore" => match lang {
+                    AppLanguage::Vietnamese => "Quặng sắt",
+                    AppLanguage::English => "Iron Ore",
+                },
+                "Ebony" => match lang {
+                    AppLanguage::Vietnamese => "Gỗ mun",
+                    AppLanguage::English => "Ebony",
+                },
+                "Animal Bone" => match lang {
+                    AppLanguage::Vietnamese => "Xương động vật",
+                    AppLanguage::English => "Animal Bone",
+                },
+                "Leather" => match lang {
+                    AppLanguage::Vietnamese => "Da lông",
+                    AppLanguage::English => "Leather",
+                },
+                other => other,
+            },
+        }
+    }
+}
+
+pub fn preset_castle_push() -> Vec<PinnedItemKey> {
+    vec![
+        PinnedItemKey::CatalogItem {
+            itype: 2,
+            isub: 3,
+            canonical_name: "Book of Covenant".to_string(),
+        },
+        PinnedItemKey::CatalogItem {
+            itype: 2,
+            isub: 4,
+            canonical_name: "Arrow of Resistance".to_string(),
+        },
+        PinnedItemKey::CatalogItem {
+            itype: 1,
+            isub: 2,
+            canonical_name: "Gems".to_string(),
+        },
+    ]
+}
+
+pub fn preset_war_and_training() -> Vec<PinnedItemKey> {
+    vec![
+        PinnedItemKey::SpeedupUniversal,
+        PinnedItemKey::SpeedupTraining,
+        PinnedItemKey::CatalogItem {
+            itype: 1,
+            isub: 2,
+            canonical_name: "Gems".to_string(),
+        },
+    ]
+}
+
+pub fn preset_gathering_and_heals() -> Vec<PinnedItemKey> {
+    vec![
+        PinnedItemKey::CatalogItem {
+            itype: 1,
+            isub: 2,
+            canonical_name: "Gems".to_string(),
+        },
+        PinnedItemKey::SpeedupHealing,
+        PinnedItemKey::SpeedupUniversal,
+    ]
+}
+
+pub fn available_pinned_item_options() -> Vec<PinnedItemKey> {
+    vec![
+        PinnedItemKey::CatalogItem {
+            itype: 1,
+            isub: 2,
+            canonical_name: "Gems".to_string(),
+        },
+        PinnedItemKey::CatalogItem {
+            itype: 2,
+            isub: 3,
+            canonical_name: "Book of Covenant".to_string(),
+        },
+        PinnedItemKey::CatalogItem {
+            itype: 2,
+            isub: 4,
+            canonical_name: "Arrow of Resistance".to_string(),
+        },
+        PinnedItemKey::SpeedupUniversal,
+        PinnedItemKey::SpeedupTraining,
+        PinnedItemKey::SpeedupHealing,
+        PinnedItemKey::CatalogItem {
+            itype: 2,
+            isub: 48,
+            canonical_name: "Gold Key".to_string(),
+        },
+        PinnedItemKey::CatalogItem {
+            itype: 2,
+            isub: 47,
+            canonical_name: "Silver Key".to_string(),
+        },
+        PinnedItemKey::CatalogItem {
+            itype: 2,
+            isub: 413,
+            canonical_name: "Iron Ore".to_string(),
+        },
+        PinnedItemKey::CatalogItem {
+            itype: 2,
+            isub: 417,
+            canonical_name: "Ebony".to_string(),
+        },
+        PinnedItemKey::CatalogItem {
+            itype: 2,
+            isub: 414,
+            canonical_name: "Animal Bone".to_string(),
+        },
+        PinnedItemKey::CatalogItem {
+            itype: 2,
+            isub: 412,
+            canonical_name: "Leather".to_string(),
+        },
+    ]
+}
+
+pub fn pinned_item_color(item: &PinnedItemKey, c: &crate::gui::theme::ThemeColors) -> Color32 {
+    match item {
+        PinnedItemKey::SpeedupUniversal => c.speedup_blue,
+        PinnedItemKey::SpeedupTraining => c.train_orange,
+        PinnedItemKey::SpeedupHealing => c.heal_blue,
+        PinnedItemKey::CatalogItem { canonical_name, .. } => match canonical_name.as_str() {
+            "Gems" => c.crystal_cyan,
+            "Book of Covenant" | "Gold Key" => c.accent_gold,
+            "Arrow of Resistance" => c.train_orange,
+            "Silver Key" => c.rank_silver,
+            "Iron Ore" => c.mat_iron,
+            "Ebony" => c.mat_ebony,
+            "Animal Bone" => c.mat_bone,
+            "Leather" => c.rank_bronze,
+            _ => c.canvas_tint,
+        },
     }
 }
