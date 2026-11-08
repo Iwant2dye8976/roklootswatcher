@@ -1245,6 +1245,7 @@ fn run_sync_worker_loop(
 }
 
 #[cfg(test)]
+#[allow(clippy::field_reassign_with_default)]
 mod tests {
     use super::*;
 
@@ -1733,11 +1734,13 @@ mod tests {
             (201, "Created", "[]".to_string())
         }, 1);
 
-        let mut cfg = crate::model::CloudAuthConfig::default();
-        cfg.supabase_url = Some(url);
-        cfg.anon_key = Some("test_anon".into());
-        cfg.access_token = Some("test_tok".into());
-        cfg.user_id = Some("user_sync_test".into());
+        let cfg = crate::model::CloudAuthConfig {
+            supabase_url: Some(url),
+            anon_key: Some("test_anon".into()),
+            access_token: Some("test_tok".into()),
+            user_id: Some("user_sync_test".into()),
+            ..Default::default()
+        };
 
         let worker = spawn_sync_worker(vault.clone(), cfg);
         assert_eq!(worker.state.read().unwrap().pending_records_count, 2);
@@ -1776,13 +1779,15 @@ mod tests {
             (201, "Created", "[]".to_string())
         }, 1);
 
-        let mut cfg = crate::model::CloudAuthConfig::default();
-        cfg.supabase_url = Some(url);
-        cfg.anon_key = Some("test_anon".into());
-        cfg.access_token = Some("test_tok".into());
-        cfg.user_id = Some("user_deb_test".into());
-        cfg.auto_backup = true;
-        cfg.backup_on_exit = false;
+        let cfg = crate::model::CloudAuthConfig {
+            supabase_url: Some(url),
+            anon_key: Some("test_anon".into()),
+            access_token: Some("test_tok".into()),
+            user_id: Some("user_deb_test".into()),
+            auto_backup: true,
+            backup_on_exit: false,
+            ..Default::default()
+        };
 
         let worker = spawn_sync_worker(vault.clone(), cfg);
         worker.tx.send(SyncCommand::TriggerDelta).unwrap();
@@ -1830,11 +1835,13 @@ mod tests {
             (200, "OK", body.clone())
         }, 1);
 
-        let mut cfg = crate::model::CloudAuthConfig::default();
-        cfg.supabase_url = Some(url);
-        cfg.anon_key = Some("test_anon".into());
-        cfg.access_token = Some("test_tok".into());
-        cfg.user_id = Some("user_res_test".into());
+        let cfg = crate::model::CloudAuthConfig {
+            supabase_url: Some(url),
+            anon_key: Some("test_anon".into()),
+            access_token: Some("test_tok".into()),
+            user_id: Some("user_res_test".into()),
+            ..Default::default()
+        };
 
         let worker = spawn_sync_worker(vault.clone(), cfg);
         let (res_tx, res_rx) = std::sync::mpsc::channel();
@@ -2197,8 +2204,8 @@ mod tests {
 
         let outcome = res_rx.recv_timeout(std::time::Duration::from_secs(2)).unwrap();
         assert!(outcome.is_err(), "Expected error on 500 legacy restore");
-        assert_eq!(worker.state.read().unwrap().is_syncing, false);
-        assert_eq!(worker.state.read().unwrap().is_restoring, false);
+        assert!(!worker.state.read().unwrap().is_syncing);
+        assert!(!worker.state.read().unwrap().is_restoring);
         assert!(worker.state.read().unwrap().last_error.is_some());
 
         let (ack_tx, ack_rx) = std::sync::mpsc::channel();
@@ -2238,12 +2245,14 @@ mod tests {
             (201, "Created", "[]".to_string())
         }, 1);
 
-        let mut cfg = crate::model::CloudAuthConfig::default();
-        cfg.supabase_url = Some(url);
-        cfg.anon_key = Some("test_anon".into());
-        cfg.access_token = Some("test_tok".into());
-        cfg.user_id = Some("user_reply_test".into());
-        cfg.backup_on_exit = false;
+        let cfg = crate::model::CloudAuthConfig {
+            supabase_url: Some(url),
+            anon_key: Some("test_anon".into()),
+            access_token: Some("test_tok".into()),
+            user_id: Some("user_reply_test".into()),
+            backup_on_exit: false,
+            ..Default::default()
+        };
 
         let worker = spawn_sync_worker(vault.clone(), cfg);
         let (reply_tx, reply_rx) = std::sync::mpsc::channel();
@@ -2278,12 +2287,14 @@ mod tests {
             }
         }, 1);
 
-        let mut cfg = crate::model::CloudAuthConfig::default();
-        cfg.supabase_url = Some(url);
-        cfg.anon_key = Some("test_anon".into());
-        cfg.access_token = Some("test_tok".into());
-        cfg.user_id = Some("user_403_test".into());
-        cfg.backup_on_exit = false;
+        let cfg = crate::model::CloudAuthConfig {
+            supabase_url: Some(url),
+            anon_key: Some("test_anon".into()),
+            access_token: Some("test_tok".into()),
+            user_id: Some("user_403_test".into()),
+            backup_on_exit: false,
+            ..Default::default()
+        };
 
         let worker = spawn_sync_worker(vault.clone(), cfg);
         let (reply_tx, reply_rx) = std::sync::mpsc::channel();

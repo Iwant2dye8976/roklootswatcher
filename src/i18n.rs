@@ -807,6 +807,8 @@ pub fn date_preset_label(preset: &DateFilterPreset, lang: AppLanguage) -> &'stat
         (DateFilterPreset::Last7Days, AppLanguage::English) => "Last 7 Days",
         (DateFilterPreset::Last14Days, AppLanguage::Vietnamese) => "14 ngày qua",
         (DateFilterPreset::Last14Days, AppLanguage::English) => "Last 14 Days",
+        (DateFilterPreset::Last15Days, AppLanguage::Vietnamese) => "15 ngày qua",
+        (DateFilterPreset::Last15Days, AppLanguage::English) => "Last 15 Days",
         (DateFilterPreset::Last30Days, AppLanguage::Vietnamese) => "30 ngày qua",
         (DateFilterPreset::Last30Days, AppLanguage::English) => "Last 30 Days",
         (DateFilterPreset::Custom, AppLanguage::Vietnamese) => "Tùy chọn ngày",

@@ -104,19 +104,39 @@ pub fn is_zero(v: &i64) -> bool {
     *v == 0
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum DateFilterPreset {
+    #[serde(alias = "All", alias = "all")]
     AllTime,
     Today,
     Yesterday,
+    #[serde(alias = "Days3")]
     Last3Days,
+    #[default]
+    #[serde(alias = "Days7")]
     Last7Days,
+    #[serde(alias = "Days14")]
     Last14Days,
+    #[serde(alias = "Days15")]
+    Last15Days,
+    #[serde(alias = "Days30")]
     Last30Days,
     Custom,
 }
 
 impl DateFilterPreset {
+    pub fn to_days(self) -> Option<u32> {
+        match self {
+            DateFilterPreset::Today => Some(1),
+            DateFilterPreset::Last3Days => Some(3),
+            DateFilterPreset::Last7Days => Some(7),
+            DateFilterPreset::Last14Days => Some(14),
+            DateFilterPreset::Last15Days => Some(15),
+            DateFilterPreset::Last30Days => Some(30),
+            DateFilterPreset::Yesterday | DateFilterPreset::AllTime | DateFilterPreset::Custom => None,
+        }
+    }
+
     #[allow(dead_code)]
     pub fn label(&self) -> &'static str {
         match self {
@@ -126,6 +146,7 @@ impl DateFilterPreset {
             DateFilterPreset::Last3Days => "3 ngày gần nhất",
             DateFilterPreset::Last7Days => "7 ngày qua",
             DateFilterPreset::Last14Days => "14 ngày qua",
+            DateFilterPreset::Last15Days => "15 ngày qua",
             DateFilterPreset::Last30Days => "30 ngày qua",
             DateFilterPreset::Custom => "Tùy chọn ngày",
         }
@@ -135,13 +156,13 @@ impl DateFilterPreset {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum SpeedupUnit {
     #[default]
-    #[serde(rename = "minutes")]
+    #[serde(rename = "minutes", alias = "Minutes")]
     Minutes,
-    #[serde(rename = "hours")]
+    #[serde(rename = "hours", alias = "Hours")]
     Hours,
-    #[serde(rename = "days")]
+    #[serde(rename = "days", alias = "Days")]
     Days,
-    #[serde(rename = "dhm")]
+    #[serde(rename = "dhm", alias = "Dhm", alias = "DHM")]
     Dhm,
 }
 
@@ -185,6 +206,27 @@ pub fn format_speedup_dhm_short(minutes: i64) -> String {
     }
     if mins > 0 || parts.is_empty() {
         parts.push(format!("{}p", mins));
+    }
+    parts.join(" ")
+}
+
+pub fn format_speedup_compact(minutes: i64) -> String {
+    if minutes <= 0 {
+        return "0m".to_string();
+    }
+    let days = minutes / 1440;
+    let rem = minutes % 1440;
+    let hours = rem / 60;
+    let mins = rem % 60;
+    let mut parts = Vec::new();
+    if days > 0 {
+        parts.push(format!("{}d", days));
+    }
+    if hours > 0 {
+        parts.push(format!("{}h", hours));
+    }
+    if mins > 0 || parts.is_empty() {
+        parts.push(format!("{}m", mins));
     }
     parts.join(" ")
 }
@@ -1130,6 +1172,7 @@ pub fn get_item_converted_display(itype: u32, isub: u32, total_qty: i64) -> Opti
     get_item_converted_display_for_lang(itype, isub, total_qty, AppLanguage::Vietnamese)
 }
 
+#[allow(dead_code)]
 pub fn format_in_millions(val: i64, lang: AppLanguage) -> String {
     match lang {
         AppLanguage::English => {
@@ -1147,6 +1190,7 @@ pub fn format_in_millions(val: i64, lang: AppLanguage) -> String {
     }
 }
 
+#[allow(dead_code)]
 pub fn format_in_millions_vietnamese(val: i64) -> String {
     if val >= 1_000_000_000 {
         format!("{:.2} tỷ", (val as f64) / 1_000_000_000.0)
@@ -1435,9 +1479,9 @@ impl Statistics {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum AppTheme {
     #[default]
-    #[serde(rename = "dark")]
+    #[serde(rename = "dark", alias = "Dark")]
     Dark,
-    #[serde(rename = "light")]
+    #[serde(rename = "light", alias = "Light")]
     Light,
 }
 
@@ -1465,10 +1509,10 @@ impl AppTheme {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum CloseBehavior {
-    #[serde(rename = "tray")]
+    #[serde(rename = "tray", alias = "Tray", alias = "MinimizeToTray")]
     #[default]
     Tray,
-    #[serde(rename = "close")]
+    #[serde(rename = "close", alias = "Close", alias = "Quit")]
     Close,
 }
 
@@ -1511,9 +1555,13 @@ impl std::fmt::Display for AppLanguage {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum OverlayDisplayMode {
     #[default]
+    #[serde(alias = "Full", alias = "cards")]
     Cards,
+    #[serde(alias = "Mini", alias = "mini", alias = "minihud")]
     MiniHud,
+    #[serde(alias = "combined")]
     Combined,
+    #[serde(alias = "hidden")]
     Hidden,
 }
 
@@ -1532,6 +1580,7 @@ impl OverlayDisplayMode {
 pub enum PinnedItemKey {
     CatalogItem {
         itype: u32,
+        #[serde(alias = "sub_type")]
         isub: u32,
         canonical_name: String,
     },
@@ -1652,19 +1701,20 @@ impl Default for OverlayConfig {
     }
 }
 
-pub fn parse_hex_color(hex: &str) -> Option<eframe::egui::Color32> {
+#[allow(dead_code)]
+pub fn parse_hex_color(hex: &str) -> Option<[u8; 4]> {
     let s = hex.trim().strip_prefix('#').unwrap_or(hex.trim());
     if s.len() == 6 {
         let r = u8::from_str_radix(&s[0..2], 16).ok()?;
         let g = u8::from_str_radix(&s[2..4], 16).ok()?;
         let b = u8::from_str_radix(&s[4..6], 16).ok()?;
-        Some(eframe::egui::Color32::from_rgb(r, g, b))
+        Some([r, g, b, 255])
     } else if s.len() == 8 {
         let r = u8::from_str_radix(&s[0..2], 16).ok()?;
         let g = u8::from_str_radix(&s[2..4], 16).ok()?;
         let b = u8::from_str_radix(&s[4..6], 16).ok()?;
         let a = u8::from_str_radix(&s[6..8], 16).ok()?;
-        Some(eframe::egui::Color32::from_rgba_premultiplied(r, g, b, a))
+        Some([r, g, b, a])
     } else {
         None
     }
@@ -1705,6 +1755,18 @@ pub struct CloudAuthConfig {
 }
 
 impl CloudAuthConfig {
+    pub fn is_logged_in(&self) -> bool {
+        self.access_token.is_some() || self.refresh_token.is_some() || self.user_id.is_some()
+    }
+
+    pub fn logout(&mut self) {
+        self.access_token = None;
+        self.refresh_token = None;
+        self.user_id = None;
+        self.user_email = None;
+        self.last_synced = None;
+    }
+
     pub fn clamped_interval_minutes(&self) -> u32 {
         self.backup_interval_minutes.clamp(5, 1440)
     }
@@ -1890,6 +1952,8 @@ pub struct AppConfig {
     pub mail_dir: Option<PathBuf>,
     #[serde(default)]
     pub mode: Option<FilterMode>,
+    #[serde(default = "default_true")]
+    pub auto_scan: bool,
     #[serde(default)]
     pub autostart: bool,
     #[serde(default = "default_autostart_minimized")]
@@ -1915,6 +1979,7 @@ impl Default for AppConfig {
             language: AppLanguage::default(),
             mail_dir: None,
             mode: None,
+            auto_scan: true,
             autostart: false,
             autostart_minimized: true,
             overlay: OverlayConfig::default(),
@@ -2966,9 +3031,9 @@ mod tests {
 
     #[test]
     fn test_parse_hex_color() {
-        assert_eq!(parse_hex_color("#FFFFFF"), Some(eframe::egui::Color32::from_rgb(255, 255, 255)));
-        assert_eq!(parse_hex_color("#000000"), Some(eframe::egui::Color32::from_rgb(0, 0, 0)));
-        assert_eq!(parse_hex_color("#38BDF8"), Some(eframe::egui::Color32::from_rgb(0x38, 0xBD, 0xF8)));
+        assert_eq!(parse_hex_color("#FFFFFF"), Some([255, 255, 255, 255]));
+        assert_eq!(parse_hex_color("#000000"), Some([0, 0, 0, 255]));
+        assert_eq!(parse_hex_color("#38BDF8"), Some([0x38, 0xBD, 0xF8, 255]));
         assert_eq!(parse_hex_color("invalid"), None);
     }
 
@@ -3070,7 +3135,7 @@ mod tests {
         assert_eq!(cfg.cloud_auth.user_id.as_deref(), Some("uid-123"));
         assert_eq!(cfg.cloud_auth.access_token, None);
         assert_eq!(cfg.cloud_auth.refresh_token, None);
-        assert_eq!(cfg.cloud_auth.auto_backup, false);
+        assert!(!cfg.cloud_auth.auto_backup);
         assert!(cfg.cloud_auth.stay_login, "stay_login must default to true when missing");
     }
 
@@ -3112,12 +3177,16 @@ mod tests {
         assert!(auth.backup_on_exit);
         assert_eq!(auth.clamped_interval_minutes(), 30);
 
-        let mut auth_low = CloudAuthConfig::default();
-        auth_low.backup_interval_minutes = 2;
+        let auth_low = CloudAuthConfig {
+            backup_interval_minutes: 2,
+            ..Default::default()
+        };
         assert_eq!(auth_low.clamped_interval_minutes(), 5);
 
-        let mut auth_high = CloudAuthConfig::default();
-        auth_high.backup_interval_minutes = 2000;
+        let auth_high = CloudAuthConfig {
+            backup_interval_minutes: 2000,
+            ..Default::default()
+        };
         assert_eq!(auth_high.clamped_interval_minutes(), 1440);
     }
 

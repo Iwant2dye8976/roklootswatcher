@@ -1,11 +1,12 @@
 # Agent Instructions: RoK Loot Watcher
 
-Windows desktop & CLI tool monitoring Rise of Kingdoms `mailcache`, decoding Lilith binary format, and aggregating combat loot in `eframe`/`egui`. Features persistent SQLite WAL storage, per-record Supabase cloud sync, an in-game floating HUD overlay, and bilingual support (EN/VI).
+Windows desktop & CLI tool monitoring Rise of Kingdoms `mailcache`, decoding Lilith binary format, and aggregating combat loot in a Tauri v2 + React/TypeScript desktop shell. Features persistent SQLite WAL storage, per-record Supabase cloud sync, an in-game floating HUD overlay, and bilingual support (EN/VI).
 
 ## Quick Commands
 
+- **Build Frontend**: `npm --prefix ui run build`
 - **Build**: `cargo build` / `cargo build --release`
-- **Build & Update Root Binary**: `cargo build --release; Copy-Item -Force .\target\release\rok_watcher.exe .\rok_watcher.exe`
+- **Build & Update Root Binary**: `npm --prefix ui run build; cargo build --release; Copy-Item -Force .\target\release\rok_watcher.exe .\rok_watcher.exe`
 - **Test**: `cargo test` (339+ tests across unit & integration suites must pass)
 - **Check / Lint**: `cargo clippy -- -D warnings`
 - **Run GUI**: `.\rok_watcher.exe` (or `cargo run`)
@@ -31,25 +32,20 @@ Windows desktop & CLI tool monitoring Rise of Kingdoms `mailcache`, decoding Lil
 - `src/analyzer.rs`: Time-zone filtering (UTC+7 / Vietnam time), loot KPI math, AP economics, and target drop rate statistics.
 
 ### In-Game Overlay & Platform Integration
-- `src/overlay_tracker.rs`: Real-time event aggregator and state tracker for recent combat drops.
-- `src/overlay_ui.rs`: Always-on-top transparent in-game overlay (Full HUD, Mini HUD, Combined HUD) with click-through, global hotkeys, pinned counters, and D-pad position controls.
+- `src/overlay_tracker.rs`: RoK process/window detector, DPI-aware physical geometry calculator, Win32 click-through extended window styles, and global hotkey (`Ctrl+Shift+H`) listener.
 - `src/autostart.rs`: Windows registry autostart manager (`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`).
 - `src/single_instance.rs`: Windows Mutex and activation event signaling for single-process enforcement.
-- `src/tray.rs`: System tray icon, minimize-to-tray, and context menu.
 - `src/i18n.rs`: Bilingual localization engine (English / Vietnamese).
 
-### GUI Architecture (`src/gui/`)
-Immediate-mode UI built with `eframe` / `egui`:
-- `src/gui/mod.rs`: App state coordinator, render loop, hotkey polling, and route dispatcher.
-- `src/gui/views/dashboard.rs`: Loot overview, KPI summary cards, and quick targets.
-- `src/gui/views/battles.rs`: Battles table with multi-column sorting, pagination, and search.
-- `src/gui/views/inventory.rs`: Item catalog aggregation, resource conversions, and speedup totals.
-- `src/gui/views/settings.rs`: Watcher paths, cloud sync credentials, overlay options, and autostart toggles.
-- `src/gui/views/inspector.rs`: Low-level mail viewer and raw payload inspector.
-- `src/gui/views/sidebar.rs`: Navigation sidebar, language selector, and status indicators.
-- `src/gui/components.rs`: Reusable UI components (cards, badge pills, tables, stat rows).
-- `src/gui/lifecycle.rs`: Window startup centering, restore geometry, and persistence.
-- `src/gui/theme.rs`: Color tokens, fonts, and dark/light styling.
+### Tauri Backend & React Frontend (`src/tauri_app/` & `ui/src/`)
+Desktop shell built with Tauri v2 (`wry` / WebView2) and React 19 + TypeScript + Tailwind CSS:
+- `src/tauri_app/mod.rs`: Tauri builder, system tray menu & single-instance activation bridge, watcher/cloud background event emitters, hotkey handler, and graceful shutdown coordinator.
+- `src/tauri_app/commands.rs`: IPC command handlers, date/account filter state, battle & inventory queries, exports, vault maintenance, and cloud sync actions.
+- `src/tauri_app/dto.rs`: Strongly-typed serde DTO wire contracts shared with TypeScript.
+- `src/tauri_app/overlay_mgr.rs`: Always-on-top transparent WebView2 overlay window manager tracking the active RoK client window.
+- `ui/src/store/appStore.tsx`: Central React state store, Tauri event subscriptions, theme/language persistence, and toast notifications.
+- `ui/src/views/`: `DashboardView.tsx`, `BattlesView.tsx`, `InventoryView.tsx`, `SettingsView.tsx`, and `OverlayView.tsx` (Full HUD, Mini HUD, Combined HUD).
+- `ui/src/components/`: `Titlebar.tsx`, `Sidebar.tsx`, `GlobalFilterBar.tsx`, `InspectorDrawer.tsx`, `CommandPalette.tsx`, and `Toast.tsx`.
 
 ## Invariants & Rules
 
@@ -62,7 +58,7 @@ Immediate-mode UI built with `eframe` / `egui`:
 3. **No UI Blocking**:
    - Heavy parsing must run on Rayon worker threads in batches (`MAIL_DECODE_BATCH_SIZE`).
    - Cloud sync operations must run asynchronously via background Actor channel workers (`CloudSyncWorker`).
-   - Never decode files, run heavy queries, or perform blocking network/disk I/O inside `egui::App::update`.
+   - Never decode files, run heavy queries, or perform blocking network/disk I/O on the main Tauri UI thread.
 4. **Timestamps & Dates**:
    - RoK binary mail timestamps are microsecond epoch values (`raw_time / 1_000_000` to get seconds).
    - Relative filters (Today, 7 Days, etc.) must use rolling day counts against `current_date_vn()` (UTC+7), not static dates.

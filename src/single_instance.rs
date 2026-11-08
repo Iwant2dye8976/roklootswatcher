@@ -1,7 +1,6 @@
 #[cfg(windows)]
 pub mod windows {
     use std::sync::Arc;
-    use eframe::egui;
     use crate::watcher::RoKMailWatcher;
 
     #[allow(dead_code)]
@@ -11,6 +10,7 @@ pub mod windows {
 
     const ERROR_ALREADY_EXISTS: u32 = 183;
     const EVENT_MODIFY_STATE: u32 = 0x0002;
+    #[allow(dead_code)]
     const WAIT_OBJECT_0: u32 = 0;
     const SW_SHOW: i32 = 5;
     const SW_RESTORE: i32 = 9;
@@ -38,6 +38,7 @@ pub mod windows {
 
         fn SetEvent(hEvent: isize) -> i32;
 
+        #[allow(dead_code)]
         fn WaitForSingleObject(hHandle: isize, dwMilliseconds: u32) -> u32;
 
         fn CloseHandle(hObject: isize) -> i32;
@@ -55,6 +56,7 @@ pub mod windows {
         fn GetWindowTextW(hWnd: isize, lpString: *mut u16, nMaxCount: i32) -> i32;
         fn GetWindowThreadProcessId(hWnd: isize, lpdwProcessId: *mut u32) -> u32;
         fn ShowWindow(hWnd: isize, nCmdShow: i32) -> i32;
+        fn IsIconic(hWnd: isize) -> i32;
         fn SetForegroundWindow(hWnd: isize) -> i32;
         fn BringWindowToTop(hWnd: isize) -> i32;
         fn AllowSetForegroundWindow(dwProcessId: u32) -> i32;
@@ -75,6 +77,9 @@ pub mod windows {
         mutex_handle: isize,
         event_handle: isize,
     }
+
+    unsafe impl Send for SingleInstanceGuard {}
+    unsafe impl Sync for SingleInstanceGuard {}
 
     impl Drop for SingleInstanceGuard {
         fn drop(&mut self) {
@@ -98,7 +103,12 @@ pub mod windows {
         use std::hash::{Hash, Hasher};
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         if let Ok(exe) = std::env::current_exe() {
-            exe.to_string_lossy().hash(&mut hasher);
+            let canon = std::fs::canonicalize(&exe).unwrap_or(exe);
+            let s = canon
+                .to_string_lossy()
+                .trim_start_matches(r"\\?\")
+                .to_ascii_lowercase();
+            s.hash(&mut hasher);
         } else {
             "rok_default".hash(&mut hasher);
         }
@@ -163,6 +173,7 @@ pub mod windows {
             let event_wide = to_wide_null(event_name_str);
             let event = OpenEventW(EVENT_MODIFY_STATE, 0, event_wide.as_ptr());
             if event != 0 {
+                AllowSetForegroundWindow(0xFFFFFFFF);
                 SetEvent(event);
                 CloseHandle(event);
                 true
@@ -205,16 +216,21 @@ pub mod windows {
             }
 
             if hwnd != 0 {
-                ShowWindow(hwnd, SW_SHOW);
-                ShowWindow(hwnd, SW_RESTORE);
-
                 let mut proc_id = 0u32;
                 GetWindowThreadProcessId(hwnd, &mut proc_id);
                 if proc_id != 0 {
                     // Check if process image matches current executable
                     if let Ok(current_exe) = std::env::current_exe() {
                         if let Some(proc_path) = crate::overlay_tracker::get_process_exe_path(proc_id) {
-                            if proc_path != current_exe {
+                            let p1 = proc_path
+                                .to_string_lossy()
+                                .trim_start_matches(r"\\?\")
+                                .to_ascii_lowercase();
+                            let p2 = current_exe
+                                .to_string_lossy()
+                                .trim_start_matches(r"\\?\")
+                                .to_ascii_lowercase();
+                            if p1 != p2 {
                                 return false;
                             }
                         } else {
@@ -222,6 +238,12 @@ pub mod windows {
                         }
                     }
                     AllowSetForegroundWindow(proc_id);
+                }
+
+                if IsIconic(hwnd) != 0 {
+                    ShowWindow(hwnd, SW_RESTORE);
+                } else {
+                    ShowWindow(hwnd, SW_SHOW);
                 }
 
                 SetForegroundWindow(hwnd);
@@ -249,43 +271,48 @@ pub mod windows {
         }
     }
 
-    pub fn start_activation_listener(
+    #[allow(dead_code)]
+    pub fn start_activation_listener<F>(
         guard: &SingleInstanceGuard,
-        egui_ctx: egui::Context,
+        on_activate: F,
         watcher: Arc<RoKMailWatcher>,
-    ) {
+    ) where
+        F: Fn() + Send + 'static,
+    {
         let event_handle = guard.event_handle;
         if event_handle == 0 {
             return;
         }
 
-        std::thread::spawn(move || {
-            while !crate::tray::is_quit_requested() {
-                let wait_res = unsafe { WaitForSingleObject(event_handle, 500) };
-                if wait_res == WAIT_OBJECT_0 {
-                    crate::tray::restore_main_window();
-                    egui_ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
-                    egui_ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
-                    egui_ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
-                    egui_ctx.request_repaint();
+        std::thread::Builder::new()
+            .name("rok-activation-listener".to_string())
+            .spawn(move || {
+                loop {
+                    let wait_res = unsafe { WaitForSingleObject(event_handle, 500) };
+                    if wait_res == WAIT_OBJECT_0 {
+                        on_activate();
 
-                    watcher.log(
-                        "INFO",
-                        "Phát hiện yêu cầu mở ứng dụng: Đã tự động kích hoạt và chuyển tiêu điểm về cửa sổ đang chạy.",
-                    );
+                        watcher.log(
+                            "INFO",
+                            "Phát hiện yêu cầu mở ứng dụng: Đã tự động kích hoạt và chuyển tiêu điểm về cửa sổ đang chạy.",
+                        );
+                    } else if wait_res == 0xFFFFFFFF {
+                        break;
+                    }
                 }
-            }
-        });
+            })
+            .ok();
     }
 }
 
 #[cfg(not(windows))]
 pub mod windows {
     use std::sync::Arc;
-    use eframe::egui;
     use crate::watcher::RoKMailWatcher;
 
     pub struct SingleInstanceGuard;
+    unsafe impl Send for SingleInstanceGuard {}
+    unsafe impl Sync for SingleInstanceGuard {}
     pub enum CheckResult {
         Running(SingleInstanceGuard),
         AlreadyExists,
@@ -295,11 +322,14 @@ pub mod windows {
         CheckResult::Running(SingleInstanceGuard)
     }
 
-    pub fn start_activation_listener(
+    #[allow(dead_code)]
+    pub fn start_activation_listener<F>(
         _guard: &SingleInstanceGuard,
-        _egui_ctx: egui::Context,
+        _on_activate: F,
         _watcher: Arc<RoKMailWatcher>,
-    ) {}
+    ) where
+        F: Fn() + Send + 'static,
+    {}
 }
 
 #[cfg(test)]

@@ -201,6 +201,7 @@ pub mod windows {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub fn get_autostart_status_with_key(subkey: &str) -> (bool, bool) {
         if let Some(val_str) = get_raw_autostart_command_with_key(subkey) {
             let is_minimized = val_str.contains("--minimized") || val_str.contains("--tray");
@@ -210,6 +211,7 @@ pub mod windows {
         }
     }
 
+    #[allow(dead_code)]
     pub fn get_autostart_status() -> (bool, bool) {
         get_autostart_status_with_key(DEFAULT_RUN_KEY)
     }

@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use chrono::{DateTime, Duration, NaiveDate, Utc};
+use serde::{Deserialize, Serialize};
 
 use crate::model::{BattleRecord, ItemDrop, ItemStat, PlunderTierStat, Statistics};
 
@@ -321,14 +322,14 @@ pub fn calculate_ap_cost(battle_type: &str, target_level: &str) -> i64 {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct DailyApSpeedupStat {
     pub date_label: String,
     pub speedup_hours: f64,
     pub ap_consumed: i64,
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct TargetRoiBenchmark {
     pub target_name: String,
     pub unit_ap_cost: i64,
@@ -337,10 +338,10 @@ pub struct TargetRoiBenchmark {
     pub speedup_mins_per_1k_ap: f64,
     pub covenant_drop_rate: f64,
     pub avg_gems: f64,
-    pub tier_badge: &'static str,
+    pub tier_badge: String,
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct ApEconomics {
     pub total_ap_consumed: i64,
     pub total_ap_recovered: i64,
@@ -503,7 +504,7 @@ pub fn compute_ap_economics(active_records: &[BattleRecord], vault_records: &[Ba
                 speedup_mins_per_1k_ap: spd_per_1k,
                 covenant_drop_rate: covenant_rate,
                 avg_gems,
-                tier_badge,
+                tier_badge: tier_badge.to_string(),
             }
         })
         .collect();

@@ -5,15 +5,13 @@ mod autostart;
 mod classifier;
 pub mod cloud_sync;
 mod exporters;
-mod gui;
+pub mod tauri_app;
 mod i18n;
 mod lilith_stream;
 mod loot_catalog;
 mod model;
 pub mod overlay_tracker;
-pub mod overlay_ui;
 mod single_instance;
-mod tray;
 mod vault;
 mod vault_migrate;
 pub mod watcher;
@@ -22,16 +20,13 @@ use std::path::PathBuf;
 use std::sync::mpsc::channel;
 use std::sync::Arc;
 use chrono::NaiveDate;
-use eframe::egui;
 
 use crate::analyzer::{filter_records_by_date, generate_statistics, parse_date_str};
 use crate::classifier::{classify_mail, extract_motte_details};
 use crate::exporters::{export_individual_mails_json, export_json};
-use crate::gui::RoKLootWatcherApp;
 use crate::lilith_stream::decode_mail_file;
 use crate::loot_catalog::LootCatalog;
 use crate::model::{format_num, get_item_converted_display, AppLanguage, FilterMode, SpeedupUnit};
-use crate::tray::SystemTrayManager;
 pub use crate::watcher::{RoKMailWatcher, Watcher};
 
 #[cfg(windows)]
@@ -528,7 +523,7 @@ fn run_gui_mode(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let allow_multiple = args.iter().any(|a| a == "--multi-instance");
     let start_minimized = args.iter().any(|a| a == "--minimized" || a == "--tray");
 
-    let single_instance = if !allow_multiple {
+    let _single_instance = if !allow_multiple {
         match crate::single_instance::windows::check_or_acquire() {
             crate::single_instance::windows::CheckResult::AlreadyExists => {
                 #[cfg(windows)]
@@ -543,33 +538,9 @@ fn run_gui_mode(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let exe_dir = std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.to_path_buf()));
-    let cur_dir = std::env::current_dir().unwrap_or_else(|_| {
-        exe_dir.clone().unwrap_or_else(|| PathBuf::from("."))
+    let cur_dir = exe_dir.unwrap_or_else(|| {
+        std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
     });
-
-    let mut icon_candidates = vec![
-        cur_dir.join("rok_icon.png"),
-        cur_dir.join("rok_icon.ico"),
-    ];
-
-    if let Some(ref ed) = exe_dir {
-        icon_candidates.push(ed.join("rok_icon.png"));
-        icon_candidates.push(ed.join("rok_icon.ico"));
-        if let Some(parent) = ed.parent() {
-            icon_candidates.push(parent.join("rok_icon.png"));
-            icon_candidates.push(parent.join("rok_icon.ico"));
-        }
-    }
-
-    let icon_path = icon_candidates.into_iter().find(|p| p.is_file());
-
-    let tray = match SystemTrayManager::new(icon_path.as_deref()) {
-        Ok(t) => Some(t),
-        Err(e) => {
-            eprintln!("[!] Cảnh báo: Không thể khởi tạo System Tray: {}", e);
-            None
-        }
-    };
 
     let catalog = LootCatalog::load_from_candidates(None);
     let (tx_ui, rx_ui) = channel();
@@ -590,69 +561,7 @@ fn run_gui_mode(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         watcher.set_main_account_uids(config.main_account_uids.clone());
     }
 
-    const EMBEDDED_ICON_BYTES: &[u8] = include_bytes!("../rok_icon.png");
-    let window_icon = icon_path.as_ref().and_then(|p| {
-        if let Ok(img) = image::open(p) {
-            let rgba = img.into_rgba8();
-            let (w, h) = rgba.dimensions();
-            egui::IconData {
-                rgba: rgba.into_raw(),
-                width: w,
-                height: h,
-            }
-            .into()
-        } else {
-            None
-        }
-    }).or_else(|| {
-        if let Ok(img) = image::load_from_memory(EMBEDDED_ICON_BYTES) {
-            let rgba = img.into_rgba8();
-            let (w, h) = rgba.dimensions();
-            egui::IconData {
-                rgba: rgba.into_raw(),
-                width: w,
-                height: h,
-            }
-            .into()
-        } else {
-            None
-        }
-    });
-
-    let mut viewport = egui::ViewportBuilder::default()
-        .with_title("Rise of Kingdoms - Motte, Fort & Barbarian Loot Watcher")
-        .with_inner_size(egui::vec2(1380.0, 860.0))
-        .with_min_inner_size(egui::vec2(1100.0, 700.0))
-        .with_transparent(true);
-
-    if let Some(icon) = window_icon {
-        viewport = viewport.with_icon(icon);
-    }
-
-    let native_options = eframe::NativeOptions {
-        viewport,
-        centered: true,
-        ..Default::default()
-    };
-
-    let watcher_clone = Arc::clone(&watcher);
-    let single_instance_opt = single_instance;
-    let _ = eframe::run_native(
-        "RoK Loot Watcher",
-        native_options,
-        Box::new(move |cc| {
-            Ok(Box::new(RoKLootWatcherApp::new(
-                cc,
-                watcher_clone,
-                rx_ui,
-                tray,
-                single_instance_opt,
-                start_minimized,
-            )))
-        }),
-    );
-
-    std::process::exit(0);
+    tauri_app::run(watcher, rx_ui, start_minimized, _single_instance)
 }
 
 #[cfg(test)]

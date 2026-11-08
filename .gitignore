@@ -6,7 +6,16 @@ target/
 analytics.md
 *.txt
 *.json
-loot.json
+!loot.json
+!tauri.conf.json
+!capabilities/
+!capabilities/*.json
+!ui/package.json
+!ui/package-lock.json
+!ui/tsconfig*.json
+ui/node_modules/
+ui/dist/
+gen/
 .superpowers/
 docs/
 docs/superpowers/

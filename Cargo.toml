@@ -1,6 +1,6 @@
 [package]
 name = "rok_watcher"
-version = "2.4.1"
+version = "2.6.4"
 edition = "2021"
 description = "Rise of Kingdoms - Motte, Fort & Barbarian Loot Watcher & Analyzer for Windows"
 authors = ["Antigravity"]
@@ -14,14 +14,11 @@ notify = "6.1"
 open = "5.3"
 indexmap = { version = "2.6", features = ["serde"] }
 rfd = "0.15"
-tray-icon = "0.19"
-muda = "0.15"
-eframe = "0.29"
-image = { version = "0.25", default-features = false, features = ["png", "ico"] }
-windows-sys = { version = "0.59", features = ["Win32_UI_WindowsAndMessaging", "Win32_Foundation", "Win32_System_Threading"] }
+windows-sys = { version = "0.59", features = ["Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse", "Win32_Foundation", "Win32_System_Threading", "Win32_Graphics_Gdi"] }
 rayon = "1.10"
 ureq = { version = "2.10", features = ["json"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
+tauri = { version = "2.2", features = ["tray-icon"] }
 
 [profile.release]
 opt-level = 3
@@ -31,4 +28,4 @@ panic = "abort"
 strip = true
 
 [build-dependencies]
-winres = "0.1.12"
+tauri-build = { version = "2.0" }

@@ -1,0 +1,55 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "rok_watcher",
+  "version": "2.6.4",
+  "identifier": "gg.rok.lootwatcher",
+  "build": {
+    "beforeBuildCommand": "npm --prefix ui run build",
+    "frontendDist": "ui/dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Rise of Kingdoms - Motte, Fort & Barbarian Loot Watcher",
+        "url": "index.html",
+        "width": 1380,
+        "height": 860,
+        "minWidth": 1100,
+        "minHeight": 700,
+        "decorations": false,
+        "transparent": true,
+        "center": true
+      },
+      {
+        "label": "overlay",
+        "title": "Rise of Kingdoms Loot Overlay",
+        "url": "index.html#/overlay",
+        "width": 480,
+        "height": 340,
+        "decorations": false,
+        "transparent": true,
+        "shadow": false,
+        "focus": false,
+        "resizable": false,
+        "maximizable": false,
+        "minimizable": false,
+        "alwaysOnTop": true,
+        "visible": false,
+        "skipTaskbar": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: asset: http://asset.localhost; font-src 'self' data:; connect-src ipc: http://ipc.localhost"
+    }
+  },
+  "bundle": {
+    "active": false,
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/icon.png",
+      "icons/icon.ico"
+    ]
+  }
+}

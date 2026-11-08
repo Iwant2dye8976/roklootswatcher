@@ -26,6 +26,14 @@ pub struct OverlayGeometry {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OverlayPhysicalGeometry {
+    pub pos_x: i32,
+    pub pos_y: i32,
+    pub width: u32,
+    pub height: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OverlayVisibilityAction {
     Show,
     Hide,
@@ -52,21 +60,21 @@ pub fn calculate_overlay_geometry(
     let scale = if scale_factor <= 0.0 { 1.0 } else { scale_factor };
     let (width, height) = match config.mode {
         crate::model::OverlayDisplayMode::MiniHud => {
-            let h = (config.font_size * 2.2).clamp(28.0, 36.0);
+            let h = (config.font_size * 2.6).clamp(32.0, 36.0);
             let w = config.width.clamp(280.0, 750.0);
             (w, h)
         }
         crate::model::OverlayDisplayMode::Cards => {
-            let card_height = (config.font_size * 3.2 + 8.0).max(36.0);
-            let est_height = (card_height * 5.0 + 18.0).ceil();
+            let card_height = (config.font_size * 3.8 + 14.0).max(46.0);
+            let est_height = (card_height * 5.0 + 20.0).ceil();
             let w = config.width.clamp(180.0, 750.0);
             (w, est_height)
         }
         crate::model::OverlayDisplayMode::Combined => {
-            let mini_h = (config.font_size * 2.2).clamp(28.0, 36.0);
-            let card_height = (config.font_size * 3.2 + 8.0).max(36.0);
-            let cards_h = (card_height * 5.0 + 18.0).ceil();
-            let total_h = mini_h + 6.0 + cards_h;
+            let mini_h = (config.font_size * 2.6).clamp(32.0, 36.0);
+            let card_height = (config.font_size * 3.8 + 14.0).max(46.0);
+            let cards_h = (card_height * 5.0 + 20.0).ceil();
+            let total_h = mini_h + 8.0 + cards_h;
             let w = config.width.clamp(300.0, 750.0);
             (w, total_h)
         }
@@ -75,17 +83,17 @@ pub fn calculate_overlay_geometry(
         }
     };
 
-    let max_allowed_h = ((bounds.height as f32 - 20.0) / scale).max(28.0);
+    let max_allowed_h = ((bounds.height as f32 - 20.0 * scale) / scale).max(28.0);
     let clamped_height = height.min(max_allowed_h);
 
     let min_x = bounds.x as f32 / scale;
     let max_x = ((bounds.x as f32 + bounds.width as f32) / scale - width - 8.0).max(min_x);
-    let raw_pos_x = (bounds.x as f32 + config.offset_x.max(0.0)) / scale;
+    let raw_pos_x = min_x + config.offset_x.max(0.0);
     let pos_x = raw_pos_x.clamp(min_x, max_x);
 
     let min_y = bounds.y as f32 / scale;
     let max_y = ((bounds.y as f32 + bounds.height as f32) / scale - clamped_height - 8.0).max(min_y);
-    let raw_pos_y = (bounds.y as f32 + config.offset_y.max(0.0)) / scale;
+    let raw_pos_y = min_y + config.offset_y.max(0.0);
     let pos_y = raw_pos_y.clamp(min_y, max_y);
 
     OverlayGeometry {
@@ -93,6 +101,57 @@ pub fn calculate_overlay_geometry(
         pos_y,
         width,
         height: clamped_height,
+    }
+}
+
+pub fn calculate_overlay_physical_geometry(
+    bounds: &RoKWindowBounds,
+    config: &crate::model::OverlayConfig,
+    scale_factor: f32,
+) -> OverlayPhysicalGeometry {
+    let scale = if scale_factor <= 0.0 { 1.0 } else { scale_factor };
+    let logical = calculate_overlay_geometry(bounds, config, scale);
+    let phys_w = (logical.width * scale).round().max(1.0) as u32;
+    let phys_h = (logical.height * scale).round().max(1.0) as u32;
+    let pad = (8.0 * scale).round() as i32;
+
+    let min_x = bounds.x;
+    let max_x = (bounds.x + bounds.width as i32 - phys_w as i32 - pad).max(min_x);
+    let raw_x = bounds.x + (config.offset_x.max(0.0) * scale).round() as i32;
+    let pos_x = raw_x.clamp(min_x, max_x);
+
+    let min_y = bounds.y;
+    let max_y = (bounds.y + bounds.height as i32 - phys_h as i32 - pad).max(min_y);
+    let raw_y = bounds.y + (config.offset_y.max(0.0) * scale).round() as i32;
+    let pos_y = raw_y.clamp(min_y, max_y);
+
+    OverlayPhysicalGeometry {
+        pos_x,
+        pos_y,
+        width: phys_w,
+        height: phys_h,
+    }
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+pub fn get_window_dpi_scale(hwnd: HWND) -> f32 {
+    #[cfg(windows)]
+    unsafe {
+        #[link(name = "user32")]
+        extern "system" {
+            fn GetDpiForWindow(hwnd: HWND) -> u32;
+        }
+        let dpi = GetDpiForWindow(hwnd);
+        if dpi > 0 {
+            (dpi as f32) / 96.0
+        } else {
+            1.0
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = hwnd;
+        1.0
     }
 }
 
@@ -196,6 +255,11 @@ pub fn find_rok_window() -> Option<HWND> {
 
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn is_rok_active_and_visible(hwnd: HWND) -> bool {
+    is_rok_active_and_visible_with_overlay(hwnd, None)
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+pub fn is_rok_active_and_visible_with_overlay(hwnd: HWND, overlay_hwnd: Option<HWND>) -> bool {
     #[cfg(windows)]
     unsafe {
         if IsWindowVisible(hwnd) == 0 || IsIconic(hwnd) != 0 {
@@ -212,12 +276,18 @@ pub fn is_rok_active_and_visible(hwnd: HWND) -> bool {
         if rok_pid != 0 && fg_pid == rok_pid {
             return true;
         }
-        let own_pid = std::process::id();
-        fg_pid == own_pid
+        // If foreground is the overlay window itself or any of its child controls/render host,
+        // we are still visually on top of RoK. Do not treat RoK as inactive!
+        if let Some(ov) = overlay_hwnd {
+            if fg == ov || windows_sys::Win32::UI::WindowsAndMessaging::IsChild(ov, fg) != 0 {
+                return true;
+            }
+        }
+        false
     }
     #[cfg(not(windows))]
     {
-        let _ = hwnd;
+        let _ = (hwnd, overlay_hwnd);
         false
     }
 }
@@ -303,6 +373,50 @@ pub fn compute_layered_window_params(opacity: f32) -> LayeredWindowParams {
 
 #[cfg(windows)]
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
+pub fn apply_webview_click_through_styles(hwnd: HWND) {
+    unsafe {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            EnumChildWindows, GetWindowLongPtrW, SetWindowLongPtrW, SetWindowPos, GWL_EXSTYLE,
+            SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
+            WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT,
+        };
+        let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+        let target_style = (ex_style & !(WS_EX_APPWINDOW as isize))
+            | WS_EX_TRANSPARENT as isize
+            | WS_EX_TOOLWINDOW as isize
+            | WS_EX_TOPMOST as isize
+            | WS_EX_NOACTIVATE as isize;
+
+        if ex_style != target_style {
+            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, target_style);
+            SetWindowPos(
+                hwnd,
+                std::ptr::null_mut(),
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+            );
+        }
+
+        unsafe extern "system" fn enum_child(child: HWND, _: LPARAM) -> BOOL {
+            let c_style = GetWindowLongPtrW(child, GWL_EXSTYLE);
+            let c_target = c_style | WS_EX_TRANSPARENT as isize | WS_EX_NOACTIVATE as isize;
+            if c_style != c_target {
+                SetWindowLongPtrW(child, GWL_EXSTYLE, c_target);
+            }
+            1
+        }
+        EnumChildWindows(hwnd, Some(enum_child), 0);
+    }
+}
+
+#[cfg(not(windows))]
+pub fn apply_webview_click_through_styles(_hwnd: HWND) {}
+
+#[cfg(windows)]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn apply_click_through_styles(hwnd: HWND, opacity: f32) {
     unsafe {
         use windows_sys::Win32::UI::WindowsAndMessaging::{
@@ -359,7 +473,6 @@ impl Drop for OverlayHotkeyGuard {
 pub struct OverlayHotkeyGuard;
 
 pub fn start_overlay_hotkey_listener(
-    egui_ctx: eframe::egui::Context,
     notify_tx: std::sync::mpsc::Sender<()>,
 ) -> Option<OverlayHotkeyGuard> {
     #[cfg(windows)]
@@ -400,7 +513,6 @@ pub fn start_overlay_hotkey_listener(
                     while GetMessageW(&mut msg, 0 as _, 0, 0) > 0 {
                         if msg.message == WM_HOTKEY && msg.wParam == 0x9001 {
                             let _ = notify_tx.send(());
-                            egui_ctx.request_repaint();
                         } else if msg.message == WM_QUIT {
                             break;
                         }
@@ -423,7 +535,7 @@ pub fn start_overlay_hotkey_listener(
     }
     #[cfg(not(windows))]
     {
-        let _ = (egui_ctx, notify_tx);
+        let _ = notify_tx;
         None
     }
 }
@@ -764,5 +876,76 @@ mod tests {
         assert_eq!(p_solid.cr_key, 0x00000000);
         assert_eq!(p_solid.b_alpha, 255);
         assert_eq!(p_solid.flags, 1 | 2);
+    }
+
+    #[test]
+    fn test_calculate_overlay_physical_geometry_100_and_150_dpi() {
+        let bounds = RoKWindowBounds {
+            x: 100,
+            y: 50,
+            width: 1920,
+            height: 1080,
+        };
+        let cfg = crate::model::OverlayConfig {
+            mode: crate::model::OverlayDisplayMode::Cards,
+            offset_x: 20.0,
+            offset_y: 60.0,
+            width: 240.0,
+            font_size: 10.5,
+            ..Default::default()
+        };
+
+        let phys_100 = calculate_overlay_physical_geometry(&bounds, &cfg, 1.0);
+        assert_eq!(phys_100.pos_x, 120);
+        assert_eq!(phys_100.pos_y, 110);
+        assert_eq!(phys_100.width, 240);
+        assert!(phys_100.height >= 250);
+
+        let phys_150 = calculate_overlay_physical_geometry(&bounds, &cfg, 1.5);
+        assert_eq!(phys_150.pos_x, 100 + 30);
+        assert_eq!(phys_150.pos_y, 50 + 90);
+        assert_eq!(phys_150.width, 360);
+        assert!(
+            phys_150.pos_x + phys_150.width as i32 <= bounds.x + bounds.width as i32,
+            "150% DPI overlay must stay within physical right edge"
+        );
+        assert!(
+            phys_150.pos_y + phys_150.height as i32 <= bounds.y + bounds.height as i32,
+            "150% DPI overlay must stay within physical bottom edge"
+        );
+    }
+
+    #[test]
+    fn test_is_rok_active_and_visible_invalid_handle_returns_false() {
+        let fake_hwnd = 0 as _;
+        assert!(!is_rok_active_and_visible(fake_hwnd));
+        assert!(!is_rok_active_and_visible_with_overlay(fake_hwnd, None));
+        assert!(!is_rok_active_and_visible_with_overlay(fake_hwnd, Some(0 as _)));
+    }
+
+    #[test]
+    fn test_calculate_overlay_physical_geometry_negative_monitor_coordinates() {
+        let bounds = RoKWindowBounds {
+            x: -1920,
+            y: -120,
+            width: 1920,
+            height: 1080,
+        };
+        let cfg = crate::model::OverlayConfig {
+            mode: crate::model::OverlayDisplayMode::MiniHud,
+            offset_x: 16.0,
+            offset_y: 40.0,
+            width: 320.0,
+            font_size: 11.0,
+            ..Default::default()
+        };
+        let phys = calculate_overlay_physical_geometry(&bounds, &cfg, 1.25);
+        assert_eq!(phys.pos_x, -1920 + 20);
+        assert_eq!(phys.pos_y, -120 + 50);
+        assert_eq!(phys.width, 400);
+        assert!(
+            phys.pos_x >= bounds.x && phys.pos_x + phys.width as i32 <= bounds.x + bounds.width as i32,
+            "Physical geometry must clamp accurately on negative-coordinate secondary monitors"
+        );
     }
 }

@@ -860,7 +860,7 @@ impl RoKMailWatcher {
             let _ = stop_tx.send(());
         }
 
-        crate::tray::trim_memory_working_set();
+        trim_memory_working_set();
 
         *self.is_watching.write().unwrap_or_else(|e| e.into_inner()) = false;
         let (status_msg, log_msg) = match self.get_language() {
@@ -1036,7 +1036,7 @@ impl RoKMailWatcher {
 
         self.auto_export();
 
-        crate::tray::trim_memory_working_set();
+        trim_memory_working_set();
 
         let sync_msg = match lang {
             AppLanguage::Vietnamese => format!(
@@ -1361,6 +1361,25 @@ impl RoKMailWatcher {
         }
     }
 }
+
+#[cfg(windows)]
+pub fn trim_memory_working_set() {
+    unsafe {
+        #[link(name = "kernel32")]
+        extern "system" {
+            fn GetCurrentProcess() -> isize;
+            fn SetProcessWorkingSetSize(
+                hProcess: isize,
+                dwMinimumWorkingSetSize: usize,
+                dwMaximumWorkingSetSize: usize,
+            ) -> i32;
+        }
+        SetProcessWorkingSetSize(GetCurrentProcess(), usize::MAX, usize::MAX);
+    }
+}
+
+#[cfg(not(windows))]
+pub fn trim_memory_working_set() {}
 
 #[cfg(test)]
 mod tests {
