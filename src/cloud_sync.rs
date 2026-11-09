@@ -20,6 +20,8 @@ pub const DEFAULT_SUPABASE_ANON_KEY: &str = match option_env!("ROK_SUPABASE_ANON
 pub struct CloudUserInfo {
     pub id: String,
     pub email: String,
+    #[serde(default)]
+    pub settings: Option<crate::model::UserCloudSettings>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -300,10 +302,16 @@ pub fn start_google_login(supabase_url: &str, anon_key: &str) -> Result<CloudAut
         .unwrap_or("No Email")
         .to_string();
 
+    let settings = user_resp
+        .get("user_metadata")
+        .or_else(|| user_resp.get("raw_user_meta_data"))
+        .and_then(|m| m.get("rok_settings"))
+        .and_then(|s| serde_json::from_value::<crate::model::UserCloudSettings>(s.clone()).ok());
+
     Ok(CloudAuthResult {
         access_token,
         refresh_token,
-        user: CloudUserInfo { id, email },
+        user: CloudUserInfo { id, email, settings },
     })
 }
 
@@ -342,6 +350,87 @@ pub fn refresh_session(
         .to_string();
 
     Ok((new_access, new_refresh))
+}
+
+pub fn upload_user_settings(
+    supabase_url: &str,
+    anon_key: &str,
+    access_token: &str,
+    settings: &crate::model::UserCloudSettings,
+    timeout: Option<Duration>,
+) -> Result<(), String> {
+    if supabase_url.is_empty() || anon_key.is_empty() || access_token.is_empty() {
+        return Ok(());
+    }
+    let url = format!("{}/auth/v1/user", supabase_url.trim_end_matches('/'));
+    let effective_timeout = timeout.unwrap_or(Duration::from_secs(10));
+    let agent = ureq::builder()
+        .timeout_connect(Duration::from_secs(5))
+        .timeout(effective_timeout)
+        .build();
+
+    let body = serde_json::json!({
+        "data": {
+            "rok_settings": settings
+        }
+    });
+
+    let resp = agent
+        .put(&url)
+        .set("apikey", anon_key)
+        .set("Authorization", &format!("Bearer {}", access_token))
+        .set("Content-Type", "application/json")
+        .send_json(body);
+
+    match resp {
+        Ok(_) => Ok(()),
+        Err(e) => Err(format_cloud_error(e, "Lỗi lưu cấu hình lên cloud")),
+    }
+}
+
+pub fn fetch_user_settings(
+    supabase_url: &str,
+    anon_key: &str,
+    access_token: &str,
+    timeout: Option<Duration>,
+) -> Result<Option<crate::model::UserCloudSettings>, String> {
+    if supabase_url.is_empty() || anon_key.is_empty() || access_token.is_empty() {
+        return Ok(None);
+    }
+    let url = format!("{}/auth/v1/user", supabase_url.trim_end_matches('/'));
+    let effective_timeout = timeout.unwrap_or(Duration::from_secs(10));
+    let agent = ureq::builder()
+        .timeout_connect(Duration::from_secs(5))
+        .timeout(effective_timeout)
+        .build();
+
+    let resp = agent
+        .get(&url)
+        .set("apikey", anon_key)
+        .set("Authorization", &format!("Bearer {}", access_token))
+        .call();
+
+    match resp {
+        Ok(r) => {
+            let val: serde_json::Value = r
+                .into_json()
+                .map_err(|e| format!("Parse user json error: {}", e))?;
+            let settings_val = val
+                .get("user_metadata")
+                .or_else(|| val.get("raw_user_meta_data"))
+                .and_then(|m| m.get("rok_settings"));
+
+            if let Some(s) = settings_val {
+                if !s.is_null() {
+                    let parsed: crate::model::UserCloudSettings = serde_json::from_value(s.clone())
+                        .map_err(|e| format!("Parse rok_settings error: {}", e))?;
+                    return Ok(Some(parsed));
+                }
+            }
+            Ok(None)
+        }
+        Err(e) => Err(format_cloud_error(e, "Lỗi tải cấu hình từ cloud")),
+    }
 }
 
 fn extract_safe_message(body: &str) -> String {
@@ -2314,5 +2403,31 @@ mod tests {
         assert!(ack_rx.recv_timeout(std::time::Duration::from_secs(2)).is_ok());
         handle.join().unwrap();
         let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_upload_and_fetch_user_settings() {
+        let (url, handle) = spawn_multi_mock_server(|req| {
+            if req.starts_with("PUT /auth/v1/user") {
+                assert!(req.contains(r#""main_account_uids":["987654"]"#));
+                (200, "OK", r#"{"id":"user_test"}"#.to_string())
+            } else if req.starts_with("GET /auth/v1/user") {
+                (200, "OK", r#"{"id":"user_test","email":"test@example.com","user_metadata":{"rok_settings":{"main_account_uids":["987654"]}}}"#.to_string())
+            } else {
+                (404, "Not Found", "".to_string())
+            }
+        }, 2);
+
+        let settings = crate::model::UserCloudSettings {
+            main_account_uids: vec!["987654".to_string()],
+            ..Default::default()
+        };
+
+        let up_res = upload_user_settings(&url, "anon_key", "test_tok", &settings, Some(Duration::from_secs(2)));
+        assert!(up_res.is_ok());
+
+        let fetched = fetch_user_settings(&url, "anon_key", "test_tok", Some(Duration::from_secs(2))).unwrap();
+        assert_eq!(fetched, Some(settings));
+        handle.join().unwrap();
     }
 }

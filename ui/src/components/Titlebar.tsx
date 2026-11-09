@@ -11,6 +11,7 @@ import {
 import { useAppStore } from "../store/appStore";
 import { useI18n } from "../i18n";
 import * as api from "../api/tauri";
+import { TopAccountSection } from "./TopAccountSection";
 
 export const Titlebar: React.FC = () => {
   const { snapshot, language, setCommandPaletteOpen } = useAppStore();
@@ -38,7 +39,7 @@ export const Titlebar: React.FC = () => {
         </div>
 
         <span className="px-1.5 py-0.5 rounded-sm bg-binance-card text-[10px] text-binance-muted font-mono border border-binance-hairline">
-          v{snapshot?.version || "2.6.1"}
+          v{snapshot?.version || "2.7.1"}
         </span>
 
         {/* Live Vault Record Count Badge */}
@@ -97,29 +98,35 @@ export const Titlebar: React.FC = () => {
         </kbd>
       </button>
 
-      {/* Right: Window Controls */}
-      <div className="flex items-center gap-1" data-no-drag>
-        <button
-          onClick={() => api.windowMinimize()}
-          title="Minimize"
-          className="w-7 h-7 flex items-center justify-center rounded hover:bg-binance-elevated text-binance-muted hover:text-binance-body transition"
-        >
-          <Minus className="w-3.5 h-3.5" />
-        </button>
-        <button
-          onClick={() => api.windowMaximize()}
-          title="Maximize"
-          className="w-7 h-7 flex items-center justify-center rounded hover:bg-binance-elevated text-binance-muted hover:text-binance-body transition"
-        >
-          <Square className="w-3 h-3" />
-        </button>
-        <button
-          onClick={() => api.windowClose()}
-          title="Close"
-          className="w-7 h-7 flex items-center justify-center rounded hover:bg-red-600 text-binance-muted hover:text-white transition"
-        >
-          <X className="w-3.5 h-3.5" />
-        </button>
+      {/* Right: Account Section & Window Controls */}
+      <div className="flex items-center gap-2" data-no-drag>
+        <TopAccountSection />
+
+        <div className="w-[1px] h-4 bg-binance-hairline" />
+
+        <div className="flex items-center gap-0.5">
+          <button
+            onClick={() => api.windowMinimize()}
+            title="Minimize"
+            className="w-7 h-7 flex items-center justify-center rounded hover:bg-binance-elevated text-binance-muted hover:text-binance-body transition"
+          >
+            <Minus className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={() => api.windowMaximize()}
+            title="Maximize"
+            className="w-7 h-7 flex items-center justify-center rounded hover:bg-binance-elevated text-binance-muted hover:text-binance-body transition"
+          >
+            <Square className="w-3 h-3" />
+          </button>
+          <button
+            onClick={() => api.windowClose()}
+            title="Close"
+            className="w-7 h-7 flex items-center justify-center rounded hover:bg-red-600 text-binance-muted hover:text-white transition"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
       </div>
     </header>
   );

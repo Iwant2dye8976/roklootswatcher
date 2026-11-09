@@ -1052,6 +1052,7 @@ pub fn set_filter_state(
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .clone();
+    sync_settings_to_cloud_async(&cfg_snap);
     let overlay_payload = get_overlay_payload_internal(
         &state.watcher,
         &cfg_snap,
@@ -1061,6 +1062,25 @@ pub fn set_filter_state(
     let _ = app.emit("overlay://updated", overlay_payload);
 
     get_dashboard_data(state)
+}
+
+pub(crate) fn sync_settings_to_cloud_async(cfg: &crate::model::AppConfig) {
+    if !cfg.cloud_auth.is_logged_in() {
+        return;
+    }
+    if let Some(tok) = cfg.cloud_auth.access_token.clone() {
+        let (url, key) = cfg.cloud_auth.get_credentials();
+        let settings = cfg.extract_cloud_settings();
+        std::thread::spawn(move || {
+            let _ = crate::cloud_sync::upload_user_settings(
+                &url,
+                &key,
+                &tok,
+                &settings,
+                Some(std::time::Duration::from_secs(10)),
+            );
+        });
+    }
 }
 
 #[tauri::command]
@@ -1095,6 +1115,8 @@ pub fn set_preferences(
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .clone();
+    sync_settings_to_cloud_async(&cfg_snap);
+    sync_settings_to_cloud_async(&cfg_snap);
     let sel_acc = state.selected_account_clone();
     let overlay_payload = get_overlay_payload_internal(
         &state.watcher,
@@ -1342,11 +1364,13 @@ pub fn set_main_accounts(
         .filter(|u| !u.is_empty())
         .collect();
     state.watcher.set_main_account_uids(cleaned.clone());
-    {
+    let cfg_snap = {
         let mut cfg = state.config.lock().unwrap_or_else(|e| e.into_inner());
         cfg.main_account_uids = cleaned;
         cfg.save();
-    }
+        cfg.clone()
+    };
+    sync_settings_to_cloud_async(&cfg_snap);
     let _ = app.emit("watcher://updated", ());
     Ok(())
 }
@@ -1529,6 +1553,7 @@ pub fn import_vault_backup(
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .clone();
+    sync_settings_to_cloud_async(&cfg_snap);
     let sel_acc = state.selected_account_clone();
     let payload = get_overlay_payload_internal(
         &state.watcher,
@@ -1621,6 +1646,7 @@ pub fn update_overlay_config(
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .clone();
+    sync_settings_to_cloud_async(&cfg_snap);
     let sel_acc = state.selected_account_clone();
     let payload = get_overlay_payload_internal(
         &state.watcher,
@@ -1673,13 +1699,41 @@ pub fn start_google_login(app: AppHandle, state: State<'_, TauriAppState>) -> Re
             Ok(auth_res) => {
                 let cfg_clone = {
                     let mut cfg = config.lock().unwrap_or_else(|e| e.into_inner());
-                    cfg.cloud_auth.access_token = Some(auth_res.access_token);
-                    cfg.cloud_auth.refresh_token = Some(auth_res.refresh_token);
-                    cfg.cloud_auth.user_id = Some(auth_res.user.id);
-                    cfg.cloud_auth.user_email = Some(auth_res.user.email);
+                    cfg.cloud_auth.access_token = Some(auth_res.access_token.clone());
+                    cfg.cloud_auth.refresh_token = Some(auth_res.refresh_token.clone());
+                    cfg.cloud_auth.user_id = Some(auth_res.user.id.clone());
+                    cfg.cloud_auth.user_email = Some(auth_res.user.email.clone());
                     cfg.save();
                     cfg.clone()
                 };
+
+                if let Some(ref cloud_settings) = auth_res.user.settings {
+                    let mut settings_changed = false;
+                    {
+                        let mut cfg = config.lock().unwrap_or_else(|e| e.into_inner());
+                        if cfg.apply_cloud_settings(cloud_settings) {
+                            watcher.set_main_account_uids(cfg.main_account_uids.clone());
+                            cfg.save();
+                            settings_changed = true;
+                        }
+                    }
+                    if settings_changed {
+                        watcher.log("SUCCESS", "Restored cloud user settings");
+                        let _ = app_handle.emit("watcher://updated", ());
+                    }
+                } else {
+                    let (u, k) = cfg_clone.cloud_auth.get_credentials();
+                    if let Some(ref tok) = cfg_clone.cloud_auth.access_token {
+                        let settings = cfg_clone.extract_cloud_settings();
+                        let _ = crate::cloud_sync::upload_user_settings(
+                            &u,
+                            &k,
+                            tok,
+                            &settings,
+                            Some(std::time::Duration::from_secs(10)),
+                        );
+                    }
+                }
                 if let Ok(mut s) = sync_state.write() {
                     s.last_error = None;
                 }
@@ -1765,6 +1819,17 @@ pub fn trigger_cloud_push(app: AppHandle, state: State<'_, TauriAppState>) -> Re
         };
         reconcile_sync_worker_config(&handle, &config);
         let cfg = config.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        if let Some(ref tok) = cfg.cloud_auth.access_token {
+            let (u, k) = cfg.cloud_auth.get_credentials();
+            let settings = cfg.extract_cloud_settings();
+            let _ = crate::cloud_sync::upload_user_settings(
+                &u,
+                &k,
+                tok,
+                &settings,
+                Some(std::time::Duration::from_secs(10)),
+            );
+        }
         let _ = app_clone.emit(
             "cloud://updated",
             get_cloud_status_from_parts(&watcher, &cfg, &handle, login_busy.load(Ordering::SeqCst)),
@@ -1823,6 +1888,29 @@ pub fn trigger_cloud_pull(app: AppHandle, state: State<'_, TauriAppState>) -> Re
         };
         reconcile_sync_worker_config(&handle, &config);
         let cfg = config.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        if let Some(ref tok) = cfg.cloud_auth.access_token {
+            let (u, k) = cfg.cloud_auth.get_credentials();
+            if let Ok(Some(cloud_settings)) = crate::cloud_sync::fetch_user_settings(
+                &u,
+                &k,
+                tok,
+                Some(std::time::Duration::from_secs(10)),
+            ) {
+                let mut changed = false;
+                {
+                    let mut cfg_guard = config.lock().unwrap_or_else(|e| e.into_inner());
+                    if cfg_guard.apply_cloud_settings(&cloud_settings) {
+                        watcher.set_main_account_uids(cfg_guard.main_account_uids.clone());
+                        cfg_guard.save();
+                        changed = true;
+                    }
+                }
+                if changed {
+                    watcher.log("SUCCESS", "Restored user settings from Cloud");
+                    let _ = app_clone.emit("watcher://updated", ());
+                }
+            }
+        }
         let _ = app_clone.emit(
             "cloud://updated",
             get_cloud_status_from_parts(&watcher, &cfg, &handle, login_busy.load(Ordering::SeqCst)),

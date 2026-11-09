@@ -1938,6 +1938,20 @@ mod secret_store {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct UserCloudSettings {
+    #[serde(default)]
+    pub main_account_uids: Vec<String>,
+    #[serde(default)]
+    pub speedup_unit: Option<SpeedupUnit>,
+    #[serde(default)]
+    pub theme: Option<AppTheme>,
+    #[serde(default)]
+    pub language: Option<AppLanguage>,
+    #[serde(default)]
+    pub overlay: Option<OverlayConfig>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
     #[serde(default)]
@@ -1990,6 +2004,49 @@ impl Default for AppConfig {
 }
 
 impl AppConfig {
+    pub fn extract_cloud_settings(&self) -> UserCloudSettings {
+        UserCloudSettings {
+            main_account_uids: self.main_account_uids.clone(),
+            speedup_unit: Some(self.speedup_unit),
+            theme: Some(self.theme),
+            language: Some(self.language),
+            overlay: Some(self.overlay.clone()),
+        }
+    }
+
+    pub fn apply_cloud_settings(&mut self, s: &UserCloudSettings) -> bool {
+        let mut changed = false;
+        if !s.main_account_uids.is_empty() && self.main_account_uids != s.main_account_uids {
+            self.main_account_uids = s.main_account_uids.clone();
+            changed = true;
+        }
+        if let Some(unit) = s.speedup_unit {
+            if self.speedup_unit != unit {
+                self.speedup_unit = unit;
+                changed = true;
+            }
+        }
+        if let Some(theme) = s.theme {
+            if self.theme != theme {
+                self.theme = theme;
+                changed = true;
+            }
+        }
+        if let Some(lang) = s.language {
+            if self.language != lang {
+                self.language = lang;
+                changed = true;
+            }
+        }
+        if let Some(ref ov) = s.overlay {
+            if &self.overlay != ov {
+                self.overlay = ov.clone();
+                changed = true;
+            }
+        }
+        changed
+    }
+
     pub fn config_path() -> PathBuf {
         let cur = PathBuf::from("rok_config.json");
         if cur.exists() || cur.with_extension("tmp").exists() {
@@ -3221,5 +3278,30 @@ mod tests {
         assert_eq!(ref4, None);
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_user_cloud_settings_extract_and_apply() {
+        let mut cfg = AppConfig::default();
+        cfg.main_account_uids = vec!["111111".to_string(), "222222".to_string()];
+        cfg.speedup_unit = SpeedupUnit::Hours;
+        cfg.theme = AppTheme::Light;
+        cfg.language = AppLanguage::English;
+
+        let cloud_settings = cfg.extract_cloud_settings();
+        assert_eq!(cloud_settings.main_account_uids, vec!["111111", "222222"]);
+        assert_eq!(cloud_settings.speedup_unit, Some(SpeedupUnit::Hours));
+        assert_eq!(cloud_settings.theme, Some(AppTheme::Light));
+        assert_eq!(cloud_settings.language, Some(AppLanguage::English));
+
+        let mut other_cfg = AppConfig::default();
+        assert!(other_cfg.apply_cloud_settings(&cloud_settings));
+        assert_eq!(other_cfg.main_account_uids, vec!["111111", "222222"]);
+        assert_eq!(other_cfg.speedup_unit, SpeedupUnit::Hours);
+        assert_eq!(other_cfg.theme, AppTheme::Light);
+        assert_eq!(other_cfg.language, AppLanguage::English);
+
+        // Applying same settings again returns false
+        assert!(!other_cfg.apply_cloud_settings(&cloud_settings));
     }
 }
