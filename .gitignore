@@ -25,6 +25,7 @@ AGENT.md
 AUDIT.md
 .env
 .env.*
+!.env.example
 *.dat
 rok_auth.dat
 security-audit/

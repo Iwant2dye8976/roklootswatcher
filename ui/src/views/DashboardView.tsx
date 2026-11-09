@@ -156,6 +156,80 @@ export const DashboardView: React.FC = () => {
     });
   }, [ap.target_benchmarks, bmTypeFilter, bmSearch, bmSortKey, bmSortDir]);
 
+  const dailyTimeline = ap.daily_timeline || [];
+  const maxApDaily = Math.max(
+    1000,
+    ...dailyTimeline.map((p) => p.ap_consumed || 0)
+  );
+  const maxSpdDaily = Math.max(
+    1,
+    ...dailyTimeline.map((p) => p.speedup_hours || 0)
+  );
+
+  // SVG dimensions for Dual-Axis Combo Chart
+  const svgViewWidth = 700;
+  const svgViewHeight = 180;
+  const chartPadLeft = 46;
+  const chartPadRight = 46;
+  const chartBaselineY = 152;
+  const chartTopY = 16;
+  const chartAvailH = chartBaselineY - chartTopY;
+  const chartPlotWidth = svgViewWidth - chartPadLeft - chartPadRight;
+
+  const comboChartPoints = useMemo(() => {
+    if (dailyTimeline.length === 0) return [];
+    const count = dailyTimeline.length;
+    const stepX = count > 1 ? chartPlotWidth / (count - 1) : chartPlotWidth / 2;
+
+    return dailyTimeline.map((item, idx) => {
+      const x = count > 1 ? chartPadLeft + idx * stepX : svgViewWidth / 2;
+      const spd = item.speedup_hours || 0;
+      const apConsumed = item.ap_consumed || 0;
+      const lineY = chartBaselineY - (spd / maxSpdDaily) * chartAvailH;
+      const barH = Math.max(2, (apConsumed / maxApDaily) * chartAvailH);
+      const barY = chartBaselineY - barH;
+      const barWidth = Math.max(8, Math.min(28, (chartPlotWidth / count) * 0.55));
+      const yieldMinPer1k = apConsumed > 0 ? (spd * 60) / (apConsumed / 1000) : 0;
+
+      return {
+        idx,
+        item,
+        x,
+        lineY,
+        barY,
+        barH,
+        barWidth,
+        spd,
+        apConsumed,
+        yieldMinPer1k,
+      };
+    });
+  }, [dailyTimeline, maxApDaily, maxSpdDaily, chartPlotWidth, chartAvailH]);
+
+  const comboLinePath = useMemo(() => {
+    if (comboChartPoints.length === 0) return "";
+    if (comboChartPoints.length === 1) {
+      const p = comboChartPoints[0];
+      return `M ${p.x - 20} ${p.lineY} L ${p.x + 20} ${p.lineY}`;
+    }
+    let d = `M ${comboChartPoints[0].x} ${comboChartPoints[0].lineY}`;
+    for (let i = 0; i < comboChartPoints.length - 1; i++) {
+      const p0 = comboChartPoints[i];
+      const p1 = comboChartPoints[i + 1];
+      const mx = (p0.x + p1.x) / 2;
+      d += ` C ${mx} ${p0.lineY}, ${mx} ${p1.lineY}, ${p1.x} ${p1.lineY}`;
+    }
+    return d;
+  }, [comboChartPoints]);
+
+  const comboAreaPath = useMemo(() => {
+    if (comboChartPoints.length === 0) return "";
+    if (comboChartPoints.length === 1) return "";
+    const first = comboChartPoints[0];
+    const last = comboChartPoints[comboChartPoints.length - 1];
+    return `${comboLinePath} L ${last.x} ${chartBaselineY} L ${first.x} ${chartBaselineY} Z`;
+  }, [comboLinePath, comboChartPoints]);
+
   if (!dashboard) {
     return (
       <div className="flex-1 flex items-center justify-center p-8 text-binance-muted font-mono text-xs">
@@ -180,16 +254,6 @@ export const DashboardView: React.FC = () => {
   const fortPct = ((d.fort_count || 0) / totalCounts) * 100;
   const barbPct = ((d.barb_count || 0) / totalCounts) * 100;
   const gatherPct = ((d.gathering_count || 0) / totalCounts) * 100;
-
-  const dailyTimeline = ap.daily_timeline || [];
-  const maxApDaily = Math.max(
-    100,
-    ...dailyTimeline.map((p) => p.ap_consumed || 0)
-  );
-  const maxSpdDaily = Math.max(
-    1,
-    ...dailyTimeline.map((p) => p.speedup_hours || 0)
-  );
 
   const topItemsList = d.top_items || [];
   const maxItemQty = Math.max(
@@ -433,7 +497,7 @@ export const DashboardView: React.FC = () => {
         <div className="lg:col-span-8 space-y-4">
           {/* AP Timeline Card */}
           <div className="p-3.5 rounded-md bg-binance-card border border-binance-hairline flex flex-col justify-between">
-            <div className="flex items-center justify-between text-xs mb-3 border-b border-binance-hairline pb-2.5">
+            <div className="flex items-center justify-between text-xs mb-2 border-b border-binance-hairline pb-2.5">
               <div className="flex items-center gap-2">
                 <TrendingUp className="w-4 h-4 text-binance-yellow" />
                 <span className="font-semibold text-binance-body">
@@ -441,79 +505,274 @@ export const DashboardView: React.FC = () => {
                 </span>
               </div>
               <div className="flex items-center gap-3 text-[10px] font-mono">
-                <span className="flex items-center gap-1 text-binance-green font-medium">
-                  <span className="w-2 h-2 rounded-xs bg-binance-green" />{" "}
-                  {t("cardSpeedups")} (h)
+                <span className="flex items-center gap-1.5 text-emerald-400 font-medium">
+                  <span className="w-2.5 h-2 rounded-xs bg-emerald-500/50 border border-emerald-400" />{" "}
+                  {t("apConsumed")} (Left Y)
                 </span>
-                <span className="flex items-center gap-1 text-binance-red font-medium">
-                  <span className="w-2 h-2 rounded-xs bg-binance-red" />{" "}
-                  {t("apConsumed")}
+                <span className="flex items-center gap-1.5 text-sky-400 font-medium">
+                  <span className="w-2.5 h-0.5 bg-sky-400" />{" "}
+                  {t("cardSpeedups")} (h) (Right Y)
                 </span>
               </div>
             </div>
 
-            <div className="h-44 w-full flex items-end gap-2 pt-2 border-b border-binance-hairline pb-2 relative">
-              <div className="absolute inset-0 flex flex-col justify-between pointer-events-none opacity-25">
-                <div className="border-b border-binance-hairline w-full" />
-                <div className="border-b border-binance-hairline w-full" />
-                <div className="border-b border-binance-hairline w-full" />
-              </div>
-
-              {dailyTimeline.map((item, idx) => {
-                const spdHours = item.speedup_hours || 0;
-                const apConsumed = item.ap_consumed || 0;
-                const spdHeightPct = Math.max(
-                  4,
-                  (spdHours / maxSpdDaily) * 100
-                );
-                const apHeightPct = Math.max(
-                  4,
-                  (apConsumed / maxApDaily) * 100
-                );
-
-                return (
-                  <div
-                    key={idx}
-                    onMouseEnter={() => setHoveredDayIdx(idx)}
-                    onMouseLeave={() => setHoveredDayIdx(null)}
-                    className="flex-1 h-full flex flex-col justify-end items-center gap-1 group relative cursor-pointer z-10"
+            {/* Dual-Axis SVG Combo Chart */}
+            <div className="w-full relative py-1 border-b border-binance-hairline pb-2">
+              {dailyTimeline.length === 0 ? (
+                <div className="h-44 w-full flex items-center justify-center text-xs font-mono text-binance-muted">
+                  {t("noBenchmarkMatches")}
+                </div>
+              ) : (
+                <div className="relative h-44 w-full select-none">
+                  <svg
+                    className="w-full h-full overflow-visible"
+                    viewBox={`0 0 ${svgViewWidth} ${svgViewHeight}`}
+                    preserveAspectRatio="none"
                   >
-                    {hoveredDayIdx === idx && (
-                      <div className="absolute -top-16 bg-binance-elevated border border-binance-hairline text-binance-body text-[10px] font-mono px-2.5 py-1.5 rounded-sm shadow-xl z-30 whitespace-nowrap pointer-events-none">
-                        <div className="font-bold text-binance-yellow border-b border-binance-hairline pb-1 mb-1">
-                          {item.date_label || "-"}
-                        </div>
-                        <div className="flex items-center justify-between gap-3 text-binance-green">
-                          <span>{t("cardSpeedups")}:</span>
-                          <span className="font-bold">
-                            {spdHours.toFixed(1)}h
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between gap-3 text-binance-red">
-                          <span>AP:</span>
-                          <span className="font-bold">
-                            {apConsumed.toLocaleString()} AP
-                          </span>
-                        </div>
-                      </div>
+                    <defs>
+                      <linearGradient id="apBarGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#10b981" stopOpacity="0.75" />
+                        <stop offset="100%" stopColor="#10b981" stopOpacity="0.15" />
+                      </linearGradient>
+                      <linearGradient id="spdAreaGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#38bdf8" stopOpacity="0.25" />
+                        <stop offset="100%" stopColor="#38bdf8" stopOpacity="0.0" />
+                      </linearGradient>
+                    </defs>
+
+                    {/* Horizontal Reference Grid Lines */}
+                    <line
+                      x1={chartPadLeft - 8}
+                      y1={chartTopY}
+                      x2={svgViewWidth - chartPadRight + 8}
+                      y2={chartTopY}
+                      stroke="#2b313a"
+                      strokeDasharray="3,3"
+                      strokeOpacity="0.5"
+                    />
+                    <line
+                      x1={chartPadLeft - 8}
+                      y1={(chartTopY + chartBaselineY) / 2}
+                      x2={svgViewWidth - chartPadRight + 8}
+                      y2={(chartTopY + chartBaselineY) / 2}
+                      stroke="#2b313a"
+                      strokeDasharray="3,3"
+                      strokeOpacity="0.4"
+                    />
+                    <line
+                      x1={chartPadLeft - 8}
+                      y1={chartBaselineY}
+                      x2={svgViewWidth - chartPadRight + 8}
+                      y2={chartBaselineY}
+                      stroke="#2b313a"
+                      strokeOpacity="0.75"
+                    />
+
+                    {/* Left Y Axis Labels (AP Consumed - Soft Green) */}
+                    <text
+                      x={chartPadLeft - 10}
+                      y={chartTopY + 3}
+                      fill="#34d399"
+                      fontSize="9"
+                      fontFamily="monospace"
+                      textAnchor="end"
+                    >
+                      {maxApDaily >= 1000 ? `${(maxApDaily / 1000).toFixed(0)}k` : maxApDaily}
+                    </text>
+                    <text
+                      x={chartPadLeft - 10}
+                      y={(chartTopY + chartBaselineY) / 2 + 3}
+                      fill="#34d399"
+                      fontSize="9"
+                      fontFamily="monospace"
+                      textAnchor="end"
+                    >
+                      {maxApDaily >= 2000 ? `${(maxApDaily / 2000).toFixed(0)}k` : `${Math.round(maxApDaily / 2)}`}
+                    </text>
+                    <text
+                      x={chartPadLeft - 10}
+                      y={chartBaselineY}
+                      fill="#34d399"
+                      fontSize="9"
+                      fontFamily="monospace"
+                      textAnchor="end"
+                    >
+                      0
+                    </text>
+
+                    {/* Right Y Axis Labels (Speedup Hours - Soft Blue) */}
+                    <text
+                      x={svgViewWidth - chartPadRight + 10}
+                      y={chartTopY + 3}
+                      fill="#38bdf8"
+                      fontSize="9"
+                      fontFamily="monospace"
+                      textAnchor="start"
+                    >
+                      {`${maxSpdDaily.toFixed(0)}h`}
+                    </text>
+                    <text
+                      x={svgViewWidth - chartPadRight + 10}
+                      y={(chartTopY + chartBaselineY) / 2 + 3}
+                      fill="#38bdf8"
+                      fontSize="9"
+                      fontFamily="monospace"
+                      textAnchor="start"
+                    >
+                      {`${(maxSpdDaily / 2).toFixed(1)}h`}
+                    </text>
+                    <text
+                      x={svgViewWidth - chartPadRight + 10}
+                      y={chartBaselineY}
+                      fill="#38bdf8"
+                      fontSize="9"
+                      fontFamily="monospace"
+                      textAnchor="start"
+                    >
+                      0h
+                    </text>
+
+                    {/* Histogram Bars (AP Consumed - Soft Green) */}
+                    {comboChartPoints.map((pt) => {
+                      const isHovered = hoveredDayIdx === pt.idx;
+                      return (
+                        <rect
+                          key={`bar-${pt.idx}`}
+                          x={pt.x - pt.barWidth / 2}
+                          y={pt.barY}
+                          width={pt.barWidth}
+                          height={pt.barH}
+                          rx={2}
+                          fill="url(#apBarGrad)"
+                          stroke={isHovered ? "#6ee7b7" : "#10b981"}
+                          strokeWidth={isHovered ? 1.5 : 1}
+                          strokeOpacity={isHovered ? 1 : 0.7}
+                          className="transition-all duration-150 cursor-pointer"
+                          onMouseEnter={() => setHoveredDayIdx(pt.idx)}
+                          onMouseLeave={() => setHoveredDayIdx(null)}
+                        />
+                      );
+                    })}
+
+                    {/* Yield Curve Gradient Area */}
+                    {comboAreaPath && (
+                      <path
+                        d={comboAreaPath}
+                        fill="url(#spdAreaGrad)"
+                        className="pointer-events-none"
+                      />
                     )}
 
-                    <div className="w-full flex items-end justify-center gap-1 h-full">
-                      <div
-                        style={{ height: `${spdHeightPct}%` }}
-                        className="w-1/2 bg-binance-green/80 group-hover:bg-binance-green rounded-t-xs transition-all"
+                    {/* Yield Curve Line (Speedup Hours - Soft Blue) */}
+                    {comboLinePath && (
+                      <path
+                        d={comboLinePath}
+                        fill="none"
+                        stroke="#38bdf8"
+                        strokeWidth="2.2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className="pointer-events-none"
                       />
-                      <div
-                        style={{ height: `${apHeightPct}%` }}
-                        className="w-1/2 bg-binance-red/80 group-hover:bg-binance-red rounded-t-xs transition-all"
-                      />
-                    </div>
-                    <span className="text-[9px] font-mono text-binance-muted group-hover:text-binance-body truncate">
-                      {item.date_label}
-                    </span>
-                  </div>
-                );
-              })}
+                    )}
+
+                    {/* Data Points / Glow Nodes */}
+                    {comboChartPoints.map((pt) => {
+                      const isHovered = hoveredDayIdx === pt.idx;
+                      return (
+                        <g key={`dot-${pt.idx}`}>
+                          {/* Active vertical guideline on hover */}
+                          {isHovered && (
+                            <line
+                              x1={pt.x}
+                              y1={chartTopY}
+                              x2={pt.x}
+                              y2={chartBaselineY}
+                              stroke="#38bdf8"
+                              strokeWidth="1"
+                              strokeDasharray="2,2"
+                              strokeOpacity="0.8"
+                              className="pointer-events-none"
+                            />
+                          )}
+                          <circle
+                            cx={pt.x}
+                            cy={pt.lineY}
+                            r={isHovered ? 5.5 : 3.5}
+                            fill="#38bdf8"
+                            stroke="#181a20"
+                            strokeWidth={isHovered ? 2.5 : 1.5}
+                            className="cursor-pointer transition-all duration-150"
+                            onMouseEnter={() => setHoveredDayIdx(pt.idx)}
+                            onMouseLeave={() => setHoveredDayIdx(null)}
+                          />
+                        </g>
+                      );
+                    })}
+
+                    {/* X Axis Date Labels */}
+                    {comboChartPoints.map((pt) => {
+                      const isHovered = hoveredDayIdx === pt.idx;
+                      return (
+                        <text
+                          key={`lbl-${pt.idx}`}
+                          x={pt.x}
+                          y={chartBaselineY + 16}
+                          fill={isHovered ? "#eaecef" : "#848e9c"}
+                          fontWeight={isHovered ? "bold" : "normal"}
+                          fontSize="9"
+                          fontFamily="monospace"
+                          textAnchor="middle"
+                          className="cursor-pointer transition-colors"
+                          onMouseEnter={() => setHoveredDayIdx(pt.idx)}
+                          onMouseLeave={() => setHoveredDayIdx(null)}
+                        >
+                          {pt.item.date_label || "-"}
+                        </text>
+                      );
+                    })}
+                  </svg>
+
+                  {/* Floating Tooltip Box */}
+                  {hoveredDayIdx !== null && comboChartPoints[hoveredDayIdx] && (
+                    (() => {
+                      const pt = comboChartPoints[hoveredDayIdx];
+                      const leftPct = (pt.x / svgViewWidth) * 100;
+                      return (
+                        <div
+                          style={{
+                            left: `${Math.max(8, Math.min(84, leftPct))}%`,
+                            top: "-12px",
+                            transform: "translateX(-50%)",
+                          }}
+                          className="absolute bg-binance-elevated border border-binance-hairline text-binance-body text-[10px] font-mono px-3 py-2 rounded-sm shadow-2xl z-30 pointer-events-none whitespace-nowrap min-w-[140px]"
+                        >
+                          <div className="font-bold text-binance-yellow border-b border-binance-hairline pb-1 mb-1.5 flex items-center justify-between gap-3">
+                            <span>{pt.item.date_label || "-"}</span>
+                            <span className="text-emerald-400 font-normal">
+                              {pt.yieldMinPer1k > 0
+                                ? `${pt.yieldMinPer1k.toFixed(0)}m / 1k AP`
+                                : "0m / 1k AP"}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between gap-3 text-emerald-400">
+                            <span>{t("apConsumed")}:</span>
+                            <span className="font-bold">
+                              {pt.apConsumed.toLocaleString()} AP
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between gap-3 text-sky-400">
+                            <span>{t("cardSpeedups")}:</span>
+                            <span className="font-bold">
+                              {pt.spd.toFixed(1)}h
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })()
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="grid grid-cols-3 gap-2 pt-2.5 text-center text-[10px] font-mono text-binance-muted">
