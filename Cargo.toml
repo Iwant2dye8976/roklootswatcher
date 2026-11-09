@@ -1,6 +1,6 @@
 [package]
 name = "rok_watcher"
-version = "2.6.10"
+version = "2.6.11"
 edition = "2021"
 description = "Rise of Kingdoms - Motte, Fort & Barbarian Loot Watcher & Analyzer for Windows"
 authors = ["Antigravity"]
