@@ -24,6 +24,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { useAppStore } from "../store/appStore";
+import { useConfirm } from "../components/ConfirmDialog";
 import { useI18n } from "../i18n";
 import {
   FilterMode,
@@ -147,6 +148,7 @@ export const SettingsView: React.FC = () => {
     refreshDashboard,
   } = useAppStore();
   const { t } = useI18n(language);
+  const { confirm } = useConfirm();
 
   const [mailPath, setMailPath] = useState(snapshot?.mail_dir || "");
   const [autoScan, setAutoScan] = useState(snapshot?.auto_scan ?? true);
@@ -361,11 +363,17 @@ export const SettingsView: React.FC = () => {
 
   const handleDeleteSecondary = async () => {
     const nonMainCount = snapshot?.non_main_records_count ?? 0;
-    const msg =
-      language === "vi"
-        ? `Xóa vĩnh viễn ${nonMainCount} chiến báo không thuộc UID chính? Thao tác này không thể hoàn tác.`
-        : `Permanently delete ${nonMainCount} non-primary account records? This cannot be undone.`;
-    if (!window.confirm(msg)) {
+    const ok = await confirm({
+      title: language === "vi" ? "Xác nhận xóa chiến báo phụ" : "Delete Secondary Records",
+      message:
+        language === "vi"
+          ? `Xóa vĩnh viễn ${nonMainCount} chiến báo không thuộc UID chính? Thao tác này không thể hoàn tác.`
+          : `Permanently delete ${nonMainCount} non-primary account records? This cannot be undone.`,
+      confirmLabel: language === "vi" ? "Xóa vĩnh viễn" : "Delete Records",
+      cancelLabel: language === "vi" ? "Hủy" : "Cancel",
+      isDestructive: true,
+    });
+    if (!ok) {
       return;
     }
     setIsDeleting(true);

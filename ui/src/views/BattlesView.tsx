@@ -8,7 +8,7 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
-  ExternalLink,
+  Eye,
 } from "lucide-react";
 import { useAppStore } from "../store/appStore";
 import { useI18n, formatSpeedupMinutes } from "../i18n";
@@ -47,7 +47,6 @@ export const BattlesView: React.FC = () => {
   }, [searchInput]);
 
   const loadRecords = useCallback(async () => {
-    setLoading(true);
     try {
       const data = await api.queryBattles(debouncedSearch, sortCol, sortDir);
       setRecords(data);
@@ -387,8 +386,9 @@ export const BattlesView: React.FC = () => {
                           setSelectedBattle(b);
                         }}
                         className="p-1 rounded text-binance-muted hover:text-binance-yellow hover:bg-binance-elevated transition"
+                        title={language === "vi" ? "Xem chi tiết" : "View details"}
                       >
-                        <ExternalLink className="w-3.5 h-3.5" />
+                        <Eye className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   </div>

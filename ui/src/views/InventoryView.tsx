@@ -52,7 +52,6 @@ export const InventoryView: React.FC = () => {
   ];
 
   const loadInventory = useCallback(async () => {
-    setLoading(true);
     try {
       const data = await api.queryInventory(
         debouncedSearch,

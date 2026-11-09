@@ -8,7 +8,7 @@ export const ToastContainer: React.FC = () => {
   if (toasts.length === 0) return null;
 
   return (
-    <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 max-w-sm w-full pointer-events-none">
+    <div className="fixed top-12 left-1/2 -translate-x-1/2 z-50 flex flex-col items-center gap-2 max-w-md w-full px-4 pointer-events-none">
       {toasts.map((toast) => {
         const Icon =
           toast.type === "success"
@@ -31,13 +31,14 @@ export const ToastContainer: React.FC = () => {
         return (
           <div
             key={toast.id}
-            className={`pointer-events-auto flex items-start gap-2.5 p-3 rounded-lg border shadow-xl text-xs backdrop-blur-md animate-in slide-in-from-bottom duration-150 ${borderBg}`}
+            className={`pointer-events-auto flex items-start gap-2.5 p-3 rounded-lg border shadow-2xl text-xs backdrop-blur-md animate-in slide-in-from-top-2 duration-150 w-full ${borderBg}`}
           >
             <Icon className="w-4 h-4 shrink-0 mt-0.5" />
             <div className="flex-1 font-medium leading-relaxed">{toast.text}</div>
             <button
               onClick={() => removeToast(toast.id)}
-              className="p-0.5 rounded hover:bg-white/10 text-slate-400 hover:text-white"
+              className="p-0.5 rounded hover:bg-white/10 text-slate-400 hover:text-white transition"
+              aria-label="Close"
             >
               <X className="w-3.5 h-3.5" />
             </button>
@@ -47,3 +48,4 @@ export const ToastContainer: React.FC = () => {
     </div>
   );
 };
+

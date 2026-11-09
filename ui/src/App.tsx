@@ -6,6 +6,7 @@ import { GlobalFilterBar } from "./components/GlobalFilterBar";
 import { CommandPalette } from "./components/CommandPalette";
 import { InspectorDrawer } from "./components/InspectorDrawer";
 import { ToastContainer } from "./components/ToastContainer";
+import { ConfirmDialogProvider } from "./components/ConfirmDialog";
 
 import { DashboardView } from "./views/DashboardView";
 import { BattlesView } from "./views/BattlesView";
@@ -73,7 +74,9 @@ export const App: React.FC = () => {
 
   return (
     <AppStoreProvider>
-      <MainLayout />
+      <ConfirmDialogProvider>
+        <MainLayout />
+      </ConfirmDialogProvider>
     </AppStoreProvider>
   );
 };

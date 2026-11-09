@@ -16,6 +16,12 @@
         -webkit-user-select: none;
       }
     </style>
+    <script>
+      document.addEventListener('contextmenu', (e) => e.preventDefault());
+      document.addEventListener('keydown', (e) => {
+        if (/^F([1-9]|1[0-2])$/.test(e.key)) e.preventDefault();
+      });
+    </script>
   </head>
   <body class="antialiased selection:bg-teal-500/20 selection:text-teal-300">
     <div id="root"></div>
