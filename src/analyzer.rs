@@ -322,6 +322,27 @@ pub fn calculate_ap_cost(battle_type: &str, target_level: &str) -> i64 {
     }
 }
 
+pub fn calculate_record_ap_cost(r: &BattleRecord) -> i64 {
+    let lvl: u32 = {
+        let parsed = r.target_level
+            .split(|c: char| !c.is_ascii_digit())
+            .filter_map(|s| s.parse::<u32>().ok())
+            .max()
+            .unwrap_or(0);
+        if parsed > 0 {
+            parsed
+        } else {
+            r.target
+                .split(|c: char| !c.is_ascii_digit())
+                .filter_map(|s| s.parse::<u32>().ok())
+                .max()
+                .unwrap_or(0)
+        }
+    };
+
+    calculate_ap_cost(&r.battle_type, &lvl.to_string())
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct DailyApSpeedupStat {
     pub date_label: String,
@@ -339,6 +360,10 @@ pub struct TargetRoiBenchmark {
     pub covenant_drop_rate: f64,
     pub avg_gems: f64,
     pub tier_badge: String,
+    #[serde(default)]
+    pub battle_type: String,
+    #[serde(default)]
+    pub level: u32,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -360,7 +385,9 @@ pub fn compute_ap_economics(active_records: &[BattleRecord], vault_records: &[Ba
     let mut total_gems = 0i64;
 
     struct TargetAccumulator {
-        name: &'static str,
+        battle_type: String,
+        level: u32,
+        name: String,
         unit_ap: i64,
         count: usize,
         speedup_mins: i64,
@@ -368,20 +395,31 @@ pub fn compute_ap_economics(active_records: &[BattleRecord], vault_records: &[Ba
         covenant_battles: usize,
     }
 
-    let mut target_groups = [
-        TargetAccumulator { name: "Fort Lvl 11-15 (KvK)", unit_ap: 300, count: 0, speedup_mins: 0, gems: 0, covenant_battles: 0 },
-        TargetAccumulator { name: "Fort Lvl 1-10", unit_ap: 150, count: 0, speedup_mins: 0, gems: 0, covenant_battles: 0 },
-        TargetAccumulator { name: "Motte Lvl 11-15", unit_ap: 300, count: 0, speedup_mins: 0, gems: 0, covenant_battles: 0 },
-        TargetAccumulator { name: "Motte Lvl 1-10", unit_ap: 150, count: 0, speedup_mins: 0, gems: 0, covenant_battles: 0 },
-        TargetAccumulator { name: "Barbarians Lvl 41-55", unit_ap: 80, count: 0, speedup_mins: 0, gems: 0, covenant_battles: 0 },
-        TargetAccumulator { name: "Barbarians Lvl 1-40", unit_ap: 40, count: 0, speedup_mins: 0, gems: 0, covenant_battles: 0 },
-    ];
+    let mut target_map: HashMap<(String, u32), TargetAccumulator> = HashMap::new();
 
     for r in active_records {
         if r.battle_type == "gathering" {
             continue;
         }
-        let ap_cost = calculate_ap_cost(&r.battle_type, &r.target_level);
+
+        let lvl: u32 = {
+            let parsed = r.target_level
+                .split(|c: char| !c.is_ascii_digit())
+                .filter_map(|s| s.parse::<u32>().ok())
+                .max()
+                .unwrap_or(0);
+            if parsed > 0 {
+                parsed
+            } else {
+                r.target
+                    .split(|c: char| !c.is_ascii_digit())
+                    .filter_map(|s| s.parse::<u32>().ok())
+                    .max()
+                    .unwrap_or(0)
+            }
+        };
+
+        let ap_cost = calculate_record_ap_cost(r);
         total_ap_consumed += ap_cost;
         total_ap_recovered += r.ap_breakdown().total_ap_points();
 
@@ -393,29 +431,43 @@ pub fn compute_ap_economics(active_records: &[BattleRecord], vault_records: &[Ba
 
         let has_covenant = r.items.iter().any(|it| it.itype == 2 && it.sub_type == 109);
 
-        let lvl: u32 = r.target_level
-            .split(|c: char| !c.is_ascii_digit())
-            .filter_map(|s| s.parse::<u32>().ok())
-            .max()
-            .unwrap_or(0);
-
-        let group_idx = match r.battle_type.as_str() {
-            "fort" if lvl > 10 => Some(0),
-            "fort" => Some(1),
-            "motte" if lvl > 10 => Some(2),
-            "motte" => Some(3),
-            "barbarian" if lvl > 40 => Some(4),
-            "barbarian" => Some(5),
-            _ => None,
-        };
-
-        if let Some(idx) = group_idx {
-            target_groups[idx].count += 1;
-            target_groups[idx].speedup_mins += spd;
-            target_groups[idx].gems += gems;
-            if has_covenant {
-                target_groups[idx].covenant_battles += 1;
+        let key = (r.battle_type.clone(), lvl);
+        let entry = target_map.entry(key).or_insert_with(|| {
+            let name = match r.battle_type.as_str() {
+                "fort" if lvl > 10 => format!("Fort Lvl {} (KvK)", lvl),
+                "fort" if lvl > 0 => format!("Fort Lvl {}", lvl),
+                "fort" => "Fort".to_string(),
+                "motte" if lvl > 0 => format!("Motte Lvl {}", lvl),
+                "motte" => "Motte".to_string(),
+                "barbarian" if lvl > 0 => format!("Barbarians Lvl {}", lvl),
+                "barbarian" => "Barbarians".to_string(),
+                _ => {
+                    if lvl > 0 {
+                        format!("{} Lvl {}", r.battle_type, lvl)
+                    } else if !r.target.is_empty() {
+                        r.target.clone()
+                    } else {
+                        r.battle_type.clone()
+                    }
+                }
+            };
+            TargetAccumulator {
+                battle_type: r.battle_type.clone(),
+                level: lvl,
+                name,
+                unit_ap: ap_cost,
+                count: 0,
+                speedup_mins: 0,
+                gems: 0,
+                covenant_battles: 0,
             }
+        });
+
+        entry.count += 1;
+        entry.speedup_mins += spd;
+        entry.gems += gems;
+        if has_covenant {
+            entry.covenant_battles += 1;
         }
     }
 
@@ -451,7 +503,7 @@ pub fn compute_ap_economics(active_records: &[BattleRecord], vault_records: &[Ba
                 let day_idx = (d - min_date).num_days() as usize;
                 if day_idx < 7 {
                     day_stats[day_idx].0 += r.total_speedup_minutes();
-                    day_stats[day_idx].1 += calculate_ap_cost(&r.battle_type, &r.target_level);
+                    day_stats[day_idx].1 += calculate_record_ap_cost(r);
                 }
             }
         }
@@ -472,8 +524,8 @@ pub fn compute_ap_economics(active_records: &[BattleRecord], vault_records: &[Ba
         });
     }
 
-    let mut target_benchmarks: Vec<TargetRoiBenchmark> = target_groups
-        .into_iter()
+    let mut target_benchmarks: Vec<TargetRoiBenchmark> = target_map
+        .into_values()
         .filter(|g| g.count > 0)
         .map(|g| {
             let avg_speedup = g.speedup_mins as f64 / g.count as f64;
@@ -488,16 +540,16 @@ pub fn compute_ap_economics(active_records: &[BattleRecord], vault_records: &[Ba
 
             let tier_badge = if spd_per_1k >= 1000.0 {
                 "TIER S+"
-            } else if spd_per_1k >= 800.0 {
+            } else if spd_per_1k >= 700.0 {
                 "TIER S"
-            } else if spd_per_1k >= 500.0 {
+            } else if spd_per_1k >= 400.0 {
                 "TIER A"
             } else {
                 "TIER B"
             };
 
             TargetRoiBenchmark {
-                target_name: g.name.to_string(),
+                target_name: g.name,
                 unit_ap_cost: g.unit_ap,
                 battle_count: g.count,
                 avg_speedup_mins: avg_speedup,
@@ -505,11 +557,20 @@ pub fn compute_ap_economics(active_records: &[BattleRecord], vault_records: &[Ba
                 covenant_drop_rate: covenant_rate,
                 avg_gems,
                 tier_badge: tier_badge.to_string(),
+                battle_type: g.battle_type,
+                level: g.level,
             }
         })
         .collect();
 
-    target_benchmarks.sort_by(|a, b| b.speedup_mins_per_1k_ap.partial_cmp(&a.speedup_mins_per_1k_ap).unwrap_or(std::cmp::Ordering::Equal));
+    target_benchmarks.sort_by(|a, b| {
+        b.speedup_mins_per_1k_ap
+            .partial_cmp(&a.speedup_mins_per_1k_ap)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| b.battle_count.cmp(&a.battle_count))
+            .then_with(|| b.level.cmp(&a.level))
+            .then_with(|| a.target_name.cmp(&b.target_name))
+    });
 
     ApEconomics {
         total_ap_consumed,
@@ -1064,11 +1125,13 @@ mod tests {
         assert!((econ.gems_per_1k_ap - 176.47).abs() < 0.2);
 
         assert_eq!(econ.target_benchmarks.len(), 2);
-        let fort_bm = econ.target_benchmarks.iter().find(|b| b.target_name == "Fort Lvl 1-10").unwrap();
+        let fort_bm = econ.target_benchmarks.iter().find(|b| b.target_name == "Fort Lvl 5").unwrap();
         assert_eq!(fort_bm.battle_count, 2);
         assert_eq!(fort_bm.unit_ap_cost, 150);
         assert_eq!(fort_bm.avg_speedup_mins, 50.0);
         assert_eq!(fort_bm.covenant_drop_rate, 50.0);
+        assert_eq!(fort_bm.battle_type, "fort");
+        assert_eq!(fort_bm.level, 5);
     }
 
     #[test]
@@ -1121,5 +1184,62 @@ mod tests {
             assert_ne!(econ.daily_timeline[i].date_label, "Today");
             assert!(econ.daily_timeline[i].date_label.contains('/'));
         }
+    }
+
+    #[test]
+    fn test_individual_level_target_benchmarks() {
+        let m10 = BattleRecord {
+            battle_type: "motte".into(),
+            target_level: "10".into(),
+            ..Default::default()
+        };
+        let m15 = BattleRecord {
+            battle_type: "motte".into(),
+            target_level: "15".into(),
+            ..Default::default()
+        };
+        let f9 = BattleRecord {
+            battle_type: "fort".into(),
+            target_level: "9".into(),
+            ..Default::default()
+        };
+        let b50 = BattleRecord {
+            battle_type: "barbarian".into(),
+            target_level: "50".into(),
+            ..Default::default()
+        };
+
+        let records = vec![m10, m15, f9, b50];
+        let econ = compute_ap_economics(&records, &records);
+
+        assert_eq!(econ.target_benchmarks.len(), 4);
+        assert!(econ.target_benchmarks.iter().any(|b| b.target_name == "Motte Lvl 10" && b.level == 10 && b.unit_ap_cost == 150));
+        assert!(econ.target_benchmarks.iter().any(|b| b.target_name == "Motte Lvl 15" && b.level == 15 && b.unit_ap_cost == 300));
+        assert!(econ.target_benchmarks.iter().any(|b| b.target_name == "Fort Lvl 9" && b.level == 9 && b.unit_ap_cost == 150));
+        assert!(econ.target_benchmarks.iter().any(|b| b.target_name == "Barbarians Lvl 50" && b.level == 50 && b.unit_ap_cost == 80));
+    }
+
+    #[test]
+    fn test_calculate_record_ap_cost_fallback_to_target() {
+        let r1 = BattleRecord {
+            battle_type: "motte".into(),
+            target: "Motte Lvl 15".into(),
+            target_level: "".into(),
+            ..Default::default()
+        };
+        assert_eq!(calculate_record_ap_cost(&r1), 300);
+
+        let r2 = BattleRecord {
+            battle_type: "fort".into(),
+            target: "Pháo đài man rợ cấp 12".into(),
+            target_level: "".into(),
+            ..Default::default()
+        };
+        assert_eq!(calculate_record_ap_cost(&r2), 300);
+
+        let econ = compute_ap_economics(&[r1.clone()], &[r1]);
+        assert_eq!(econ.total_ap_consumed, 300);
+        assert_eq!(econ.target_benchmarks[0].unit_ap_cost, 300);
+        assert_eq!(econ.target_benchmarks[0].level, 15);
     }
 }

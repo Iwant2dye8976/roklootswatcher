@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import {
   Swords,
   Sparkles,
@@ -12,10 +12,51 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   Crosshair,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  Search,
+  Zap,
+  X,
 } from "lucide-react";
 import { useAppStore } from "../store/appStore";
 import { useI18n, formatSpeedupMinutes } from "../i18n";
 import { BattleRecord } from "../types";
+
+type BenchmarkSortKey =
+  | "target"
+  | "level"
+  | "ap"
+  | "runs"
+  | "yield"
+  | "covenant"
+  | "rating";
+
+const getTargetType = (tb: {
+  target_name?: string;
+  battle_type?: string;
+}): "fort" | "motte" | "barbarian" | "other" => {
+  if (tb.battle_type) {
+    const bt = tb.battle_type.toLowerCase();
+    if (bt.includes("fort")) return "fort";
+    if (bt.includes("motte")) return "motte";
+    if (bt.includes("barb")) return "barbarian";
+  }
+  const name = (tb.target_name || "").toLowerCase();
+  if (name.includes("fort")) return "fort";
+  if (name.includes("motte")) return "motte";
+  if (name.includes("barb")) return "barbarian";
+  return "other";
+};
+
+const getTargetLevel = (tb: {
+  target_name?: string;
+  level?: number;
+}): number => {
+  if (tb.level !== undefined && tb.level > 0) return tb.level;
+  const match = (tb.target_name || "").match(/(\d+)/);
+  return match ? parseInt(match[1], 10) : 0;
+};
 
 export const DashboardView: React.FC = () => {
   const { dashboard, language, setTab, setSelectedBattle, speedupUnit } =
@@ -23,6 +64,97 @@ export const DashboardView: React.FC = () => {
   const { t } = useI18n(language);
 
   const [hoveredDayIdx, setHoveredDayIdx] = useState<number | null>(null);
+  const [bmTypeFilter, setBmTypeFilter] = useState<
+    "all" | "fort" | "motte" | "barbarian"
+  >("all");
+  const [bmSearch, setBmSearch] = useState("");
+  const [bmSortKey, setBmSortKey] = useState<BenchmarkSortKey>("yield");
+  const [bmSortDir, setBmSortDir] = useState<"asc" | "desc">("desc");
+
+  const ap = dashboard?.ap_economics || {
+    total_ap_consumed: 0,
+    total_ap_recovered: 0,
+    net_ap_spent: 0,
+    rebate_pct: 0,
+    speedup_mins_per_1k_ap: 0,
+    gems_per_1k_ap: 0,
+    daily_timeline: [],
+    target_benchmarks: [],
+  };
+
+  const handleBenchmarkSort = (key: BenchmarkSortKey) => {
+    if (bmSortKey === key) {
+      setBmSortDir(bmSortDir === "desc" ? "asc" : "desc");
+    } else {
+      setBmSortKey(key);
+      setBmSortDir("desc");
+    }
+  };
+
+  const maxBenchmarkYield = useMemo(() => {
+    const list = ap.target_benchmarks || [];
+    if (list.length === 0) return 1;
+    return Math.max(
+      1,
+      ...list.map((b) => b.speedup_mins_per_1k_ap || 0)
+    );
+  }, [ap.target_benchmarks]);
+
+  const filteredBenchmarks = useMemo(() => {
+    let list = ap.target_benchmarks || [];
+    if (bmTypeFilter !== "all") {
+      list = list.filter((b) => getTargetType(b) === bmTypeFilter);
+    }
+    if (bmSearch.trim()) {
+      const q = bmSearch.toLowerCase().trim();
+      list = list.filter((b) => {
+        const lvl = getTargetLevel(b);
+        return (
+          (b.target_name || "").toLowerCase().includes(q) ||
+          (lvl > 0 && String(lvl).includes(q))
+        );
+      });
+    }
+
+    return [...list].sort((a, b) => {
+      let cmp = 0;
+      switch (bmSortKey) {
+        case "target":
+          cmp = (a.target_name || "").localeCompare(b.target_name || "");
+          break;
+        case "level":
+          cmp = getTargetLevel(a) - getTargetLevel(b);
+          break;
+        case "ap":
+          cmp = (a.unit_ap_cost || 0) - (b.unit_ap_cost || 0);
+          break;
+        case "runs":
+          cmp = (a.battle_count || 0) - (b.battle_count || 0);
+          break;
+        case "yield":
+          cmp =
+            (a.speedup_mins_per_1k_ap || 0) -
+            (b.speedup_mins_per_1k_ap || 0);
+          break;
+        case "covenant":
+          cmp = (a.covenant_drop_rate || 0) - (b.covenant_drop_rate || 0);
+          break;
+        case "rating": {
+          const rankVal = (badge?: string) => {
+            if (!badge) return 1;
+            const b = String(badge);
+            if (b.includes("S+")) return 4;
+            if (b.includes("S")) return 3;
+            if (b.includes("A")) return 2;
+            return 1;
+          };
+          cmp = rankVal(a.tier_badge) - rankVal(b.tier_badge);
+          break;
+        }
+      }
+      return bmSortDir === "desc" ? -cmp : cmp;
+    });
+  }, [ap.target_benchmarks, bmTypeFilter, bmSearch, bmSortKey, bmSortDir]);
 
   if (!dashboard) {
     return (
@@ -33,33 +165,78 @@ export const DashboardView: React.FC = () => {
   }
 
   const d = dashboard;
-  const ap = d.ap_economics;
 
   const formatSpeedup = (mins: number) =>
-    formatSpeedupMinutes(mins, speedupUnit, language);
+    formatSpeedupMinutes(mins || 0, speedupUnit, language);
 
   const totalCounts = Math.max(
     1,
-    d.motte_count + d.fort_count + d.barb_count + d.gathering_count
+    (d.motte_count || 0) +
+      (d.fort_count || 0) +
+      (d.barb_count || 0) +
+      (d.gathering_count || 0)
   );
-  const mottePct = (d.motte_count / totalCounts) * 100;
-  const fortPct = (d.fort_count / totalCounts) * 100;
-  const barbPct = (d.barb_count / totalCounts) * 100;
-  const gatherPct = (d.gathering_count / totalCounts) * 100;
+  const mottePct = ((d.motte_count || 0) / totalCounts) * 100;
+  const fortPct = ((d.fort_count || 0) / totalCounts) * 100;
+  const barbPct = ((d.barb_count || 0) / totalCounts) * 100;
+  const gatherPct = ((d.gathering_count || 0) / totalCounts) * 100;
 
+  const dailyTimeline = ap.daily_timeline || [];
   const maxApDaily = Math.max(
     100,
-    ...ap.daily_timeline.map((p) => p.ap_consumed)
+    ...dailyTimeline.map((p) => p.ap_consumed || 0)
   );
   const maxSpdDaily = Math.max(
     1,
-    ...ap.daily_timeline.map((p) => p.speedup_hours)
+    ...dailyTimeline.map((p) => p.speedup_hours || 0)
   );
 
+  const topItemsList = d.top_items || [];
   const maxItemQty = Math.max(
     1,
-    ...d.top_items.slice(0, 10).map((it) => it.total_quantity)
+    ...topItemsList.slice(0, 10).map((it) => it.total_quantity || 0)
   );
+
+  const renderSortHeader = (
+    label: string,
+    key: BenchmarkSortKey,
+    align: "left" | "center" | "right" = "center"
+  ) => {
+    const isActive = bmSortKey === key;
+    return (
+      <th
+        onClick={() => handleBenchmarkSort(key)}
+        className={`pb-2 font-medium cursor-pointer select-none transition-colors hover:text-binance-yellow ${
+          align === "left"
+            ? "text-left"
+            : align === "right"
+            ? "text-right"
+            : "text-center"
+        } ${isActive ? "text-binance-yellow font-semibold" : "text-binance-muted"}`}
+      >
+        <div
+          className={`inline-flex items-center gap-1 ${
+            align === "left"
+              ? "justify-start"
+              : align === "right"
+              ? "justify-end"
+              : "justify-center"
+          }`}
+        >
+          <span>{label}</span>
+          {isActive ? (
+            bmSortDir === "desc" ? (
+              <ArrowDown className="w-3 h-3 text-binance-yellow" />
+            ) : (
+              <ArrowUp className="w-3 h-3 text-binance-yellow" />
+            )
+          ) : (
+            <ArrowUpDown className="w-2.5 h-2.5 opacity-40 hover:opacity-100" />
+          )}
+        </div>
+      </th>
+    );
+  };
 
   return (
     <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4 bg-binance-canvas select-none font-sans text-binance-body">
@@ -84,7 +261,7 @@ export const DashboardView: React.FC = () => {
           <Activity className="w-3.5 h-3.5 text-binance-green" />
           <span className="hidden sm:inline">{t("vaultEncounters")}</span>
           <span className="text-binance-yellow font-bold">
-            {d.total_battles.toLocaleString()}
+            {(d.total_battles || 0).toLocaleString()}
           </span>
         </div>
       </div>
@@ -98,12 +275,12 @@ export const DashboardView: React.FC = () => {
           </div>
           <div className="my-1.5">
             <div className="text-xl sm:text-2xl font-bold font-mono text-binance-yellow tracking-tight">
-              {d.total_battles.toLocaleString()}
+              {(d.total_battles || 0).toLocaleString()}
             </div>
           </div>
           <div className="text-[10px] text-binance-muted font-mono truncate">
-            {d.motte_count} {t("modeMotte")} · {d.fort_count} {t("modeFort")} ·{" "}
-            {d.barb_count} {t("modeBarbarian")}
+            {d.motte_count || 0} {t("modeMotte")} · {d.fort_count || 0} {t("modeFort")} ·{" "}
+            {d.barb_count || 0} {t("modeBarbarian")}
           </div>
         </div>
 
@@ -114,11 +291,11 @@ export const DashboardView: React.FC = () => {
           </div>
           <div className="my-1.5">
             <div className="text-xl sm:text-2xl font-bold font-mono text-binance-red tracking-tight">
-              {ap.total_ap_consumed.toLocaleString()}
+              {(ap.total_ap_consumed || 0).toLocaleString()}
             </div>
           </div>
           <div className="text-[10px] text-binance-muted font-mono truncate">
-            Net: {ap.net_ap_spent.toLocaleString()} AP
+            Net: {(ap.net_ap_spent || 0).toLocaleString()} AP
           </div>
         </div>
 
@@ -129,11 +306,11 @@ export const DashboardView: React.FC = () => {
           </div>
           <div className="my-1.5">
             <div className="text-xl sm:text-2xl font-bold font-mono text-binance-green tracking-tight">
-              +{ap.total_ap_recovered.toLocaleString()}
+              +{(ap.total_ap_recovered || 0).toLocaleString()}
             </div>
           </div>
           <div className="text-[10px] text-binance-green font-mono font-medium">
-            +{ap.rebate_pct.toFixed(1)}%
+            +{(ap.rebate_pct || 0).toFixed(1)}%
           </div>
         </div>
 
@@ -144,11 +321,11 @@ export const DashboardView: React.FC = () => {
           </div>
           <div className="my-1.5">
             <div className="text-xl sm:text-2xl font-bold font-mono text-binance-body tracking-tight">
-              {formatSpeedup(d.speedup_total_mins)}
+              {formatSpeedup(d.speedup_total_mins || 0)}
             </div>
           </div>
           <div className="text-[10px] text-binance-muted font-mono truncate">
-            {ap.speedup_mins_per_1k_ap.toFixed(0)}m / 1k AP
+            {(ap.speedup_mins_per_1k_ap || 0).toFixed(0)}m / 1k AP
           </div>
         </div>
 
@@ -159,11 +336,11 @@ export const DashboardView: React.FC = () => {
           </div>
           <div className="my-1.5">
             <div className="text-xl sm:text-2xl font-bold font-mono text-binance-yellow tracking-tight">
-              {d.total_crystals.toLocaleString()}
+              {(d.total_crystals || 0).toLocaleString()}
             </div>
           </div>
           <div className="text-[10px] text-binance-muted font-mono truncate">
-            {t("avgCrystal").replace("{:.1}", d.avg_crystals.toFixed(1))}
+            {t("avgCrystal").replace("{:.1}", (d.avg_crystals || 0).toFixed(1))}
           </div>
         </div>
 
@@ -174,11 +351,11 @@ export const DashboardView: React.FC = () => {
           </div>
           <div className="my-1.5">
             <div className="text-xl sm:text-2xl font-bold font-mono text-binance-body tracking-tight">
-              {(d.total_resources / 1_000_000).toFixed(2)}M
+              {((d.total_resources || 0) / 1_000_000).toFixed(2)}M
             </div>
           </div>
           <div className="text-[10px] text-binance-muted font-mono truncate">
-            {d.total_resources.toLocaleString()} RSS
+            {(d.total_resources || 0).toLocaleString()} RSS
           </div>
         </div>
       </div>
@@ -190,7 +367,7 @@ export const DashboardView: React.FC = () => {
             {t("distTitle")}
           </span>
           <span className="font-mono text-binance-muted text-[11px]">
-            {d.total_battles.toLocaleString()} {t("encountersAnalyzed")}
+            {(d.total_battles || 0).toLocaleString()} {t("encountersAnalyzed")}
           </span>
         </div>
 
@@ -199,28 +376,28 @@ export const DashboardView: React.FC = () => {
             <div
               style={{ width: `${mottePct}%` }}
               className="h-full bg-binance-red transition-all"
-              title={`${t("modeMotte")}: ${d.motte_count} (${mottePct.toFixed(1)}%)`}
+              title={`${t("modeMotte")}: ${d.motte_count || 0} (${(mottePct || 0).toFixed(1)}%)`}
             />
           )}
           {fortPct > 0 && (
             <div
               style={{ width: `${fortPct}%` }}
               className="h-full bg-binance-yellowSolid transition-all"
-              title={`${t("modeFort")}: ${d.fort_count} (${fortPct.toFixed(1)}%)`}
+              title={`${t("modeFort")}: ${d.fort_count || 0} (${(fortPct || 0).toFixed(1)}%)`}
             />
           )}
           {barbPct > 0 && (
             <div
               style={{ width: `${barbPct}%` }}
               className="h-full bg-binance-info transition-all"
-              title={`${t("modeBarbarian")}: ${d.barb_count} (${barbPct.toFixed(1)}%)`}
+              title={`${t("modeBarbarian")}: ${d.barb_count || 0} (${(barbPct || 0).toFixed(1)}%)`}
             />
           )}
           {gatherPct > 0 && (
             <div
               style={{ width: `${gatherPct}%` }}
               className="h-full bg-binance-green transition-all"
-              title={`${t("modeGathering")}: ${d.gathering_count} (${gatherPct.toFixed(1)}%)`}
+              title={`${t("modeGathering")}: ${d.gathering_count || 0} (${(gatherPct || 0).toFixed(1)}%)`}
             />
           )}
         </div>
@@ -229,23 +406,23 @@ export const DashboardView: React.FC = () => {
           <span className="flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-xs bg-binance-red" />
             <span className="text-binance-body">{t("modeMotte")}:</span>{" "}
-            {d.motte_count} ({mottePct.toFixed(1)}%)
+            {d.motte_count || 0} ({(mottePct || 0).toFixed(1)}%)
           </span>
           <span className="flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-xs bg-binance-yellowSolid" />
             <span className="text-binance-body">{t("modeFort")}:</span>{" "}
-            {d.fort_count} ({fortPct.toFixed(1)}%)
+            {d.fort_count || 0} ({(fortPct || 0).toFixed(1)}%)
           </span>
           <span className="flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-xs bg-binance-info" />
             <span className="text-binance-body">{t("modeBarbarian")}:</span>{" "}
-            {d.barb_count} ({barbPct.toFixed(1)}%)
+            {d.barb_count || 0} ({(barbPct || 0).toFixed(1)}%)
           </span>
-          {d.gathering_count > 0 && (
+          {(d.gathering_count || 0) > 0 && (
             <span className="flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-xs bg-binance-green" />
               <span className="text-binance-body">{t("modeGathering")}:</span>{" "}
-              {d.gathering_count} ({gatherPct.toFixed(1)}%)
+              {d.gathering_count || 0} ({(gatherPct || 0).toFixed(1)}%)
             </span>
           )}
         </div>
@@ -282,14 +459,16 @@ export const DashboardView: React.FC = () => {
                 <div className="border-b border-binance-hairline w-full" />
               </div>
 
-              {ap.daily_timeline.map((item, idx) => {
+              {dailyTimeline.map((item, idx) => {
+                const spdHours = item.speedup_hours || 0;
+                const apConsumed = item.ap_consumed || 0;
                 const spdHeightPct = Math.max(
                   4,
-                  (item.speedup_hours / maxSpdDaily) * 100
+                  (spdHours / maxSpdDaily) * 100
                 );
                 const apHeightPct = Math.max(
                   4,
-                  (item.ap_consumed / maxApDaily) * 100
+                  (apConsumed / maxApDaily) * 100
                 );
 
                 return (
@@ -302,18 +481,18 @@ export const DashboardView: React.FC = () => {
                     {hoveredDayIdx === idx && (
                       <div className="absolute -top-16 bg-binance-elevated border border-binance-hairline text-binance-body text-[10px] font-mono px-2.5 py-1.5 rounded-sm shadow-xl z-30 whitespace-nowrap pointer-events-none">
                         <div className="font-bold text-binance-yellow border-b border-binance-hairline pb-1 mb-1">
-                          {item.date_label}
+                          {item.date_label || "-"}
                         </div>
                         <div className="flex items-center justify-between gap-3 text-binance-green">
                           <span>{t("cardSpeedups")}:</span>
                           <span className="font-bold">
-                            {item.speedup_hours.toFixed(1)}h
+                            {spdHours.toFixed(1)}h
                           </span>
                         </div>
                         <div className="flex items-center justify-between gap-3 text-binance-red">
                           <span>AP:</span>
                           <span className="font-bold">
-                            {item.ap_consumed.toLocaleString()} AP
+                            {apConsumed.toLocaleString()} AP
                           </span>
                         </div>
                       </div>
@@ -341,31 +520,34 @@ export const DashboardView: React.FC = () => {
               <div>
                 <span>{t("apSpeedupYield")}:</span>{" "}
                 <span className="text-binance-green font-bold">
-                  {(ap.speedup_mins_per_1k_ap / 60).toFixed(1)}h
+                  {((ap.speedup_mins_per_1k_ap || 0) / 60).toFixed(1)}h
                 </span>
               </div>
               <div>
                 <span>{t("apGemYield")}:</span>{" "}
                 <span className="text-binance-yellow font-bold">
-                  {ap.gems_per_1k_ap.toFixed(0)}
+                  {(ap.gems_per_1k_ap || 0).toFixed(0)}
                 </span>
               </div>
               <div>
                 <span>{t("apRecoveryRatio")}:</span>{" "}
                 <span className="text-binance-green font-bold">
-                  +{ap.rebate_pct.toFixed(1)}%
+                  +{(ap.rebate_pct || 0).toFixed(1)}%
                 </span>
               </div>
             </div>
           </div>
 
           {/* Target Efficiency Benchmarks Table */}
-          <div className="p-3.5 rounded-md bg-binance-card border border-binance-hairline space-y-2.5">
+          <div className="p-3.5 rounded-md bg-binance-card border border-binance-hairline space-y-3">
             <div className="flex items-center justify-between text-xs pb-1 border-b border-binance-hairline">
               <div className="flex items-center gap-2">
                 <Crosshair className="w-4 h-4 text-binance-yellow" />
                 <span className="font-semibold text-binance-body">
                   {t("apBenchmarks")}
+                </span>
+                <span className="px-1.5 py-0.5 rounded text-[10px] bg-binance-elevated border border-binance-hairline text-binance-muted font-mono">
+                  {filteredBenchmarks.length}
                 </span>
               </div>
               <span className="text-[10px] font-mono text-binance-muted">
@@ -373,66 +555,220 @@ export const DashboardView: React.FC = () => {
               </span>
             </div>
 
-            <div className="overflow-x-auto max-h-56 overflow-y-auto">
+            {/* Filter Tabs & Quick Search Toolbar */}
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-1 bg-binance-elevated/70 p-0.5 rounded-md border border-binance-hairline text-[11px]">
+                <button
+                  onClick={() => setBmTypeFilter("all")}
+                  className={`px-2.5 py-1 rounded transition font-medium ${
+                    bmTypeFilter === "all"
+                      ? "bg-binance-yellowSolid text-binance-ink font-semibold shadow-xs"
+                      : "text-binance-muted hover:text-binance-body"
+                  }`}
+                >
+                  {t("typeAll")}
+                </button>
+                <button
+                  onClick={() => setBmTypeFilter("fort")}
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded transition font-medium ${
+                    bmTypeFilter === "fort"
+                      ? "bg-indigo-500 text-white font-semibold shadow-xs"
+                      : "text-binance-muted hover:text-indigo-400"
+                  }`}
+                >
+                  <Shield className="w-3 h-3" />
+                  <span>{t("typeForts")}</span>
+                </button>
+                <button
+                  onClick={() => setBmTypeFilter("motte")}
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded transition font-medium ${
+                    bmTypeFilter === "motte"
+                      ? "bg-amber-500 text-binance-ink font-semibold shadow-xs"
+                      : "text-binance-muted hover:text-amber-400"
+                  }`}
+                >
+                  <Crosshair className="w-3 h-3" />
+                  <span>{t("typeMotte")}</span>
+                </button>
+                <button
+                  onClick={() => setBmTypeFilter("barbarian")}
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded transition font-medium ${
+                    bmTypeFilter === "barbarian"
+                      ? "bg-rose-500 text-white font-semibold shadow-xs"
+                      : "text-binance-muted hover:text-rose-400"
+                  }`}
+                >
+                  <Swords className="w-3 h-3" />
+                  <span>{t("typeBarbarians")}</span>
+                </button>
+              </div>
+
+              {/* Quick Search */}
+              <div className="relative flex items-center text-xs">
+                <Search className="w-3.5 h-3.5 absolute left-2 text-binance-muted pointer-events-none" />
+                <input
+                  type="text"
+                  value={bmSearch}
+                  onChange={(e) => setBmSearch(e.target.value)}
+                  placeholder={t("searchBenchmarksPlaceholder")}
+                  className="pl-7 pr-6 py-1 w-36 sm:w-48 rounded bg-binance-elevated/70 border border-binance-hairline text-[11px] text-binance-body placeholder-binance-muted/60 focus:outline-none focus:border-binance-yellow/60 font-mono transition"
+                />
+                {bmSearch && (
+                  <button
+                    onClick={() => setBmSearch("")}
+                    className="absolute right-1.5 p-0.5 rounded-full hover:bg-binance-hairline text-binance-muted hover:text-binance-body"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Benchmarks Table */}
+            <div className="overflow-x-auto max-h-72 overflow-y-auto rounded border border-binance-hairline/60">
               <table className="w-full text-left text-[11px] font-mono">
-                <thead>
+                <thead className="sticky top-0 bg-binance-card z-10">
                   <tr className="border-b border-binance-hairline text-[10px] text-binance-muted uppercase">
-                    <th className="pb-2 font-medium">{t("colTarget")}</th>
-                    <th className="pb-2 font-medium text-center">
-                      {t("colApCost")}
-                    </th>
-                    <th className="pb-2 font-medium text-center">
-                      {t("colRuns")}
-                    </th>
-                    <th className="pb-2 font-medium text-center">
-                      {t("colYield1k")}
-                    </th>
-                    <th className="pb-2 font-medium text-center">
-                      {t("colCovenantDrop")}
-                    </th>
-                    <th className="pb-2 font-medium text-right">
-                      {t("colRating")}
-                    </th>
+                    {renderSortHeader(t("colTarget"), "target", "left")}
+                    {renderSortHeader(t("colLevel"), "level", "center")}
+                    {renderSortHeader(t("colApCost"), "ap", "center")}
+                    {renderSortHeader(t("colRuns"), "runs", "center")}
+                    {renderSortHeader(t("colYield1k"), "yield", "right")}
+                    {renderSortHeader(t("colCovenantDrop"), "covenant", "center")}
+                    {renderSortHeader(t("colRating"), "rating", "right")}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-binance-hairline/60">
-                  {ap.target_benchmarks.map((tb, idx) => (
-                    <tr
-                      key={idx}
-                      className="hover:bg-binance-elevated/70 transition-colors"
-                    >
-                      <td className="py-2 text-binance-body font-medium truncate max-w-[140px]">
-                        {tb.target_name}
-                      </td>
-                      <td className="py-2 text-center text-binance-muted">
-                        {tb.unit_ap_cost}
-                      </td>
-                      <td className="py-2 text-center text-binance-yellow font-medium">
-                        {tb.battle_count}
-                      </td>
-                      <td className="py-2 text-center text-binance-green font-bold">
-                        {tb.speedup_mins_per_1k_ap.toFixed(0)}m
-                      </td>
-                      <td className="py-2 text-center text-binance-yellow">
-                        {tb.covenant_drop_rate > 0
-                          ? `${tb.covenant_drop_rate.toFixed(1)}%`
-                          : "-"}
-                      </td>
-                      <td className="py-2 text-right">
-                        <span
-                          className={`px-1.5 py-0.5 rounded-xs text-[9px] font-mono font-bold ${
-                            tb.tier_badge.includes("S+")
-                              ? "bg-binance-yellowSolid text-binance-ink font-bold shadow-sm"
-                              : tb.tier_badge.includes("S")
-                              ? "bg-binance-green/20 text-binance-green border border-binance-green/40"
-                              : "bg-binance-card text-binance-body border border-binance-hairline"
-                          }`}
-                        >
-                          {tb.tier_badge}
-                        </span>
+                  {filteredBenchmarks.length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan={7}
+                        className="py-8 text-center text-binance-muted text-xs font-mono"
+                      >
+                        {t("noBenchmarkMatches")}
                       </td>
                     </tr>
-                  ))}
+                  ) : (
+                    filteredBenchmarks.map((tb, idx) => {
+                      const bType = getTargetType(tb);
+                      const lvl = getTargetLevel(tb);
+                      const targetName = tb.target_name || "-";
+                      const unitAp = tb.unit_ap_cost || 0;
+                      const battleCount = tb.battle_count || 0;
+                      const yieldVal = tb.speedup_mins_per_1k_ap || 0;
+                      const covenantRate = tb.covenant_drop_rate || 0;
+                      const badge = String(tb.tier_badge || "TIER B");
+
+                      return (
+                        <tr
+                          key={idx}
+                          className="hover:bg-binance-elevated/70 transition-colors group"
+                        >
+                          {/* Target Name + Clean Type Tag (NO EMOJI) */}
+                          <td className="py-2 px-2 text-binance-body font-medium truncate max-w-[170px]">
+                            <div className="flex items-center gap-1.5">
+                              <span
+                                className={`px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider font-mono uppercase ${
+                                  bType === "fort"
+                                    ? "bg-indigo-500/15 text-indigo-400 border border-indigo-500/30"
+                                    : bType === "motte"
+                                    ? "bg-amber-500/15 text-amber-400 border border-amber-500/30"
+                                    : bType === "barbarian"
+                                    ? "bg-rose-500/15 text-rose-400 border border-rose-500/30"
+                                    : "bg-binance-elevated text-binance-muted border border-binance-hairline"
+                                }`}
+                              >
+                                {bType === "fort"
+                                  ? "FORT"
+                                  : bType === "motte"
+                                  ? "MOTTE"
+                                  : bType === "barbarian"
+                                  ? "BARB"
+                                  : (tb.battle_type || "TARGET").toUpperCase()}
+                              </span>
+                              <span className="truncate text-xs font-semibold">
+                                {targetName}
+                              </span>
+                            </div>
+                          </td>
+
+                          {/* Level */}
+                          <td className="py-2 text-center">
+                            <span className="px-1.5 py-0.5 rounded bg-binance-elevated/90 border border-binance-hairline text-binance-body text-[10px] font-mono font-bold">
+                              {lvl > 0 ? `Lvl ${lvl}` : "-"}
+                            </span>
+                          </td>
+
+                          {/* AP Cost */}
+                          <td className="py-2 text-center text-binance-muted text-[11px] font-mono">
+                            <div className="inline-flex items-center gap-0.5">
+                              <Zap className="w-3 h-3 text-binance-yellow/70" />
+                              <span>{unitAp}</span>
+                            </div>
+                          </td>
+
+                          {/* Runs */}
+                          <td className="py-2 text-center text-binance-yellow font-bold text-xs font-mono">
+                            {battleCount}
+                          </td>
+
+                          {/* Speedup Yield / 1k AP + Progress Bar Meter */}
+                          <td className="py-2 pr-2 text-right">
+                            <div className="inline-flex items-center justify-end gap-2">
+                              <span className="text-binance-green font-bold text-xs font-mono">
+                                {yieldVal.toFixed(0)}m
+                              </span>
+                              <div className="w-14 h-1.5 bg-binance-elevated rounded-full overflow-hidden border border-binance-hairline/60">
+                                <div
+                                  className="h-full bg-gradient-to-r from-binance-yellow to-binance-green rounded-full transition-all duration-300"
+                                  style={{
+                                    width: `${Math.min(
+                                      100,
+                                      Math.max(
+                                        8,
+                                        (yieldVal / maxBenchmarkYield) * 100
+                                      )
+                                    )}%`,
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* Covenant Drop Rate */}
+                          <td className="py-2 text-center text-[11px] font-mono">
+                            {covenantRate > 0 ? (
+                              <div className="inline-flex items-center gap-1.5 text-binance-yellow font-medium">
+                                <span className="w-1.5 h-1.5 rounded-full bg-binance-green animate-pulse" />
+                                <span>
+                                  {covenantRate.toFixed(1)}%
+                                </span>
+                              </div>
+                            ) : (
+                              <span className="text-binance-muted/40">-</span>
+                            )}
+                          </td>
+
+                          {/* Rating Tier Badge */}
+                          <td className="py-2 pr-2 text-right">
+                            <span
+                              className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold uppercase tracking-wider ${
+                                badge.includes("S+")
+                                  ? "bg-binance-yellowSolid text-binance-ink font-extrabold shadow-xs"
+                                  : badge.includes("S")
+                                  ? "bg-binance-green/20 text-binance-green border border-binance-green/40"
+                                  : badge.includes("A")
+                                  ? "bg-sky-500/15 text-sky-400 border border-sky-500/30 font-medium"
+                                  : "bg-binance-card text-binance-muted border border-binance-hairline"
+                              }`}
+                            >
+                              {badge}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
                 </tbody>
               </table>
             </div>
@@ -459,8 +795,9 @@ export const DashboardView: React.FC = () => {
             </div>
 
             <div className="space-y-1.5 max-h-72 overflow-y-auto pr-1">
-              {d.top_items.slice(0, 10).map((it, idx) => {
-                const volWidthPct = (it.total_quantity / maxItemQty) * 100;
+              {topItemsList.slice(0, 10).map((it, idx) => {
+                const totalQty = it.total_quantity || 0;
+                const volWidthPct = (totalQty / maxItemQty) * 100;
 
                 return (
                   <div
@@ -489,16 +826,16 @@ export const DashboardView: React.FC = () => {
                           )}
                         </div>
                         <span className="font-mono font-bold text-binance-yellow shrink-0">
-                          {it.total_quantity.toLocaleString()}
+                          {totalQty.toLocaleString()}
                         </span>
                       </div>
 
                       <div className="flex items-center justify-between text-[10px] text-binance-muted font-mono">
                         <span className="text-binance-green">
-                          {t("lblDropRate")}: {it.drop_rate.toFixed(1)}%
+                          {t("lblDropRate")}: {(it.drop_rate || 0).toFixed(1)}%
                         </span>
                         <span>
-                          {t("lblAvgRun")}: {it.avg_per_battle.toFixed(1)}
+                          {t("lblAvgRun")}: {(it.avg_per_battle || 0).toFixed(1)}
                         </span>
                       </div>
                     </div>
@@ -526,7 +863,7 @@ export const DashboardView: React.FC = () => {
             </div>
 
             <div className="space-y-1.5 max-h-72 overflow-y-auto pr-1">
-              {d.latest_battles.map((b: BattleRecord, idx) => {
+              {(d.latest_battles || []).map((b: BattleRecord, idx) => {
                 const badgeColor =
                   b.battle_type === "motte"
                     ? "bg-binance-red/20 text-binance-red border-binance-red/30"

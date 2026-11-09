@@ -37,8 +37,39 @@ fn attach_parent_console() {
             fn AttachConsole(dwProcessId: u32) -> i32;
             fn SetConsoleOutputCP(wCodePageID: u32) -> i32;
             fn SetConsoleCP(wCodePageID: u32) -> i32;
+            fn GetStdHandle(nStdHandle: u32) -> isize;
+            fn SetStdHandle(nStdHandle: u32, hHandle: isize) -> i32;
+            fn CreateFileW(
+                lpFileName: *const u16,
+                dwDesiredAccess: u32,
+                dwShareMode: u32,
+                lpSecurityAttributes: *const std::ffi::c_void,
+                dwCreationDisposition: u32,
+                dwFlagsAndAttributes: u32,
+                hTemplateFile: isize,
+            ) -> isize;
         }
-        if AttachConsole(0xFFFFFFFF) != 0 {
+        let stdout_handle = GetStdHandle(0xFFFFFFF5);
+        if stdout_handle == 0 || stdout_handle == -1 {
+            if AttachConsole(0xFFFFFFFF) != 0 {
+                SetConsoleOutputCP(65001);
+                SetConsoleCP(65001);
+                let conout: Vec<u16> = "CONOUT$\0".encode_utf16().collect();
+                let handle = CreateFileW(
+                    conout.as_ptr(),
+                    0x40000000 | 0x80000000,
+                    7,
+                    std::ptr::null(),
+                    3,
+                    0,
+                    0,
+                );
+                if handle != -1 {
+                    SetStdHandle(0xFFFFFFF5, handle);
+                    SetStdHandle(0xFFFFFFF4, handle);
+                }
+            }
+        } else {
             SetConsoleOutputCP(65001);
             SetConsoleCP(65001);
         }
@@ -92,7 +123,7 @@ fn run_cli_mode(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let mut end_date: Option<NaiveDate> = None;
     let mut days: Option<u32> = None;
     let mut speedup_unit = SpeedupUnit::Minutes;
-    let mut out_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let mut out_dir_opt: Option<PathBuf> = None;
     let mut export_json_flag = false;
 
     let mut i = 1;
@@ -165,7 +196,7 @@ fn run_cli_mode(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             }
             "--out-dir" => {
                 if i + 1 < args.len() {
-                    out_dir = PathBuf::from(&args[i + 1]);
+                    out_dir_opt = Some(PathBuf::from(&args[i + 1]));
                     i += 1;
                 } else {
                     eprintln!("[!] Lỗi: Tham số --out-dir yêu cầu đường dẫn thư mục xuất.");
@@ -181,6 +212,11 @@ fn run_cli_mode(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         }
         i += 1;
     }
+
+    let exe_dir = std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.to_path_buf()));
+    let out_dir = out_dir_opt.unwrap_or_else(|| {
+        exe_dir.unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
+    });
 
     println!("[*] Đang khởi động ROK Analyzer Engine (Rust) với Persistent Vault...");
     let catalog = LootCatalog::load_from_candidates(loot_yaml.as_deref());

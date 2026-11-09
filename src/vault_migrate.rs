@@ -169,6 +169,7 @@ mod tests {
     #[test]
     fn test_migrate_from_json_imports_records() {
         let temp = std::env::temp_dir().join(format!("rok_migrate_test_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&temp);
         let _ = std::fs::create_dir_all(&temp);
         let json_path = temp.join("rok_history_vault.json");
         let json_data = serde_json::json!({
@@ -211,6 +212,7 @@ mod tests {
     #[test]
     fn test_migrate_from_json_corrupted_file() {
         let temp = std::env::temp_dir().join(format!("rok_migrate_corrupt_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&temp);
         let _ = std::fs::create_dir_all(&temp);
         let json_path = temp.join("rok_history_vault.json");
         std::fs::write(&json_path, "not valid json {[[[").unwrap();
@@ -242,6 +244,7 @@ mod tests {
     #[test]
     fn test_migrate_from_json_dedup() {
         let temp = std::env::temp_dir().join(format!("rok_migrate_dedup_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&temp);
         let _ = std::fs::create_dir_all(&temp);
         let json_path = temp.join("rok_history_vault.json");
         let record = serde_json::json!({

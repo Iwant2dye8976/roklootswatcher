@@ -213,6 +213,11 @@ export async function startGoogleLogin(): Promise<void> {
   await invoke("start_google_login");
 }
 
+export async function cancelGoogleLogin(): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("cancel_google_login");
+}
+
 export async function cloudLogout(): Promise<void> {
   if (!isTauri()) return;
   await invoke("cloud_logout");
@@ -400,12 +405,44 @@ function getMockDashboard(): DashboardDto {
       ],
       target_benchmarks: [
         {
-          target_name: "Motte Tier 5",
-          unit_ap_cost: 150,
-          battle_count: 312,
-          speedup_mins_per_1k_ap: 620,
-          covenant_drop_rate: 34.5,
+          target_name: "Motte Lvl 15",
+          unit_ap_cost: 300,
+          battle_count: 142,
+          speedup_mins_per_1k_ap: 1050,
+          covenant_drop_rate: 0,
           tier_badge: "TIER S+",
+          battle_type: "motte",
+          level: 15,
+        },
+        {
+          target_name: "Fort Lvl 10",
+          unit_ap_cost: 150,
+          battle_count: 85,
+          speedup_mins_per_1k_ap: 890,
+          covenant_drop_rate: 68.2,
+          tier_badge: "TIER S",
+          battle_type: "fort",
+          level: 10,
+        },
+        {
+          target_name: "Barbarians Lvl 50",
+          unit_ap_cost: 80,
+          battle_count: 220,
+          speedup_mins_per_1k_ap: 560,
+          covenant_drop_rate: 0,
+          tier_badge: "TIER A",
+          battle_type: "barbarian",
+          level: 50,
+        },
+        {
+          target_name: "Fort Lvl 9",
+          unit_ap_cost: 150,
+          battle_count: 42,
+          speedup_mins_per_1k_ap: 510,
+          covenant_drop_rate: 52.4,
+          tier_badge: "TIER A",
+          battle_type: "fort",
+          level: 9,
         },
       ],
     },

@@ -10,6 +10,7 @@ import {
   Trash2,
   LogIn,
   LogOut,
+  Loader2,
   ArrowUpCircle,
   ArrowDownCircle,
   Power,
@@ -518,6 +519,18 @@ export const SettingsView: React.FC = () => {
     }
   };
 
+  const handleCancelLogin = async () => {
+    try {
+      await api.cancelGoogleLogin();
+      addToast({
+        type: "info",
+        text: language === "vi" ? "Đã hủy đăng nhập" : "Login cancelled",
+      });
+    } catch (e) {
+      addToast({ type: "error", text: String(e) });
+    }
+  };
+
   const handleCloudPush = async () => {
     try {
       await api.triggerCloudPush();
@@ -760,18 +773,29 @@ export const SettingsView: React.FC = () => {
             </div>
           ) : (
             <div className="space-y-2.5">
-              <button
-                onClick={handleGoogleLogin}
-                disabled={Boolean(cloud?.login_in_progress)}
-                className="w-full flex items-center justify-center gap-2 py-2 rounded bg-binance-yellowSolid hover:bg-binance-yellowHover text-binance-ink font-semibold text-xs transition disabled:opacity-60"
-              >
-                <LogIn className="w-4 h-4" />
-                <span>
-                  {cloud?.login_in_progress
-                    ? t("cloudLoggingIn")
-                    : t("cloudLogin")}
-                </span>
-              </button>
+              {cloud?.login_in_progress ? (
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 flex items-center justify-center gap-2 py-2 rounded bg-binance-yellowSolid/40 text-binance-ink font-semibold text-xs">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>{t("cloudLoggingIn")}</span>
+                  </div>
+                  <button
+                    onClick={handleCancelLogin}
+                    className="px-3 py-2 rounded bg-binance-red/20 hover:bg-binance-red/30 text-binance-red border border-binance-red/40 text-xs font-semibold transition"
+                    title={t("cloudCancelLogin")}
+                  >
+                    {t("cloudCancelLogin")}
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={handleGoogleLogin}
+                  className="w-full flex items-center justify-center gap-2 py-2 rounded bg-binance-yellowSolid hover:bg-binance-yellowHover text-binance-ink font-semibold text-xs transition"
+                >
+                  <LogIn className="w-4 h-4" />
+                  <span>{t("cloudLogin")}</span>
+                </button>
+              )}
             </div>
           )}
 

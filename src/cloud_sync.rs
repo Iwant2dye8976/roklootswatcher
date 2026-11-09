@@ -175,7 +175,17 @@ fn generate_secure_state() -> String {
     format!("{:016x}{:016x}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0), std::process::id())
 }
 
-pub fn start_google_login(supabase_url: &str, anon_key: &str) -> Result<CloudAuthResult, String> {
+pub fn start_google_login(
+    supabase_url: &str,
+    anon_key: &str,
+    cancel_signal: Option<&std::sync::atomic::AtomicBool>,
+) -> Result<CloudAuthResult, String> {
+    if let Some(cancel) = cancel_signal {
+        if cancel.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err("Đã hủy đăng nhập Google".to_string());
+        }
+    }
+
     let listener = TcpListener::bind("127.0.0.1:8080")
         .or_else(|_| TcpListener::bind("127.0.0.1:0"))
         .map_err(|e| format!("Cannot bind local loopback listener: {}", e))?;
@@ -198,6 +208,12 @@ pub fn start_google_login(supabase_url: &str, anon_key: &str) -> Result<CloudAut
     let timeout = Duration::from_secs(60);
 
     let (access_token, refresh_token) = loop {
+        if let Some(cancel) = cancel_signal {
+            if cancel.load(std::sync::atomic::Ordering::SeqCst) {
+                return Err("Đã hủy đăng nhập Google".to_string());
+            }
+        }
+
         if start_time.elapsed() > timeout {
             return Err("Hết thời gian chờ đăng nhập Google (60s). Vui lòng thử lại.".to_string());
         }
@@ -225,7 +241,16 @@ pub fn start_google_login(supabase_url: &str, anon_key: &str) -> Result<CloudAut
 <body style="font-family:sans-serif;text-align:center;padding:60px;background:#1e1e2e;color:#cdd6f4;">
   <h2 style="color:#89b4fa;">RoK Loot Watcher</h2>
   <p id="msg" style="font-size:16px;">Đang đồng bộ đăng nhập...</p>
+  <div id="btn-container" style="margin-top:20px;display:none;">
+    <button onclick="window.close()" style="background:#313244;color:#cdd6f4;border:1px solid #45475a;padding:8px 16px;border-radius:4px;cursor:pointer;font-size:14px;">Đóng tab</button>
+  </div>
   <script>
+    function closeTab(delay) {
+      setTimeout(() => {
+        window.close();
+        document.getElementById('btn-container').style.display = 'block';
+      }, delay);
+    }
     const hash = window.location.hash ? window.location.hash.substring(1) : '';
     const search = window.location.search ? window.location.search.substring(1) : '';
     const fullParams = (hash && search) ? (hash + '&' + search) : (hash || search);
@@ -236,11 +261,12 @@ pub fn start_google_login(supabase_url: &str, anon_key: &str) -> Result<CloudAut
           const txt = await res.text();
           throw new Error(txt || ('HTTP ' + res.status));
         }
-        document.getElementById('msg').innerText = 'Đăng nhập thành công! Bạn có thể đóng tab này.';
-        setTimeout(() => window.close(), 1500);
+        document.getElementById('msg').innerText = 'Đăng nhập thành công! Đang đóng tab...';
+        closeTab(1500);
       })
       .catch(err => {
-        document.getElementById('msg').innerText = 'Đăng nhập thất bại: ' + err.message;
+        document.getElementById('msg').innerText = 'Đăng nhập thất bại: ' + err.message + '. Đang đóng tab...';
+        closeTab(1500);
       });
   </script>
 </body>
@@ -252,6 +278,16 @@ pub fn start_google_login(supabase_url: &str, anon_key: &str) -> Result<CloudAut
             );
             let _ = stream.write_all(resp.as_bytes());
             let _ = stream.flush();
+        } else if req_str.starts_with("GET /cancel") {
+            let html = r#"<!DOCTYPE html><html><body style="font-family:sans-serif;text-align:center;padding:60px;background:#1e1e2e;color:#cdd6f4;"><h2 style="color:#f38ba8;">RoK Loot Watcher</h2><p>Đã hủy đăng nhập. Đang đóng tab...</p><script>setTimeout(()=>window.close(),1000);</script></body></html>"#;
+            let resp = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                html.len(),
+                html
+            );
+            let _ = stream.write_all(resp.as_bytes());
+            let _ = stream.flush();
+            return Err("Đã hủy đăng nhập Google".to_string());
         } else if req_str.starts_with("GET /token") {
             match process_loopback_token_request(&req_str, &expected_state) {
                 LoopbackTokenOutcome::Success { access_token: at, refresh_token: rt } => {
@@ -271,7 +307,7 @@ pub fn start_google_login(supabase_url: &str, anon_key: &str) -> Result<CloudAut
                     );
                     let _ = stream.write_all(resp.as_bytes());
                     let _ = stream.flush();
-                    // Keep listening until valid callback arrives or timeout expires
+                    return Err(format!("Đăng nhập thất bại: {}", message));
                 }
             }
         }
@@ -563,6 +599,50 @@ pub fn upload_report_records_batch(
     }
 }
 
+pub fn delete_report_records_batch(
+    supabase_url: &str,
+    anon_key: &str,
+    access_token: &str,
+    user_id: &str,
+    dedup_keys: &[String],
+    timeout: Option<Duration>,
+) -> Result<usize, String> {
+    if dedup_keys.is_empty() {
+        return Ok(0);
+    }
+    let effective_timeout = timeout.unwrap_or(Duration::from_secs(15));
+    let agent = ureq::builder()
+        .timeout_connect(Duration::from_secs(10))
+        .timeout(effective_timeout)
+        .build();
+
+    let mut total_deleted = 0;
+    for chunk in dedup_keys.chunks(50) {
+        let keys_filter = chunk
+            .iter()
+            .map(|k| format!("\"{}\"", k))
+            .collect::<Vec<_>>()
+            .join(",");
+        let url = format!(
+            "{}/rest/v1/report_records?user_id=eq.{}&dedup_key=in.({})",
+            supabase_url.trim_end_matches('/'),
+            user_id,
+            keys_filter
+        );
+        let resp = agent
+            .delete(&url)
+            .set("apikey", anon_key)
+            .set("Authorization", &format!("Bearer {}", access_token))
+            .call();
+
+        match resp {
+            Ok(_) => total_deleted += chunk.len(),
+            Err(e) => return Err(format_cloud_error(e, "Lỗi xóa bản ghi trên cloud")),
+        }
+    }
+    Ok(total_deleted)
+}
+
 pub fn fetch_report_records_page(
     supabase_url: &str,
     anon_key: &str,
@@ -686,6 +766,7 @@ pub enum SyncCommand {
     TriggerDelta,
     SyncNow(Option<mpsc::Sender<Result<usize, String>>>),
     Restore(mpsc::Sender<Result<usize, String>>),
+    DeleteRecords(Vec<String>),
     Shutdown(mpsc::Sender<()>),
     UpdateConfig(CloudAuthConfig),
 }
@@ -1097,6 +1178,38 @@ fn perform_restore(
     Ok(total_restored)
 }
 
+fn apply_sync_backoff(
+    res: &Result<usize, String>,
+    current_backoff_secs: &mut Option<u64>,
+    next_retry_at: &mut Option<Instant>,
+    state: &Arc<RwLock<SyncWorkerState>>,
+) {
+    match res {
+        Ok(_) => {
+            *current_backoff_secs = None;
+            *next_retry_at = None;
+            if let Ok(mut s) = state.write() {
+                s.retry_in_secs = None;
+            }
+        }
+        Err(e) if is_retryable_error(e) => {
+            let next_secs = current_backoff_secs.map(|s| (s * 2).min(60)).unwrap_or(2);
+            *current_backoff_secs = Some(next_secs);
+            *next_retry_at = Some(Instant::now() + Duration::from_secs(next_secs));
+            if let Ok(mut s) = state.write() {
+                s.retry_in_secs = Some(next_secs);
+            }
+        }
+        Err(_) => {
+            *current_backoff_secs = None;
+            *next_retry_at = None;
+            if let Ok(mut s) = state.write() {
+                s.retry_in_secs = None;
+            }
+        }
+    }
+}
+
 fn run_sync_worker_loop(
     vault: Arc<MailVault>,
     mut config: CloudAuthConfig,
@@ -1161,30 +1274,7 @@ fn run_sync_worker_loop(
                     Err(err)
                 };
 
-                match &res {
-                    Ok(_) => {
-                        current_backoff_secs = None;
-                        next_retry_at = None;
-                        if let Ok(mut s) = state.write() {
-                            s.retry_in_secs = None;
-                        }
-                    }
-                    Err(e) if is_retryable_error(e) => {
-                        let next_secs = current_backoff_secs.map(|s| (s * 2).min(60)).unwrap_or(2);
-                        current_backoff_secs = Some(next_secs);
-                        next_retry_at = Some(Instant::now() + Duration::from_secs(next_secs));
-                        if let Ok(mut s) = state.write() {
-                            s.retry_in_secs = Some(next_secs);
-                        }
-                    }
-                    Err(_) => {
-                        current_backoff_secs = None;
-                        next_retry_at = None;
-                        if let Ok(mut s) = state.write() {
-                            s.retry_in_secs = None;
-                        }
-                    }
-                }
+                apply_sync_backoff(&res, &mut current_backoff_secs, &mut next_retry_at, &state);
 
                 if let Some(tx) = reply_tx {
                     let _ = tx.send(res);
@@ -1203,6 +1293,27 @@ fn run_sync_worker_loop(
                 let res = perform_restore(&vault, &mut config, &state);
                 let _ = reply_tx.send(res);
             }
+            Ok(SyncCommand::DeleteRecords(keys)) => {
+                if can_sync_credentials(&config) {
+                    let (url, anon_key) = config.get_credentials();
+                    let user_id = config.user_id.clone().unwrap_or_default();
+                    let mut access_token = config.access_token.clone().unwrap_or_default();
+                    if let Err(ref e) = delete_report_records_batch(&url, &anon_key, &access_token, &user_id, &keys, Some(Duration::from_secs(15))) {
+                        if (e.contains("Token phiên làm việc đã hết hạn") || e.contains("401")) && config.refresh_token.is_some() {
+                            let ref_tok = config.refresh_token.as_ref().unwrap();
+                            if let Ok((new_acc, new_ref)) = refresh_session(&url, &anon_key, ref_tok, Some(Duration::from_secs(15))) {
+                                access_token = new_acc.clone();
+                                config.access_token = Some(new_acc.clone());
+                                config.refresh_token = Some(new_ref.clone());
+                                if let Ok(mut s) = state.write() {
+                                    s.new_tokens = Some((new_acc.clone(), new_ref));
+                                }
+                                let _ = delete_report_records_batch(&url, &anon_key, &access_token, &user_id, &keys, Some(Duration::from_secs(15)));
+                            }
+                        }
+                    }
+                }
+            }
             Err(mpsc::RecvTimeoutError::Timeout) => {
                 let now = Instant::now();
 
@@ -1215,25 +1326,8 @@ fn run_sync_worker_loop(
                         if can_sync_credentials(&config) {
                             let (_, unsynced) = vault.get_sync_counts().unwrap_or((0, 0));
                             if unsynced > 0 {
-                                match perform_delta_sync(&vault, &mut config, &state, Some(Duration::from_secs(15)), true) {
-                                    Ok(_) => {
-                                        current_backoff_secs = None;
-                                    }
-                                    Err(e) if is_retryable_error(&e) => {
-                                        let next_secs = current_backoff_secs.map(|s| (s * 2).min(60)).unwrap_or(2);
-                                        current_backoff_secs = Some(next_secs);
-                                        next_retry_at = Some(Instant::now() + Duration::from_secs(next_secs));
-                                        if let Ok(mut s) = state.write() {
-                                            s.retry_in_secs = Some(next_secs);
-                                        }
-                                    }
-                                    Err(_) => {
-                                        current_backoff_secs = None;
-                                        if let Ok(mut s) = state.write() {
-                                            s.retry_in_secs = None;
-                                        }
-                                    }
-                                }
+                                let res = perform_delta_sync(&vault, &mut config, &state, Some(Duration::from_secs(15)), true);
+                                apply_sync_backoff(&res, &mut current_backoff_secs, &mut next_retry_at, &state);
                             } else {
                                 current_backoff_secs = None;
                                 if let Ok(mut s) = state.write() {
@@ -1251,60 +1345,22 @@ fn run_sync_worker_loop(
                         if retry_allowed {
                             debounce_deadline = None;
                             if config.auto_backup && can_sync_credentials(&config) {
-                                match perform_delta_sync(&vault, &mut config, &state, Some(Duration::from_secs(15)), true) {
-                                    Ok(_) => {
-                                        current_backoff_secs = None;
-                                        next_retry_at = None;
-                                    }
-                                    Err(e) if is_retryable_error(&e) => {
-                                        let next_secs = current_backoff_secs.map(|s| (s * 2).min(60)).unwrap_or(2);
-                                        current_backoff_secs = Some(next_secs);
-                                        next_retry_at = Some(Instant::now() + Duration::from_secs(next_secs));
-                                        if let Ok(mut s) = state.write() {
-                                            s.retry_in_secs = Some(next_secs);
-                                        }
-                                    }
-                                    Err(_) => {
-                                        current_backoff_secs = None;
-                                        next_retry_at = None;
-                                        if let Ok(mut s) = state.write() {
-                                            s.retry_in_secs = None;
-                                        }
-                                    }
-                                }
+                                let res = perform_delta_sync(&vault, &mut config, &state, Some(Duration::from_secs(15)), true);
+                                apply_sync_backoff(&res, &mut current_backoff_secs, &mut next_retry_at, &state);
                             }
                         }
                     }
                 }
 
-                // 2. Periodic sweep if auto_backup is true
+                // 3. Periodic sweep if auto_backup is true
                 if config.auto_backup && can_sync_credentials(&config) {
                     let sweep_interval = Duration::from_secs((config.clamped_interval_minutes() as u64) * 60);
                     if last_periodic_sweep.elapsed() >= sweep_interval {
                         last_periodic_sweep = Instant::now();
                         let retry_allowed = next_retry_at.map(|r| now >= r).unwrap_or(true);
                         if retry_allowed {
-                            match perform_delta_sync(&vault, &mut config, &state, Some(Duration::from_secs(15)), true) {
-                                Ok(_) => {
-                                    current_backoff_secs = None;
-                                    next_retry_at = None;
-                                }
-                                Err(e) if is_retryable_error(&e) => {
-                                    let next_secs = current_backoff_secs.map(|s| (s * 2).min(60)).unwrap_or(2);
-                                    current_backoff_secs = Some(next_secs);
-                                    next_retry_at = Some(Instant::now() + Duration::from_secs(next_secs));
-                                    if let Ok(mut s) = state.write() {
-                                        s.retry_in_secs = Some(next_secs);
-                                    }
-                                }
-                                Err(_) => {
-                                    current_backoff_secs = None;
-                                    next_retry_at = None;
-                                    if let Ok(mut s) = state.write() {
-                                        s.retry_in_secs = None;
-                                    }
-                                }
-                            }
+                            let res = perform_delta_sync(&vault, &mut config, &state, Some(Duration::from_secs(15)), true);
+                            apply_sync_backoff(&res, &mut current_backoff_secs, &mut next_retry_at, &state);
                         }
                     }
                 }
@@ -1409,6 +1465,14 @@ mod tests {
         let req = "GET /token?app_state=wrong_state&access_token=at_abc HTTP/1.1\r\n\r\n";
         let res = process_loopback_token_request(req, "safe_state_123");
         assert!(matches!(res, LoopbackTokenOutcome::Error { status_code: 403, .. }));
+    }
+
+    #[test]
+    fn test_start_google_login_cancelled_immediately() {
+        let cancel = std::sync::atomic::AtomicBool::new(true);
+        let res = start_google_login("https://example.supabase.co", "anon_key", Some(&cancel));
+        assert!(res.is_err());
+        assert!(res.unwrap_err().contains("Đã hủy đăng nhập"));
     }
 
     #[test]
@@ -1613,6 +1677,41 @@ mod tests {
         assert!(res.is_err());
         let err = res.unwrap_err();
         assert!(err.contains("Bảng report_records chưa được khởi tạo"), "Got error: {}", err);
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn test_delete_report_records_batch_empty() {
+        let res = delete_report_records_batch(
+            "http://127.0.0.1:9",
+            "dummy_key",
+            "dummy_token",
+            "user_1",
+            &[],
+            Some(Duration::from_millis(50)),
+        );
+        assert_eq!(res, Ok(0));
+    }
+
+    #[test]
+    fn test_delete_report_records_batch_success() {
+        let (url, handle) = spawn_mock_server(|req| {
+            assert!(req.starts_with("DELETE /rest/v1/report_records?user_id=eq.user_abc&dedup_key=in.("));
+            assert!(req.to_lowercase().contains("apikey: test_anon"));
+            assert!(req.contains("Bearer test_token"));
+            (204, "No Content", "".to_string())
+        });
+
+        let keys = vec!["id:m1".to_string(), "id:m2".to_string()];
+        let res = delete_report_records_batch(
+            &url,
+            "test_anon",
+            "test_token",
+            "user_abc",
+            &keys,
+            Some(Duration::from_secs(2)),
+        );
+        assert_eq!(res, Ok(2));
         handle.join().unwrap();
     }
 

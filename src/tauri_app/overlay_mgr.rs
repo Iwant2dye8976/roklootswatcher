@@ -34,7 +34,12 @@ pub fn spawn_overlay_manager(app: AppHandle) {
                     None => continue,
                 };
 
-                let overlay_cfg: OverlayConfig = state.config.lock().unwrap().overlay.clone();
+                let overlay_cfg: OverlayConfig = state
+                    .config
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .overlay
+                    .clone();
                 let overlay_win = match app.get_webview_window("overlay") {
                     Some(w) => w,
                     None => continue,

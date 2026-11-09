@@ -90,6 +90,8 @@ export interface TargetBenchmark {
   speedup_mins_per_1k_ap: number;
   covenant_drop_rate: number;
   tier_badge: string;
+  battle_type?: string;
+  level?: number;
 }
 
 export interface ApEconomics {

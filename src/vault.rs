@@ -457,9 +457,9 @@ impl MailVault {
         conn.query_row(&sql, rusqlite::params_from_iter(params), |r| r.get::<_, usize>(0)).unwrap_or(0)
     }
 
-    pub fn delete_records_except_uids(&mut self, main_uids: &[String]) -> usize {
+    pub fn delete_records_except_uids(&mut self, main_uids: &[String]) -> (usize, Vec<String>) {
         if main_uids.is_empty() {
-            return 0;
+            return (0, Vec::new());
         }
         let clean_uids: Vec<String> = main_uids
             .iter()
@@ -467,27 +467,29 @@ impl MailVault {
             .filter(|u| !u.is_empty())
             .collect();
         if clean_uids.is_empty() {
-            return 0;
+            return (0, Vec::new());
         }
 
         let mut conn = self.conn();
         let placeholders: Vec<String> = (1..=clean_uids.len()).map(|i| format!("?{}", i)).collect();
         let select_files_sql = format!(
-            "SELECT filename FROM battle_records WHERE REPLACE(COALESCE(account_id, ''), 'player_', '') NOT IN ({})",
+            "SELECT filename, dedup_key FROM battle_records WHERE REPLACE(COALESCE(account_id, ''), 'player_', '') NOT IN ({})",
             placeholders.join(", ")
         );
         let params: Vec<&dyn rusqlite::ToSql> = clean_uids.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
 
-        // 1. Collect all filenames of non-main records to delete from disk caches
-        let files_to_delete: Vec<String> = {
+        // 1. Collect all filenames and dedup_keys of non-main records to delete from disk caches
+        let (files_to_delete, keys_to_delete): (Vec<String>, Vec<String>) = {
             if let Ok(mut stmt) = conn.prepare(&select_files_sql) {
-                if let Ok(rows) = stmt.query_map(rusqlite::params_from_iter(params.iter().copied()), |row| row.get(0)) {
-                    rows.flatten().collect()
+                if let Ok(rows) = stmt.query_map(rusqlite::params_from_iter(params.iter().copied()), |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                }) {
+                    rows.flatten().unzip()
                 } else {
-                    Vec::new()
+                    (Vec::new(), Vec::new())
                 }
             } else {
-                Vec::new()
+                (Vec::new(), Vec::new())
             }
         };
 
@@ -506,6 +508,10 @@ impl MailVault {
                 0
             }
         };
+
+        if deleted == 0 {
+            return (0, Vec::new());
+        }
 
         // 3. Remove raw binary files from mail_vault
         for fname in &files_to_delete {
@@ -529,7 +535,7 @@ impl MailVault {
         // 5. Force WAL checkpoint to flush to disk
         let _ = conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
 
-        deleted
+        (deleted, keys_to_delete)
     }
 
     fn upsert_inner(conn: &Connection, rec: BattleRecord) -> bool {
@@ -822,10 +828,13 @@ impl MailVault {
                 "INSERT INTO battle_records (
                     mail_id, filename, battle_type, time_raw, time_utc, time_vn,
                     target, target_level, talent_add, pos_x, pos_y, damage_pct,
-                    plunder_tier, items_json, item_totals_json, content, dedup_key, synced_at
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)
+                    plunder_tier, items_json, item_totals_json, content, dedup_key, synced_at,
+                    account_id, player_name
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)
                 ON CONFLICT(dedup_key) DO UPDATE SET
-                    synced_at = COALESCE(battle_records.synced_at, excluded.synced_at)"
+                    synced_at = COALESCE(battle_records.synced_at, excluded.synced_at),
+                    account_id = CASE WHEN battle_records.account_id IS NULL OR battle_records.account_id = '' THEN excluded.account_id ELSE battle_records.account_id END,
+                    player_name = CASE WHEN battle_records.player_name IS NULL OR battle_records.player_name = '' THEN excluded.player_name ELSE battle_records.player_name END"
             )?;
             for r in recs {
                 let dedup_key = get_record_dedup_key(r);
@@ -850,6 +859,8 @@ impl MailVault {
                     r.content,
                     dedup_key,
                     timestamp,
+                    r.account_id,
+                    r.player_name,
                 ])?;
                 if changed > 0 {
                     restored += 1;
@@ -1424,6 +1435,7 @@ mod tests {
     #[test]
     fn test_vault_sqlite_init_creates_db() {
         let temp_dir = std::env::temp_dir().join(format!("rok_test_sqlite_init_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&temp_dir);
         let _ = std::fs::create_dir_all(&temp_dir);
 
         let vault = MailVault::new(&temp_dir);
@@ -1436,6 +1448,7 @@ mod tests {
     #[test]
     fn test_sqlite_wal_mode() {
         let temp_dir = std::env::temp_dir().join(format!("rok_test_wal_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&temp_dir);
         let _ = std::fs::create_dir_all(&temp_dir);
 
         let vault = MailVault::new(&temp_dir);
@@ -1487,6 +1500,7 @@ mod tests {
     #[test]
     fn test_vault_upsert_and_dedup() {
         let temp_dir = std::env::temp_dir().join(format!("rok_test_vault_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&temp_dir);
         let _ = fs::create_dir_all(&temp_dir);
 
         let mut vault = MailVault::new(&temp_dir);
@@ -1608,6 +1622,7 @@ mod tests {
     #[test]
     fn test_restore_from_filtered_mails_json() {
         let temp_dir = std::env::temp_dir().join(format!("rok_test_restore_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&temp_dir);
         let json_dir = temp_dir.join("filtered_mails_json");
         let _ = fs::create_dir_all(&json_dir);
 
@@ -1645,6 +1660,7 @@ mod tests {
     #[test]
     fn test_restore_from_filtered_mails_json_with_archive_box() {
         let temp_dir = std::env::temp_dir().join(format!("rok_test_restore_archive_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&temp_dir);
         let json_dir = temp_dir.join("filtered_mails_json");
         let _ = fs::create_dir_all(&json_dir);
 
@@ -1680,6 +1696,7 @@ mod tests {
     #[test]
     fn test_backup_and_survive_game_delete() {
         let temp_dir = std::env::temp_dir().join(format!("rok_test_survive_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&temp_dir);
         let game_mailcache = temp_dir.join("game_mailcache");
         let _ = fs::create_dir_all(&game_mailcache);
 
@@ -1707,6 +1724,7 @@ mod tests {
     #[test]
     fn test_corrupted_vault_file_backup_and_refusal() {
         let temp_dir = std::env::temp_dir().join(format!("rok_test_corrupt_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&temp_dir);
         let _ = fs::create_dir_all(&temp_dir);
 
         let vault_file = temp_dir.join("rok_history_vault.json");
@@ -1730,6 +1748,7 @@ mod tests {
     #[test]
     fn test_contains_file_or_id_matching() {
         let temp_dir = std::env::temp_dir().join(format!("rok_test_contains_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&temp_dir);
         let _ = fs::create_dir_all(&temp_dir);
 
         let mut vault = MailVault::new(&temp_dir);
@@ -1788,6 +1807,7 @@ mod tests {
     #[test]
     fn test_query_latest_filtered() {
         let temp_dir = std::env::temp_dir().join(format!("rok_test_query_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&temp_dir);
         let _ = fs::create_dir_all(&temp_dir);
         let mut vault = MailVault::new(&temp_dir);
         for i in 1..=10 {
@@ -1824,6 +1844,7 @@ mod tests {
     #[test]
     fn test_clean_binary_vault() {
         let temp_dir = std::env::temp_dir().join(format!("rok_test_clean_vault_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&temp_dir);
         let _ = fs::create_dir_all(&temp_dir);
 
         let vault = MailVault::new(&temp_dir);
@@ -1851,6 +1872,8 @@ mod tests {
     fn test_export_and_import_vault_json() {
         let temp1 = std::env::temp_dir().join(format!("rok_test_export_json_1_{}", std::process::id()));
         let temp2 = std::env::temp_dir().join(format!("rok_test_export_json_2_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&temp1);
+        let _ = fs::remove_dir_all(&temp2);
         let _ = fs::create_dir_all(&temp1);
         let _ = fs::create_dir_all(&temp2);
 
@@ -1896,6 +1919,7 @@ mod tests {
     #[test]
     fn test_migration_from_json_to_db() {
         let temp = std::env::temp_dir().join(format!("rok_test_auto_mig_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&temp);
         let _ = fs::create_dir_all(&temp);
 
         let json_path = temp.join("rok_history_vault.json");
@@ -1938,6 +1962,7 @@ mod tests {
     #[test]
     fn test_sanitize_records_sql() {
         let temp = std::env::temp_dir().join(format!("rok_test_sanitize_sql_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&temp);
         let _ = fs::create_dir_all(&temp);
 
         let mut vault = MailVault::new(&temp);
@@ -2053,6 +2078,7 @@ mod tests {
     #[test]
     fn test_vault_unsynced_and_mark_synced() {
         let temp_dir = std::env::temp_dir().join(format!("rok_test_unsynced_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&temp_dir);
         let _ = fs::create_dir_all(&temp_dir);
         let mut vault = MailVault::new(&temp_dir);
         let rec = create_test_record("mail_001", 1000);
@@ -2078,6 +2104,7 @@ mod tests {
     #[test]
     fn test_vault_cloud_user_id() {
         let temp_dir = std::env::temp_dir().join(format!("rok_test_cloud_user_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&temp_dir);
         let _ = fs::create_dir_all(&temp_dir);
         let vault = MailVault::new(&temp_dir);
 
@@ -2095,6 +2122,7 @@ mod tests {
     #[test]
     fn test_vault_sync_queries_ordering_and_edge_cases() {
         let temp_dir = std::env::temp_dir().join(format!("rok_test_sync_edge_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&temp_dir);
         let _ = fs::create_dir_all(&temp_dir);
         let mut vault = MailVault::new(&temp_dir);
 
@@ -2145,6 +2173,7 @@ mod tests {
     #[test]
     fn test_vault_restore_records_batch() {
         let temp_dir = std::env::temp_dir().join(format!("rok_test_vault_restore_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&temp_dir);
         let _ = fs::create_dir_all(&temp_dir);
         let mut vault = MailVault::new(&temp_dir);
 
@@ -2152,10 +2181,20 @@ mod tests {
         vault.upsert(create_test_record("pre_exist", 500));
         assert_eq!(vault.get_unsynced_records(10).unwrap().len(), 1);
 
-        let rec1 = create_test_record("pre_exist", 500); // conflict with existing unsynced
-        let rec2 = create_test_record("new_restored", 600);
+        let mut rec1 = create_test_record("pre_exist", 500); // conflict with existing unsynced
+        rec1.account_id = "11111".into();
+        rec1.player_name = "PlayerOne".into();
+        let mut rec2 = create_test_record("new_restored", 600);
+        rec2.account_id = "22222".into();
+        rec2.player_name = "PlayerTwo".into();
         let restored = vault.restore_records_batch(&[rec1, rec2], Some(1700000000)).unwrap();
         assert_eq!(restored, 2);
+
+        // Check account_id and player_name are preserved on restore
+        let recs = vault.get_records();
+        let r_new = recs.iter().find(|r| r.mail_id == "new_restored").unwrap();
+        assert_eq!(r_new.account_id, "22222");
+        assert_eq!(r_new.player_name, "PlayerTwo");
 
         // All should now have synced_at set, so unsynced is 0
         let (total, unsynced) = vault.get_sync_counts().unwrap();
@@ -2176,6 +2215,7 @@ mod tests {
     #[test]
     fn test_mark_records_synced_with_nonexistent_key_returns_zero() {
         let temp_dir = std::env::temp_dir().join(format!("rok_test_vault_zero_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&temp_dir);
         let _ = fs::create_dir_all(&temp_dir);
         let vault = MailVault::new(&temp_dir);
 
@@ -2188,6 +2228,7 @@ mod tests {
     #[test]
     fn test_upsert_modified_record_resets_synced_at() {
         let temp_dir = std::env::temp_dir().join(format!("rok_test_vault_mod_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&temp_dir);
         let _ = fs::create_dir_all(&temp_dir);
         let mut vault = MailVault::new(&temp_dir);
 
@@ -2231,6 +2272,7 @@ mod tests {
     #[test]
     fn test_vault_count_and_delete_records_except_uids() {
         let temp_dir = std::env::temp_dir().join(format!("rok_test_del_non_main_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&temp_dir);
         let _ = fs::create_dir_all(&temp_dir);
         let mut vault = MailVault::new(&temp_dir);
 
@@ -2249,8 +2291,9 @@ mod tests {
         let non_main_cnt = vault.count_records_except_uids(&main_uids);
         assert_eq!(non_main_cnt, 2);
 
-        let deleted = vault.delete_records_except_uids(&main_uids);
+        let (deleted, deleted_keys) = vault.delete_records_except_uids(&main_uids);
         assert_eq!(deleted, 2);
+        assert_eq!(deleted_keys.len(), 2);
 
         assert_eq!(vault.total_count(), 1);
         let remaining = vault.get_records();

@@ -552,12 +552,15 @@ impl RoKMailWatcher {
         if main_uids.is_empty() {
             return 0;
         }
-        let deleted = {
+        let (deleted, keys) = {
             let mut v = self.vault.write().unwrap_or_else(|e| e.into_inner());
             v.delete_records_except_uids(&main_uids)
         };
         if deleted > 0 {
             self.recompute_filtered_records_and_stats();
+            if !keys.is_empty() {
+                self.send_sync_command(crate::cloud_sync::SyncCommand::DeleteRecords(keys));
+            }
             self.notify_sync_trigger();
         }
         deleted
@@ -989,8 +992,8 @@ impl RoKMailWatcher {
         let new_files_count = files_to_decode.len();
         if new_files_count > 0 {
             let new_msg = match lang {
-                AppLanguage::Vietnamese => format!("Phát hiện {} file thư mới cần giải mã (xử lý theo batch 50 file).", new_files_count),
-                AppLanguage::English => format!("Detected {} new mail files to decode (processing in batches of 50).", new_files_count),
+                AppLanguage::Vietnamese => format!("Phát hiện {} file thư mới cần giải mã (xử lý theo batch {} file).", new_files_count, crate::lilith_stream::MAIL_DECODE_BATCH_SIZE),
+                AppLanguage::English => format!("Detected {} new mail files to decode (processing in batches of {}).", new_files_count, crate::lilith_stream::MAIL_DECODE_BATCH_SIZE),
             };
             self.log("INFO", &new_msg);
         }

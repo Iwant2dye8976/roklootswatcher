@@ -41,6 +41,7 @@ pub struct TauriAppState {
     pub config: Arc<std::sync::Mutex<AppConfig>>,
     pub sync_worker: crate::cloud_sync::SyncWorkerHandle,
     pub cloud_login_busy: Arc<AtomicBool>,
+    pub cloud_login_cancel: Arc<AtomicBool>,
     pub last_mail_arrival: Arc<std::sync::Mutex<std::time::Instant>>,
     pub tray_items: std::sync::Mutex<Option<TrayMenuItems>>,
     pub selected_mode: std::sync::Mutex<FilterMode>,
@@ -1117,7 +1118,6 @@ pub fn set_preferences(
         .unwrap_or_else(|e| e.into_inner())
         .clone();
     sync_settings_to_cloud_async(&cfg_snap);
-    sync_settings_to_cloud_async(&cfg_snap);
     let sel_acc = state.selected_account_clone();
     let overlay_payload = get_overlay_payload_internal(
         &state.watcher,
@@ -1683,6 +1683,14 @@ pub fn get_cloud_status(state: State<'_, TauriAppState>) -> Result<CloudStatusDt
 }
 
 #[tauri::command]
+pub fn cancel_google_login(state: State<'_, TauriAppState>, app: AppHandle) -> Result<(), String> {
+    state.cloud_login_cancel.store(true, Ordering::SeqCst);
+    state.cloud_login_busy.store(false, Ordering::SeqCst);
+    let _ = app.emit("cloud://updated", get_cloud_status_for_state(&state));
+    Ok(())
+}
+
+#[tauri::command]
 pub fn start_google_login(app: AppHandle, state: State<'_, TauriAppState>) -> Result<(), String> {
     let (url, key) = {
         let cfg = state.config.lock().unwrap_or_else(|e| e.into_inner());
@@ -1694,6 +1702,7 @@ pub fn start_google_login(app: AppHandle, state: State<'_, TauriAppState>) -> Re
     if state.cloud_login_busy.swap(true, Ordering::SeqCst) {
         return Err("Google login is already in progress".to_string());
     }
+    state.cloud_login_cancel.store(false, Ordering::SeqCst);
 
     let _ = app.emit("cloud://updated", get_cloud_status_for_state(&state));
 
@@ -1702,11 +1711,12 @@ pub fn start_google_login(app: AppHandle, state: State<'_, TauriAppState>) -> Re
     let sync_state = Arc::clone(&state.sync_worker.state);
     let sync_tx = state.sync_worker.tx.clone();
     let login_busy = Arc::clone(&state.cloud_login_busy);
+    let login_cancel = Arc::clone(&state.cloud_login_cancel);
     let app_handle = app.clone();
 
     std::thread::spawn(move || {
         watcher.log("INFO", "Initiating Google OAuth login flow in browser...");
-        let outcome = crate::cloud_sync::start_google_login(&url, &key);
+        let outcome = crate::cloud_sync::start_google_login(&url, &key, Some(&login_cancel));
         login_busy.store(false, Ordering::SeqCst);
 
         let dummy_handle = crate::cloud_sync::SyncWorkerHandle {
@@ -1768,11 +1778,19 @@ pub fn start_google_login(app: AppHandle, state: State<'_, TauriAppState>) -> Re
                 );
             }
             Err(e) => {
-                let err_msg = format!("Google OAuth login failed: {}", e);
-                if let Ok(mut s) = sync_state.write() {
-                    s.last_error = Some(err_msg.clone());
+                let was_cancelled = login_cancel.load(Ordering::SeqCst) || e.contains("hủy");
+                if was_cancelled {
+                    if let Ok(mut s) = sync_state.write() {
+                        s.last_error = None;
+                    }
+                    watcher.log("INFO", "Google OAuth login cancelled by user");
+                } else {
+                    let err_msg = format!("Google OAuth login failed: {}", e);
+                    if let Ok(mut s) = sync_state.write() {
+                        s.last_error = Some(err_msg.clone());
+                    }
+                    watcher.log("ERROR", &err_msg);
                 }
-                watcher.log("ERROR", &err_msg);
                 let cfg_clone = config.lock().unwrap_or_else(|e| e.into_inner()).clone();
                 let _ = app_handle.emit(
                     "cloud://updated",

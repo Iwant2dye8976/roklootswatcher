@@ -58,6 +58,18 @@ export const TopAccountSection: React.FC = () => {
     }
   };
 
+  const handleCancelLogin = async () => {
+    try {
+      await api.cancelGoogleLogin();
+      addToast({
+        type: "info",
+        text: language === "vi" ? "Đã hủy đăng nhập" : "Login cancelled",
+      });
+    } catch (e) {
+      addToast({ type: "error", text: String(e) });
+    }
+  };
+
   const handleSignOut = async () => {
     try {
       await api.cloudLogout();
@@ -100,20 +112,32 @@ export const TopAccountSection: React.FC = () => {
   const initial = email ? email.charAt(0).toUpperCase() : "U";
 
   if (!isLoggedIn) {
+    if (isLoggingIn) {
+      return (
+        <div data-no-drag className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] font-semibold bg-binance-yellowSolid/40 text-binance-ink">
+            <Loader2 className="w-3.5 h-3.5 animate-spin text-binance-ink" />
+            <span>{t("cloudLoggingIn")}</span>
+          </div>
+          <button
+            onClick={handleCancelLogin}
+            className="px-2 py-1 rounded-md text-[11px] font-semibold bg-binance-red/20 hover:bg-binance-red/30 text-binance-red border border-binance-red/40 transition"
+            title={t("cloudCancelLogin")}
+          >
+            {t("cloudCancelLogin")}
+          </button>
+        </div>
+      );
+    }
     return (
       <div data-no-drag>
         <button
           onClick={handleSignIn}
-          disabled={isLoggingIn}
-          className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold transition bg-binance-yellowSolid hover:bg-binance-yellowHover text-binance-ink shadow-xs disabled:opacity-60"
+          className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold transition bg-binance-yellowSolid hover:bg-binance-yellowHover text-binance-ink shadow-xs"
           title={t("cloudLogin")}
         >
-          {isLoggingIn ? (
-            <Loader2 className="w-3.5 h-3.5 animate-spin text-binance-ink" />
-          ) : (
-            <LogIn className="w-3.5 h-3.5 text-binance-ink" />
-          )}
-          <span>{isLoggingIn ? t("cloudLoggingIn") : t("topAccountSignIn")}</span>
+          <LogIn className="w-3.5 h-3.5 text-binance-ink" />
+          <span>{t("topAccountSignIn")}</span>
         </button>
       </div>
     );
