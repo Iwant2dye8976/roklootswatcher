@@ -1004,6 +1004,26 @@ export const SettingsView: React.FC = () => {
               <span>{t("btnAdd")}</span>
             </button>
           </div>
+
+          {/* Ignore non-main reports toggle */}
+          <div className="pt-2 border-t border-binance-hairline">
+            <label className="flex items-center gap-2 cursor-pointer text-[11px] text-binance-body select-none">
+              <input
+                type="checkbox"
+                checked={snapshot?.ignore_non_main_reports ?? true}
+                onChange={async (e) => {
+                  try {
+                    await api.setIgnoreNonMainReports(e.target.checked);
+                    await refreshSnapshot();
+                  } catch (err) {
+                    addToast({ type: "error", text: String(err) });
+                  }
+                }}
+                className="rounded accent-amber-500"
+              />
+              <span>{t("ignoreNonMainReports")}</span>
+            </label>
+          </div>
         </div>
 
         {/* Card 5: SQLite Vault & Backup Maintenance */}

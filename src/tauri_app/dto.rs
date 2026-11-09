@@ -40,6 +40,7 @@ pub struct AppSnapshotDto {
     pub detected_accounts: Vec<AccountSummaryDto>,
     pub non_main_records_count: usize,
     pub main_account_uids: Vec<String>,
+    pub ignore_non_main_reports: bool,
     pub theme: AppTheme,
     pub language: AppLanguage,
     pub speedup_unit: SpeedupUnit,

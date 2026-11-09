@@ -146,6 +146,11 @@ export async function setMainAccounts(uids: string[]): Promise<void> {
   await invoke("set_main_accounts", { uids });
 }
 
+export async function setIgnoreNonMainReports(enabled: boolean): Promise<boolean> {
+  if (!isTauri()) return enabled;
+  return await invoke<boolean>("set_ignore_non_main_reports", { enabled });
+}
+
 export async function deleteSecondaryRecords(): Promise<number> {
   if (!isTauri()) return 0;
   return await invoke<number>("delete_secondary_records");
@@ -320,6 +325,7 @@ function getMockSnapshot(): AppSnapshotDto {
     ],
     non_main_records_count: 14,
     main_account_uids: ["102938475"],
+    ignore_non_main_reports: true,
     theme: "dark",
     language: "vi",
     speedup_unit: "hours",

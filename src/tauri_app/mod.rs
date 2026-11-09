@@ -104,6 +104,8 @@ pub fn run(
 
     watcher.set_language(initial_lang);
     watcher.set_date_filter(None, None, initial_date_preset.to_days());
+    watcher.set_main_account_uids(config.main_account_uids.clone());
+    watcher.set_ignore_non_main_reports(config.ignore_non_main_reports);
 
     // Spawn Cloud Sync Worker
     let vault_dir = watcher
@@ -151,6 +153,7 @@ pub fn run(
             commands::reset_default_mail_directory,
             commands::open_directory,
             commands::set_main_accounts,
+            commands::set_ignore_non_main_reports,
             commands::delete_secondary_records,
             commands::export_active_data,
             commands::get_clipboard_summary,

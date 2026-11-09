@@ -1943,6 +1943,8 @@ pub struct UserCloudSettings {
     #[serde(default)]
     pub main_account_uids: Vec<String>,
     #[serde(default)]
+    pub ignore_non_main_reports: Option<bool>,
+    #[serde(default)]
     pub speedup_unit: Option<SpeedupUnit>,
     #[serde(default)]
     pub theme: Option<AppTheme>,
@@ -1978,6 +1980,8 @@ pub struct AppConfig {
     pub cloud_auth: CloudAuthConfig,
     #[serde(default)]
     pub main_account_uids: Vec<String>,
+    #[serde(default = "default_true")]
+    pub ignore_non_main_reports: bool,
 }
 
 fn default_autostart_minimized() -> bool {
@@ -1999,6 +2003,7 @@ impl Default for AppConfig {
             overlay: OverlayConfig::default(),
             cloud_auth: CloudAuthConfig::default(),
             main_account_uids: Vec::new(),
+            ignore_non_main_reports: true,
         }
     }
 }
@@ -2007,6 +2012,7 @@ impl AppConfig {
     pub fn extract_cloud_settings(&self) -> UserCloudSettings {
         UserCloudSettings {
             main_account_uids: self.main_account_uids.clone(),
+            ignore_non_main_reports: Some(self.ignore_non_main_reports),
             speedup_unit: Some(self.speedup_unit),
             theme: Some(self.theme),
             language: Some(self.language),
@@ -2019,6 +2025,12 @@ impl AppConfig {
         if !s.main_account_uids.is_empty() && self.main_account_uids != s.main_account_uids {
             self.main_account_uids = s.main_account_uids.clone();
             changed = true;
+        }
+        if let Some(ign) = s.ignore_non_main_reports {
+            if self.ignore_non_main_reports != ign {
+                self.ignore_non_main_reports = ign;
+                changed = true;
+            }
         }
         if let Some(unit) = s.speedup_unit {
             if self.speedup_unit != unit {

@@ -230,6 +230,7 @@ pub struct RoKMailWatcher {
     days: Arc<RwLock<Option<u32>>>,
     selected_account: Arc<RwLock<Option<String>>>,
     main_account_uids: Arc<RwLock<Vec<String>>>,
+    ignore_non_main_reports: Arc<AtomicBool>,
 
     active_records: Arc<RwLock<Arc<Vec<BattleRecord>>>>,
     stats: Arc<RwLock<Statistics>>,
@@ -275,6 +276,7 @@ impl RoKMailWatcher {
             days: Arc::new(RwLock::new(None)),
             selected_account: Arc::new(RwLock::new(None)),
             main_account_uids: Arc::new(RwLock::new(Vec::new())),
+            ignore_non_main_reports: Arc::new(AtomicBool::new(true)),
 
             active_records: Arc::new(RwLock::new(Arc::new(Vec::new()))),
             stats: Arc::new(RwLock::new(Statistics::default())),
@@ -423,9 +425,10 @@ impl RoKMailWatcher {
         let mode = self.get_mode();
         let sel_acc = self.selected_account.read().unwrap_or_else(|e| e.into_inner()).clone();
         let main_uids = self.main_account_uids.read().unwrap_or_else(|e| e.into_inner()).clone();
+        let ignore_non_main = self.get_ignore_non_main_reports();
         let matches_acc = |r: &BattleRecord| {
             let clean_rec = r.account_id.strip_prefix("player_").unwrap_or(&r.account_id).trim();
-            if !main_uids.is_empty() {
+            if ignore_non_main && !main_uids.is_empty() {
                 let is_main = !clean_rec.is_empty() && main_uids.iter().any(|u| {
                     let clean_u = u.strip_prefix("player_").unwrap_or(u).trim();
                     clean_u == clean_rec
@@ -526,6 +529,15 @@ impl RoKMailWatcher {
         self.recompute_filtered_records_and_stats();
     }
 
+    pub fn get_ignore_non_main_reports(&self) -> bool {
+        self.ignore_non_main_reports.load(Ordering::SeqCst)
+    }
+
+    pub fn set_ignore_non_main_reports(&self, enabled: bool) {
+        self.ignore_non_main_reports.store(enabled, Ordering::SeqCst);
+        self.recompute_filtered_records_and_stats();
+    }
+
     pub fn count_non_main_records(&self) -> usize {
         let main_uids = self.get_main_account_uids();
         if main_uids.is_empty() {
@@ -584,7 +596,8 @@ impl RoKMailWatcher {
     pub fn get_accounts(&self) -> Vec<(String, String)> {
         let all_detected = self.get_all_detected_accounts();
         let main_uids = self.get_main_account_uids();
-        if main_uids.is_empty() {
+        let ignore_non_main = self.get_ignore_non_main_reports();
+        if !ignore_non_main || main_uids.is_empty() {
             return all_detected;
         }
         all_detected
@@ -624,6 +637,7 @@ impl RoKMailWatcher {
         };
         let today = crate::analyzer::current_date_vn();
         let main_uids = self.get_main_account_uids();
+        let ignore_non_main = self.get_ignore_non_main_reports();
 
         let filtered_by_date = crate::analyzer::filter_records_by_date(
             &all,
@@ -635,7 +649,7 @@ impl RoKMailWatcher {
         filtered_by_date
             .into_iter()
             .filter(|r| {
-                if !main_uids.is_empty() {
+                if ignore_non_main && !main_uids.is_empty() {
                     let clean_rec = r.account_id.strip_prefix("player_").unwrap_or(&r.account_id).trim();
                     let is_main = !clean_rec.is_empty() && main_uids.iter().any(|u| {
                         let clean_u = u.strip_prefix("player_").unwrap_or(u).trim();
@@ -985,6 +999,7 @@ impl RoKMailWatcher {
         let catalog = &self.catalog;
         let mut scanned_records: Vec<BattleRecord> = Vec::new();
         let main_uids = self.get_main_account_uids();
+        let ignore_non_main = self.get_ignore_non_main_reports();
 
         for chunk in files_to_decode.chunks(crate::lilith_stream::MAIL_DECODE_BATCH_SIZE) {
             let chunk_records: Vec<BattleRecord> = chunk
@@ -998,7 +1013,7 @@ impl RoKMailWatcher {
                     }
                     let btype = classify_mail(&m)?;
                     let rec = extract_motte_details(&m, &fname, catalog, Some(btype)).ok()?;
-                    if !main_uids.is_empty() {
+                    if ignore_non_main && !main_uids.is_empty() {
                         let clean_rec = rec.account_id.strip_prefix("player_").unwrap_or(&rec.account_id).trim();
                         let is_main = !clean_rec.is_empty() && main_uids.iter().any(|u| {
                             let clean_u = u.strip_prefix("player_").unwrap_or(u).trim();
@@ -1223,7 +1238,8 @@ impl RoKMailWatcher {
         };
 
         let main_uids = self.get_main_account_uids();
-        if !main_uids.is_empty() {
+        let ignore_non_main = self.get_ignore_non_main_reports();
+        if ignore_non_main && !main_uids.is_empty() {
             let clean_rec = rec.account_id.strip_prefix("player_").unwrap_or(&rec.account_id).trim();
             let is_main = !clean_rec.is_empty() && main_uids.iter().any(|u| {
                 let clean_u = u.strip_prefix("player_").unwrap_or(u).trim();
@@ -1346,6 +1362,7 @@ impl RoKMailWatcher {
             days: Arc::clone(&self.days),
             selected_account: Arc::clone(&self.selected_account),
             main_account_uids: Arc::clone(&self.main_account_uids),
+            ignore_non_main_reports: Arc::clone(&self.ignore_non_main_reports),
             active_records: Arc::clone(&self.active_records),
             stats: Arc::clone(&self.stats),
             catalog: Arc::clone(&self.catalog),

@@ -39,7 +39,7 @@ export const Titlebar: React.FC = () => {
         </div>
 
         <span className="px-1.5 py-0.5 rounded-sm bg-binance-card text-[10px] text-binance-muted font-mono border border-binance-hairline">
-          v{snapshot?.version || "2.7.1"}
+          v{snapshot?.version || "2.7.2"}
         </span>
 
         {/* Live Vault Record Count Badge */}

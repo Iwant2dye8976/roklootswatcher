@@ -234,6 +234,7 @@ export interface AppSnapshotDto {
   detected_accounts: Array<{ uid: string; name: string }>;
   non_main_records_count: number;
   main_account_uids: string[];
+  ignore_non_main_reports: boolean;
   theme: AppTheme;
   language: AppLanguage;
   speedup_unit: SpeedupUnit;

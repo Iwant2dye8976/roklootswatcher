@@ -984,6 +984,7 @@ pub fn get_initial_state(state: State<'_, TauriAppState>) -> Result<AppSnapshotD
         detected_accounts,
         non_main_records_count,
         main_account_uids: cfg.main_account_uids.clone(),
+        ignore_non_main_reports: cfg.ignore_non_main_reports,
         theme: cfg.theme,
         language: cfg.language,
         speedup_unit: *state.speedup_unit.lock().unwrap_or_else(|e| e.into_inner()),
@@ -1376,6 +1377,24 @@ pub fn set_main_accounts(
 }
 
 #[tauri::command]
+pub fn set_ignore_non_main_reports(
+    app: AppHandle,
+    state: State<'_, TauriAppState>,
+    enabled: bool,
+) -> Result<bool, String> {
+    state.watcher.set_ignore_non_main_reports(enabled);
+    let cfg_snap = {
+        let mut cfg = state.config.lock().unwrap_or_else(|e| e.into_inner());
+        cfg.ignore_non_main_reports = enabled;
+        cfg.save();
+        cfg.clone()
+    };
+    sync_settings_to_cloud_async(&cfg_snap);
+    let _ = app.emit("watcher://updated", ());
+    Ok(enabled)
+}
+
+#[tauri::command]
 pub fn delete_secondary_records(
     app: AppHandle,
     state: State<'_, TauriAppState>,
@@ -1713,6 +1732,7 @@ pub fn start_google_login(app: AppHandle, state: State<'_, TauriAppState>) -> Re
                         let mut cfg = config.lock().unwrap_or_else(|e| e.into_inner());
                         if cfg.apply_cloud_settings(cloud_settings) {
                             watcher.set_main_account_uids(cfg.main_account_uids.clone());
+                            watcher.set_ignore_non_main_reports(cfg.ignore_non_main_reports);
                             cfg.save();
                             settings_changed = true;
                         }
@@ -1901,6 +1921,7 @@ pub fn trigger_cloud_pull(app: AppHandle, state: State<'_, TauriAppState>) -> Re
                     let mut cfg_guard = config.lock().unwrap_or_else(|e| e.into_inner());
                     if cfg_guard.apply_cloud_settings(&cloud_settings) {
                         watcher.set_main_account_uids(cfg_guard.main_account_uids.clone());
+                        watcher.set_ignore_non_main_reports(cfg_guard.ignore_non_main_reports);
                         cfg_guard.save();
                         changed = true;
                     }
