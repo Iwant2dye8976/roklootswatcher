@@ -135,6 +135,8 @@ const DEFAULT_OVERLAY_CFG: OverlayConfig = {
   ],
   hotkey_enabled: true,
   transparent_bg: false,
+  fade_timeout_secs: 0,
+  fade_style: "Dim",
 };
 
 export const SettingsView: React.FC = () => {
@@ -1475,6 +1477,98 @@ export const SettingsView: React.FC = () => {
             </div>
           </div>
 
+          {/* Auto-Fade when idle after n seconds */}
+          <div className="pt-2 border-t border-binance-hairline space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-mono text-binance-muted">
+                {t("overlayAutoFade")}
+              </span>
+              <button
+                type="button"
+                onClick={() =>
+                  updateOverlay({
+                    fade_timeout_secs: (overlayCfg.fade_timeout_secs ?? 0) > 0 ? 0 : 30,
+                  })
+                }
+                className={`relative inline-flex h-4 w-8 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                  (overlayCfg.fade_timeout_secs ?? 0) > 0
+                    ? "bg-binance-yellow"
+                    : "bg-binance-hairline"
+                }`}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-3 w-3 transform rounded-full bg-binance-canvas shadow ring-0 transition duration-200 ease-in-out ${
+                    (overlayCfg.fade_timeout_secs ?? 0) > 0 ? "translate-x-4" : "translate-x-0"
+                  }`}
+                />
+              </button>
+            </div>
+
+            {(overlayCfg.fade_timeout_secs ?? 0) > 0 && (
+              <div className="space-y-2 pl-2 border-l-2 border-binance-yellow/50">
+                {/* Timeout selector */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-binance-muted">{t("overlayFadeTimeout")}:</span>
+                    <span className="font-mono font-bold text-binance-yellow">
+                      {overlayCfg.fade_timeout_secs}s
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {[15, 30, 60, 120, 300].map((sec) => (
+                      <button
+                        key={sec}
+                        type="button"
+                        onClick={() => updateOverlay({ fade_timeout_secs: sec })}
+                        className={`px-2 py-0.5 rounded text-xs font-mono border transition ${
+                          overlayCfg.fade_timeout_secs === sec
+                            ? "border-binance-yellow bg-binance-elevated text-binance-body font-bold"
+                            : "border-binance-hairline bg-binance-canvas text-binance-muted hover:text-binance-body"
+                        }`}
+                      >
+                        {sec}s
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Fade style selector (Dim vs Hide) */}
+                <div className="space-y-1">
+                  <div className="text-[11px] font-mono text-binance-muted">
+                    {t("overlayFadeStyle")}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => updateOverlay({ fade_style: "Dim" })}
+                      className={`flex items-center justify-center gap-2 p-1.5 rounded border text-left transition ${
+                        (overlayCfg.fade_style ?? "Dim") === "Dim"
+                          ? "border-binance-yellow bg-binance-elevated text-binance-body font-bold"
+                          : "border-binance-hairline bg-binance-canvas text-binance-muted hover:text-binance-body"
+                      }`}
+                    >
+                      <div className="w-2.5 h-2.5 rounded-full bg-slate-400 opacity-30 border border-slate-500" />
+                      <span>{t("overlayFadeDim")}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => updateOverlay({ fade_style: "Hide" })}
+                      className={`flex items-center justify-center gap-2 p-1.5 rounded border text-left transition ${
+                        overlayCfg.fade_style === "Hide"
+                          ? "border-binance-yellow bg-binance-elevated text-binance-body font-bold"
+                          : "border-binance-hairline bg-binance-canvas text-binance-muted hover:text-binance-body"
+                      }`}
+                    >
+                      <div className="w-2.5 h-2.5 rounded-full border border-dashed border-slate-400" />
+                      <span>{t("overlayFadeHide")}</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Live Overlay Preview Box */}
           <div className="pt-3 border-t border-binance-hairline space-y-2">
             <div className="flex items-center justify-between text-[11px] font-mono">
@@ -1482,6 +1576,11 @@ export const SettingsView: React.FC = () => {
                 {language === "vi" ? "Xem trước giao diện HUD trực quan" : "Live HUD Visual Preview"}
               </span>
               <div className="flex items-center gap-2">
+                {(overlayCfg.fade_timeout_secs ?? 0) > 0 && (
+                  <span className="text-[10px] text-binance-yellow border border-binance-yellow/40 rounded px-1.5 py-0.2 bg-binance-yellow/10">
+                    Fade {overlayCfg.fade_timeout_secs}s ({overlayCfg.fade_style ?? "Dim"})
+                  </span>
+                )}
                 <span
                   className={`px-1.5 py-0.5 rounded text-[10px] font-mono border ${
                     overlayCfg.enabled
