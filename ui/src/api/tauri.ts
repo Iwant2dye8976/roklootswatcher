@@ -306,6 +306,22 @@ export function onCloudUpdated(callback: (status: CloudStatusDto) => void): Prom
   return listen<CloudStatusDto>("cloud://updated", (e) => callback(e.payload));
 }
 
+export interface CloudOperationResult {
+  success: boolean;
+  count: number;
+  error?: string | null;
+}
+
+export function onCloudPushResult(callback: (res: CloudOperationResult) => void): Promise<UnlistenFn> {
+  if (!isTauri()) return Promise.resolve(() => {});
+  return listen<CloudOperationResult>("cloud://push-result", (e) => callback(e.payload));
+}
+
+export function onCloudPullResult(callback: (res: CloudOperationResult) => void): Promise<UnlistenFn> {
+  if (!isTauri()) return Promise.resolve(() => {});
+  return listen<CloudOperationResult>("cloud://pull-result", (e) => callback(e.payload));
+}
+
 export function onOverlayUpdated(callback: (payload: OverlayPayloadDto) => void): Promise<UnlistenFn> {
   if (!isTauri()) return Promise.resolve(() => {});
   return listen<OverlayPayloadDto>("overlay://updated", (e) => callback(e.payload));

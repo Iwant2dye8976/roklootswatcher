@@ -250,6 +250,8 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({
     let unlistenStatus: (() => void) | undefined;
     let unlistenLog: (() => void) | undefined;
     let unlistenCloud: (() => void) | undefined;
+    let unlistenCloudPush: (() => void) | undefined;
+    let unlistenCloudPull: (() => void) | undefined;
 
     async function init() {
       try {
@@ -314,6 +316,51 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({
           prev ? { ...prev, cloud_status: status } : prev
         );
       });
+
+      unlistenCloudPush = await api.onCloudPushResult((res) => {
+        const isVi = languageRef.current === "vi";
+        if (res.success) {
+          addToast({
+            type: "success",
+            text: isVi
+              ? res.count > 0
+                ? `Sao lưu Cloud thành công (${res.count} bản ghi đã tải lên)`
+                : "Sao lưu Cloud thành công! Dữ liệu đã đồng bộ mới nhất."
+              : res.count > 0
+              ? `Cloud backup complete (${res.count} records uploaded)`
+              : "Cloud backup complete! Everything is up to date.",
+          });
+        } else {
+          addToast({
+            type: "error",
+            text: isVi
+              ? `Sao lưu Cloud thất bại: ${res.error || "Lỗi không xác định"}`
+              : `Cloud backup failed: ${res.error || "Unknown error"}`,
+          });
+        }
+        refreshSnapshot();
+      });
+
+      unlistenCloudPull = await api.onCloudPullResult((res) => {
+        const isVi = languageRef.current === "vi";
+        if (res.success) {
+          addToast({
+            type: "success",
+            text: isVi
+              ? `Khôi phục Cloud thành công (${res.count} bản ghi đã tải về)`
+              : `Cloud pull complete (${res.count} records restored)`,
+          });
+        } else {
+          addToast({
+            type: "error",
+            text: isVi
+              ? `Khôi phục Cloud thất bại: ${res.error || "Lỗi không xác định"}`
+              : `Cloud pull failed: ${res.error || "Unknown error"}`,
+          });
+        }
+        refreshSnapshot();
+        refreshDashboard();
+      });
     }
 
     init();
@@ -323,6 +370,8 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({
       if (unlistenStatus) unlistenStatus();
       if (unlistenLog) unlistenLog();
       if (unlistenCloud) unlistenCloud();
+      if (unlistenCloudPush) unlistenCloudPush();
+      if (unlistenCloudPull) unlistenCloudPull();
     };
   }, [refreshDashboard, refreshSnapshot, addToast]);
 

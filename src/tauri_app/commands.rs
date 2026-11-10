@@ -1849,20 +1849,25 @@ pub fn trigger_cloud_push(app: AppHandle, state: State<'_, TauriAppState>) -> Re
     let app_clone = app.clone();
 
     std::thread::spawn(move || {
-        match rx.recv_timeout(std::time::Duration::from_secs(30)) {
+        let (ok, count, err_msg) = match rx.recv_timeout(std::time::Duration::from_secs(30)) {
             Ok(Ok(uploaded)) => {
                 watcher.log(
                     "SUCCESS",
                     &format!("Cloud backup complete ({} records uploaded)", uploaded),
                 );
+                (true, uploaded, None)
             }
             Ok(Err(e)) => {
-                watcher.log("ERROR", &format!("Cloud backup failed: {}", e));
+                let err_str = e.to_string();
+                watcher.log("ERROR", &format!("Cloud backup failed: {}", err_str));
+                (false, 0, Some(err_str))
             }
             Err(e) => {
-                watcher.log("ERROR", &format!("Cloud backup timeout: {}", e));
+                let err_str = format!("Cloud backup timeout: {}", e);
+                watcher.log("ERROR", &err_str);
+                (false, 0, Some(err_str))
             }
-        }
+        };
         let handle = crate::cloud_sync::SyncWorkerHandle {
             tx: sync_tx,
             state: sync_state,
@@ -1883,6 +1888,14 @@ pub fn trigger_cloud_push(app: AppHandle, state: State<'_, TauriAppState>) -> Re
         let _ = app_clone.emit(
             "cloud://updated",
             get_cloud_status_from_parts(&watcher, &cfg, &handle, login_busy.load(Ordering::SeqCst)),
+        );
+        let _ = app_clone.emit(
+            "cloud://push-result",
+            serde_json::json!({
+                "success": ok,
+                "count": count,
+                "error": err_msg,
+            }),
         );
     });
 
@@ -1911,7 +1924,7 @@ pub fn trigger_cloud_pull(app: AppHandle, state: State<'_, TauriAppState>) -> Re
     let app_clone = app.clone();
 
     std::thread::spawn(move || {
-        match rx.recv_timeout(std::time::Duration::from_secs(60)) {
+        let (ok, count, err_msg) = match rx.recv_timeout(std::time::Duration::from_secs(60)) {
             Ok(Ok(cnt)) => {
                 watcher.reload_vault();
                 watcher.log("SUCCESS", &format!("Cloud pull restored {} records", cnt));
@@ -1924,14 +1937,19 @@ pub fn trigger_cloud_pull(app: AppHandle, state: State<'_, TauriAppState>) -> Re
                     idle,
                 );
                 let _ = app_clone.emit("overlay://updated", overlay_payload);
+                (true, cnt, None)
             }
             Ok(Err(e)) => {
-                watcher.log("ERROR", &format!("Cloud pull error: {}", e));
+                let err_str = e.to_string();
+                watcher.log("ERROR", &format!("Cloud pull error: {}", err_str));
+                (false, 0, Some(err_str))
             }
             Err(e) => {
-                watcher.log("ERROR", &format!("Cloud pull timeout: {}", e));
+                let err_str = format!("Cloud pull timeout: {}", e);
+                watcher.log("ERROR", &err_str);
+                (false, 0, Some(err_str))
             }
-        }
+        };
         let handle = crate::cloud_sync::SyncWorkerHandle {
             tx: sync_tx,
             state: sync_state,
@@ -1965,6 +1983,14 @@ pub fn trigger_cloud_pull(app: AppHandle, state: State<'_, TauriAppState>) -> Re
         let _ = app_clone.emit(
             "cloud://updated",
             get_cloud_status_from_parts(&watcher, &cfg, &handle, login_busy.load(Ordering::SeqCst)),
+        );
+        let _ = app_clone.emit(
+            "cloud://pull-result",
+            serde_json::json!({
+                "success": ok,
+                "count": count,
+                "error": err_msg,
+            }),
         );
     });
     Ok(())

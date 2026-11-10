@@ -176,7 +176,7 @@ export const SettingsView: React.FC = () => {
   );
 
   const [autoScroll, setAutoScroll] = useState(true);
-  const logEndRef = useRef<HTMLDivElement>(null);
+  const logContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (snapshot?.mail_dir !== undefined) {
@@ -199,8 +199,8 @@ export const SettingsView: React.FC = () => {
   }, [snapshot]);
 
   useEffect(() => {
-    if (autoScroll) {
-      logEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (autoScroll && logContainerRef.current) {
+      logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
     }
   }, [consoleLogs, autoScroll]);
 
@@ -1699,7 +1699,10 @@ export const SettingsView: React.FC = () => {
         </div>
 
         {/* Terminal Output Box */}
-        <div className="h-44 bg-binance-canvas border border-binance-hairline rounded p-2.5 font-mono text-[11px] overflow-y-auto space-y-1">
+        <div
+          ref={logContainerRef}
+          className="h-44 bg-binance-canvas border border-binance-hairline rounded p-2.5 font-mono text-[11px] overflow-y-auto space-y-1"
+        >
           {consoleLogs.length === 0 ? (
             <div className="text-binance-muted italic">No console logs yet.</div>
           ) : (
@@ -1726,7 +1729,6 @@ export const SettingsView: React.FC = () => {
               );
             })
           )}
-          <div ref={logEndRef} />
         </div>
       </div>
     </div>
