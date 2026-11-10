@@ -544,6 +544,7 @@ function getMockOverlay(): OverlayPayloadDto {
       font_size: 10.5,
       pinned_items: ["SpeedupUniversal"],
       hotkey_enabled: true,
+      transparent_bg: false,
     },
     pinned_chips: [
       { id: "SpeedupUniversal", label: "SPEEDUP", display_val: "24h 30m", color_hex: "#38bdf8" },

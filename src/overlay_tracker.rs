@@ -60,8 +60,26 @@ pub fn calculate_overlay_geometry(
     let scale = if scale_factor <= 0.0 { 1.0 } else { scale_factor };
     let (width, height) = match config.mode {
         crate::model::OverlayDisplayMode::MiniHud => {
-            let h = (config.font_size * 2.6).clamp(32.0, 36.0);
-            let w = config.width.clamp(280.0, 750.0);
+            let base_h = (config.font_size * 2.6).clamp(32.0, 36.0);
+            let w = config.width.clamp(180.0, 750.0);
+            // Dynamic multi-line calculation based on item count & width:
+            // A typical chip is ~95-115px wide; TodayRuns pill is ~135-150px wide.
+            // On narrow widths (180-220px), only 1 item fits per row.
+            // On medium widths (225-330px), 2 items fit per row.
+            // Allocate ample vertical bounds so wrapped chips and battle counters are never clipped.
+            let items_count = config.pinned_items.len() + 1; // +1 for today_runs pill
+            let est_chips_per_row = if w < 225.0 {
+                1
+            } else {
+                ((w - 8.0) / 108.0).floor().max(1.0) as usize
+            };
+            let est_rows = items_count.div_ceil(est_chips_per_row).clamp(1, 12);
+            let row_h = (config.font_size * 2.4 + 4.0).max(28.0);
+            let h = if est_rows <= 1 {
+                base_h
+            } else {
+                (est_rows as f32 * row_h + 10.0).max(base_h)
+            };
             (w, h)
         }
         crate::model::OverlayDisplayMode::Cards => {
@@ -71,11 +89,25 @@ pub fn calculate_overlay_geometry(
             (w, est_height)
         }
         crate::model::OverlayDisplayMode::Combined => {
-            let mini_h = (config.font_size * 2.6).clamp(32.0, 36.0);
+            let base_mini_h = (config.font_size * 2.6).clamp(32.0, 36.0);
+            let w = config.width.clamp(180.0, 750.0);
+            let items_count = config.pinned_items.len() + 1;
+            let est_chips_per_row = if w < 225.0 {
+                1
+            } else {
+                ((w - 8.0) / 108.0).floor().max(1.0) as usize
+            };
+            let est_rows = items_count.div_ceil(est_chips_per_row).clamp(1, 12);
+            let row_h = (config.font_size * 2.4 + 4.0).max(28.0);
+            let mini_h = if est_rows <= 1 {
+                base_mini_h
+            } else {
+                (est_rows as f32 * row_h + 10.0).max(base_mini_h)
+            };
+
             let card_height = (config.font_size * 3.8 + 14.0).max(46.0);
             let cards_h = (card_height * 5.0 + 20.0).ceil();
             let total_h = mini_h + 8.0 + cards_h;
-            let w = config.width.clamp(300.0, 750.0);
             (w, total_h)
         }
         crate::model::OverlayDisplayMode::Hidden => {
@@ -371,6 +403,31 @@ pub fn compute_layered_window_params(opacity: f32) -> LayeredWindowParams {
     }
 }
 
+pub fn compute_webview_overlay_extended_style(current_style: isize) -> isize {
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            WS_EX_APPWINDOW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
+            WS_EX_TRANSPARENT,
+        };
+        (current_style & !(WS_EX_APPWINDOW as isize))
+            | WS_EX_TRANSPARENT as isize
+            | WS_EX_LAYERED as isize
+            | WS_EX_TOOLWINDOW as isize
+            | WS_EX_TOPMOST as isize
+            | WS_EX_NOACTIVATE as isize
+    }
+    #[cfg(not(windows))]
+    {
+        (current_style & !0x00040000)
+            | 0x00000020
+            | 0x00080000
+            | 0x00000080
+            | 0x00000008
+            | 0x08000000
+    }
+}
+
 #[cfg(windows)]
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn apply_webview_click_through_styles(hwnd: HWND) {
@@ -378,14 +435,10 @@ pub fn apply_webview_click_through_styles(hwnd: HWND) {
         use windows_sys::Win32::UI::WindowsAndMessaging::{
             EnumChildWindows, GetWindowLongPtrW, SetWindowLongPtrW, SetWindowPos, GWL_EXSTYLE,
             SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
-            WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT,
+            WS_EX_NOACTIVATE, WS_EX_TRANSPARENT,
         };
         let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
-        let target_style = (ex_style & !(WS_EX_APPWINDOW as isize))
-            | WS_EX_TRANSPARENT as isize
-            | WS_EX_TOOLWINDOW as isize
-            | WS_EX_TOPMOST as isize
-            | WS_EX_NOACTIVATE as isize;
+        let target_style = compute_webview_overlay_extended_style(ex_style);
 
         if ex_style != target_style {
             SetWindowLongPtrW(hwnd, GWL_EXSTYLE, target_style);
@@ -707,6 +760,19 @@ mod tests {
     }
 
     #[test]
+    fn test_compute_webview_overlay_extended_style_preserves_hardware_transparency() {
+        // Start with a mock window style containing WS_EX_APPWINDOW (0x00040000)
+        let initial_style = 0x00040000;
+        let style = compute_webview_overlay_extended_style(initial_style);
+        assert_eq!(style & 0x00040000, 0, "WS_EX_APPWINDOW must be stripped");
+        assert_ne!(style & 0x00000020, 0, "Missing WS_EX_TRANSPARENT");
+        assert_ne!(style & 0x00080000, 0, "Missing WS_EX_LAYERED");
+        assert_ne!(style & 0x00000080, 0, "Missing WS_EX_TOOLWINDOW");
+        assert_ne!(style & 0x00000008, 0, "Missing WS_EX_TOPMOST");
+        assert_ne!(style & 0x08000000, 0, "Missing WS_EX_NOACTIVATE");
+    }
+
+    #[test]
     fn test_determine_overlay_visibility_action_hides_when_rok_not_visible() {
         assert_eq!(
             determine_overlay_visibility_action(
@@ -782,13 +848,14 @@ mod tests {
             mode: crate::model::OverlayDisplayMode::MiniHud,
             font_size: 14.0,
             width: 500.0,
+            pinned_items: vec![],
             ..Default::default()
         };
         let geom = calculate_overlay_geometry(&bounds, &cfg, 1.0);
         assert_eq!(geom.width, 500.0);
         assert!(
-            geom.height >= 28.0 && geom.height <= 36.0,
-            "MiniHud height {} must be between 28 and 36",
+            geom.height >= 28.0 && geom.height <= 48.0,
+            "MiniHud height {} must accommodate ribbon",
             geom.height
         );
 
@@ -799,8 +866,44 @@ mod tests {
         };
         let geom_narrow = calculate_overlay_geometry(&bounds, &cfg_narrow, 1.0);
         assert_eq!(
-            geom_narrow.width, 280.0,
-            "MiniHud width must clamp to minimum 280.0"
+            geom_narrow.width, 180.0,
+            "MiniHud width must clamp to minimum 180.0"
+        );
+        assert!(
+            geom_narrow.height > 36.0,
+            "MiniHud height on narrow width must expand to support line wrap for pinned chips"
+        );
+    }
+
+    #[test]
+    fn test_calculate_overlay_geometry_mini_hud_allocates_row_per_item_on_short_width() {
+        let bounds = RoKWindowBounds {
+            x: 0,
+            y: 0,
+            width: 1920,
+            height: 1080,
+        };
+        // 4 pinned items + 1 today_runs pill = 5 items total
+        let cfg = crate::model::OverlayConfig {
+            mode: crate::model::OverlayDisplayMode::MiniHud,
+            font_size: 10.5,
+            width: 180.0,
+            pinned_items: vec![
+                crate::model::PinnedItemKey::CatalogItem { itype: 1, isub: 2, canonical_name: "Gems".into() },
+                crate::model::PinnedItemKey::CatalogItem { itype: 2, isub: 3, canonical_name: "Book of Covenant".into() },
+                crate::model::PinnedItemKey::CatalogItem { itype: 2, isub: 4, canonical_name: "Arrow of Resistance".into() },
+                crate::model::PinnedItemKey::SpeedupUniversal,
+            ],
+            ..Default::default()
+        };
+        let geom = calculate_overlay_geometry(&bounds, &cfg, 1.0);
+        assert_eq!(geom.width, 180.0);
+        // On width 180, est_chips_per_row = 1.
+        // 5 items * ~29px + 10px >= 140px.
+        assert!(
+            geom.height >= 140.0,
+            "MiniHud height {} on shortest width (180px) must allocate sufficient height for all 5 rows so Battle Count and pinned items never clip",
+            geom.height
         );
     }
 
@@ -830,8 +933,8 @@ mod tests {
         };
         let geom_narrow = calculate_overlay_geometry(&bounds, &cfg_narrow, 1.0);
         assert_eq!(
-            geom_narrow.width, 300.0,
-            "Combined mode width must clamp to minimum 300.0"
+            geom_narrow.width, 180.0,
+            "Combined mode width must clamp to minimum 180.0"
         );
         assert!(
             geom.height > 200.0,

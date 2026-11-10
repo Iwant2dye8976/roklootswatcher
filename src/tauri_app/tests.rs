@@ -196,6 +196,7 @@ fn test_overlay_config_partial_update_dto_leaves_unset_fields_none() {
     assert!(partial.filter.is_none());
     assert!(partial.pinned_items.is_none());
     assert!(partial.hotkey_enabled.is_none());
+    assert!(partial.transparent_bg.is_none());
 }
 
 #[test]

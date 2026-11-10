@@ -1657,6 +1657,9 @@ pub fn update_overlay_config(
         if let Some(hk) = config.hotkey_enabled {
             cfg.overlay.hotkey_enabled = hk;
         }
+        if let Some(tb) = config.transparent_bg {
+            cfg.overlay.transparent_bg = tb;
+        }
         cfg.save();
     }
 

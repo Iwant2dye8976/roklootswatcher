@@ -134,6 +134,7 @@ const DEFAULT_OVERLAY_CFG: OverlayConfig = {
     "SpeedupUniversal",
   ],
   hotkey_enabled: true,
+  transparent_bg: false,
 };
 
 export const SettingsView: React.FC = () => {
@@ -1430,6 +1431,50 @@ export const SettingsView: React.FC = () => {
             </div>
           </div>
 
+          {/* Background Mode: Completely Transparent vs Translucent Color Background */}
+          <div className="pt-2 border-t border-binance-hairline space-y-1.5">
+            <div className="text-[11px] font-mono text-binance-muted">
+              {language === "vi" ? "Kiểu nền HUD" : "HUD Background Style"}
+            </div>
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <button
+                type="button"
+                onClick={() => updateOverlay({ transparent_bg: false })}
+                className={`flex items-center justify-center gap-2 p-2 rounded border text-left transition ${
+                  !overlayCfg.transparent_bg
+                    ? "border-binance-yellow bg-binance-elevated text-binance-body font-bold ring-1 ring-binance-yellow"
+                    : "border-binance-hairline bg-binance-canvas text-binance-muted hover:text-binance-body hover:bg-binance-elevated"
+                }`}
+              >
+                <div className="w-3.5 h-3.5 rounded bg-[#060a14]/75 border border-slate-600" />
+                <div className="flex flex-col">
+                  <span>{language === "vi" ? "Nền màu trong suốt" : "Translucent Tint"}</span>
+                  <span className="text-[10px] opacity-75 font-normal">
+                    {language === "vi" ? "Nền đen mờ 75%" : "75% tinted backdrop"}
+                  </span>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => updateOverlay({ transparent_bg: true })}
+                className={`flex items-center justify-center gap-2 p-2 rounded border text-left transition ${
+                  overlayCfg.transparent_bg
+                    ? "border-binance-yellow bg-binance-elevated text-binance-body font-bold ring-1 ring-binance-yellow"
+                    : "border-binance-hairline bg-binance-canvas text-binance-muted hover:text-binance-body hover:bg-binance-elevated"
+                }`}
+              >
+                <div className="w-3.5 h-3.5 rounded bg-transparent border border-dashed border-sky-400" />
+                <div className="flex flex-col">
+                  <span>{language === "vi" ? "Hoàn toàn trong suốt" : "Pure Transparent"}</span>
+                  <span className="text-[10px] opacity-75 font-normal">
+                    {language === "vi" ? "Không nền, chỉ chữ nổi" : "Zero background"}
+                  </span>
+                </div>
+              </button>
+            </div>
+          </div>
+
           {/* Live Overlay Preview Box */}
           <div className="pt-3 border-t border-binance-hairline space-y-2">
             <div className="flex items-center justify-between text-[11px] font-mono">
@@ -1464,9 +1509,13 @@ export const SettingsView: React.FC = () => {
                 fontSize: `${Math.max(8.5, Math.min(16, overlayCfg.font_size ?? 10.5))}px`,
                 maxWidth: `${Math.max(220, Math.min(520, overlayCfg.width ?? 280))}px`,
                 color: overlayCfg.text_color_hex || "#F8FAFC",
-                textShadow: "0 1px 2px rgba(0,0,0,0.95), 0 0 1px rgba(0,0,0,0.9)",
+                textShadow: "0 1px 2px rgba(0,0,0,0.95), 0 0 2px rgba(0,0,0,0.95)",
               }}
-              className="rounded p-2 bg-[#060a14]/98 border border-slate-700/90 shadow-xl select-none transition-all duration-200"
+              className={`rounded p-2 border border-slate-700/90 select-none transition-all duration-200 ${
+                overlayCfg.transparent_bg
+                  ? "bg-transparent border-dashed border-sky-400/60"
+                  : "bg-[#060a14]/75 shadow-lg"
+              }`}
             >
               {overlayCfg.mode === "Hidden" ? (
                 <div className="text-[11px] text-slate-400 italic text-center py-2">
@@ -1476,27 +1525,28 @@ export const SettingsView: React.FC = () => {
                 <div className="space-y-1.5">
                   {(overlayCfg.mode === "MiniHud" || overlayCfg.mode === "Combined") && (
                     <div className="flex items-center gap-1 flex-wrap font-mono leading-none">
-                      <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-[#060a14] border border-slate-700 text-[0.88em]">
-                        <span className="font-bold" style={{ color: overlayCfg.accent_color_hex || "#38BDF8" }}>GEMS</span>
-                        <span className="font-bold" style={{ color: overlayCfg.text_color_hex || "#F8FAFC" }}>12,450</span>
-                      </div>
-                      <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-[#060a14] border border-slate-700 text-[0.88em]">
-                        <span className="font-bold" style={{ color: overlayCfg.accent_color_hex || "#38BDF8" }}>SPD</span>
-                        <span className="font-bold" style={{ color: overlayCfg.text_color_hex || "#F8FAFC" }}>14h 20m</span>
-                      </div>
-                      <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-[#060a14] border border-slate-700 text-[0.88em] text-slate-200 font-medium">
+                      {/* Battle count pill rendered first matching in-game OverlayView */}
+                      <div className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[0.88em] text-slate-200 font-medium ${overlayCfg.transparent_bg ? "bg-transparent border border-white/10" : "bg-[#060a14]/75 border border-slate-700/80"}`}>
                         <span className="text-red-400 font-bold">8M</span>
                         <span>·</span>
                         <span className="text-amber-400 font-bold">12F</span>
                         <span>·</span>
                         <span className="text-sky-400 font-bold">24B</span>
                       </div>
+                      <div className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[0.88em] ${overlayCfg.transparent_bg ? "bg-transparent border border-white/10" : "bg-[#060a14]/75 border border-slate-700/80"}`}>
+                        <span className="font-bold" style={{ color: overlayCfg.accent_color_hex || "#38BDF8" }}>GEMS</span>
+                        <span className="font-bold" style={{ color: overlayCfg.text_color_hex || "#F8FAFC" }}>12,450</span>
+                      </div>
+                      <div className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[0.88em] ${overlayCfg.transparent_bg ? "bg-transparent border border-white/10" : "bg-[#060a14]/75 border border-slate-700/80"}`}>
+                        <span className="font-bold" style={{ color: overlayCfg.accent_color_hex || "#38BDF8" }}>SPD</span>
+                        <span className="font-bold" style={{ color: overlayCfg.text_color_hex || "#F8FAFC" }}>14h 20m</span>
+                      </div>
                     </div>
                   )}
 
                   {(overlayCfg.mode === "Cards" || overlayCfg.mode === "Combined") && (
                     <div className="space-y-1">
-                      <div className="px-2 py-1.5 rounded bg-[#060a14] border border-slate-700 border-l-[3px] border-l-red-500 text-[0.88em] leading-tight">
+                      <div className={`px-2 py-1.5 rounded border border-l-[3px] border-l-red-500 text-[0.88em] leading-tight ${overlayCfg.transparent_bg ? "bg-transparent border-slate-700/50" : "bg-[#060a14]/75 border-slate-700/80"}`}>
                         <div className="flex items-center justify-between font-bold" style={{ color: overlayCfg.text_color_hex || "#F8FAFC" }}>
                           <span>Motte of the Cursed</span>
                           <span className="text-slate-300 text-[0.85em] font-mono">14:32</span>

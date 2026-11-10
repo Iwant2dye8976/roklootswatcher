@@ -46,6 +46,15 @@ export const OverlayView: React.FC = () => {
   const baseFontPx = Math.max(8.5, Math.min(16, config.font_size || 10.5));
   const textHex = config.text_color_hex || "#F8FAFC";
   const accentHex = config.accent_color_hex || "#38BDF8";
+  const isTransparentBg = !!config.transparent_bg;
+
+  // Pure Transparent (100% transparent background) vs Transparent Color Background (75% dark translucent tint)
+  const pillBgClass = isTransparentBg
+    ? "bg-transparent border border-white/10"
+    : "bg-[#060a14]/75 backdrop-blur-[2px] border border-slate-700/80 shadow-md";
+  const cardBgClass = isTransparentBg
+    ? "bg-transparent border border-slate-700/50 shadow-none"
+    : "bg-[#060a14]/75 backdrop-blur-[2px] border border-slate-700/80 shadow-xl";
 
   return (
     <div
@@ -55,7 +64,7 @@ export const OverlayView: React.FC = () => {
         userSelect: "none",
         fontSize: `${baseFontPx}px`,
         color: textHex,
-        textShadow: "0 1px 2px rgba(0,0,0,0.95), 0 0 1px rgba(0,0,0,0.9)",
+        textShadow: "0 1px 2px rgba(0,0,0,0.95), 0 0 2px rgba(0,0,0,0.95)",
       }}
       className={`w-full h-full select-none font-sans antialiased overflow-hidden transition-opacity duration-300 ${
         isMiniOnly ? "px-1.5 py-0.5" : "p-1.5"
@@ -64,30 +73,11 @@ export const OverlayView: React.FC = () => {
       <div className="flex flex-col gap-1 w-full">
         {/* Pinned Chips Ribbon (MiniHud & Combined only) */}
         {showChips && (
-          <div
-            className={`flex items-center gap-1 ${
-              isMiniOnly ? "flex-nowrap overflow-hidden" : "flex-wrap"
-            }`}
-          >
-            {pinned_chips.map((chip) => (
-              <div
-                key={chip.id}
-                className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-[#060a14]/98 border border-slate-700/90 shadow-md font-mono shrink-0 leading-none"
-              >
-                <span
-                  style={{ color: chip.color_hex || accentHex }}
-                  className="font-bold text-[0.88em]"
-                >
-                  {chip.label}
-                </span>
-                <span className="font-bold" style={{ color: textHex }}>
-                  {chip.display_val}
-                </span>
-              </div>
-            ))}
-
-            {/* Today Runs Counter Pill */}
-            <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-[#060a14]/98 border border-slate-700/90 shadow-md font-mono text-[0.88em] text-slate-200 shrink-0 leading-none font-medium">
+          <div className="flex items-center gap-1 flex-wrap">
+            {/* Today Runs Counter Pill (Battle count M-F-B rendered FIRST so it never overflows or hides) */}
+            <div
+              className={`flex items-center gap-1 px-1.5 py-0.5 rounded font-mono text-[0.88em] text-slate-200 shrink-0 leading-none font-medium ${pillBgClass}`}
+            >
               <span className="text-red-400 font-bold">{today_runs.motte}M</span>
               <span>·</span>
               <span className="text-amber-400 font-bold">{today_runs.fort}F</span>
@@ -102,6 +92,24 @@ export const OverlayView: React.FC = () => {
                 </>
               )}
             </div>
+
+            {/* Pinned Loot Chips */}
+            {pinned_chips.map((chip) => (
+              <div
+                key={chip.id}
+                className={`flex items-center gap-1 px-1.5 py-0.5 rounded font-mono shrink-0 leading-none ${pillBgClass}`}
+              >
+                <span
+                  style={{ color: chip.color_hex || accentHex }}
+                  className="font-bold text-[0.88em]"
+                >
+                  {chip.label}
+                </span>
+                <span className="font-bold" style={{ color: textHex }}>
+                  {chip.display_val}
+                </span>
+              </div>
+            ))}
           </div>
         )}
 
@@ -109,7 +117,7 @@ export const OverlayView: React.FC = () => {
         {showCards && (
           <div className="space-y-1">
             {records.length === 0 ? (
-              <div className="px-2 py-1.5 rounded bg-[#060a14]/95 border border-slate-700/80 text-[0.88em] text-slate-300 font-mono italic text-center">
+              <div className={`px-2 py-1.5 rounded text-[0.88em] text-slate-300 font-mono italic text-center ${cardBgClass}`}>
                 Awaiting combat reports...
               </div>
             ) : (
@@ -126,7 +134,7 @@ export const OverlayView: React.FC = () => {
                 return (
                   <div
                     key={rec.id || idx}
-                    className={`px-2 py-1.5 rounded bg-[#060a14]/98 border border-slate-700/90 border-l-[3px] ${borderClass} shadow-xl flex flex-col gap-0.5 leading-tight`}
+                    className={`px-2 py-1.5 rounded border-l-[3px] ${borderClass} flex flex-col gap-0.5 leading-tight ${cardBgClass}`}
                   >
                     <div className="flex items-center justify-between gap-1">
                       <span

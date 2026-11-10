@@ -331,4 +331,6 @@ pub struct OverlayConfigUpdateDto {
     pub pinned_items: Option<Vec<PinnedItemKey>>,
     #[serde(default)]
     pub hotkey_enabled: Option<bool>,
+    #[serde(default)]
+    pub transparent_bg: Option<bool>,
 }

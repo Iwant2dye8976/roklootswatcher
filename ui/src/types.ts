@@ -184,6 +184,7 @@ export interface OverlayConfig {
   font_size: number;
   pinned_items: PinnedItemKey[];
   hotkey_enabled: boolean;
+  transparent_bg?: boolean;
 }
 
 export interface PinnedChipDto {

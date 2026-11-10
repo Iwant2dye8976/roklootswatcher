@@ -1615,6 +1615,8 @@ pub struct OverlayConfig {
     pub pinned_items: Vec<PinnedItemKey>,
     #[serde(default = "default_overlay_hotkey_enabled")]
     pub hotkey_enabled: bool,
+    #[serde(default = "default_overlay_transparent_bg")]
+    pub transparent_bg: bool,
 }
 
 fn default_overlay_enabled() -> bool {
@@ -1682,6 +1684,10 @@ pub fn default_overlay_hotkey_enabled() -> bool {
     true
 }
 
+pub fn default_overlay_transparent_bg() -> bool {
+    false
+}
+
 impl Default for OverlayConfig {
     fn default() -> Self {
         Self {
@@ -1697,6 +1703,7 @@ impl Default for OverlayConfig {
             mode: default_overlay_mode(),
             pinned_items: default_overlay_pinned_items(),
             hotkey_enabled: default_overlay_hotkey_enabled(),
+            transparent_bg: default_overlay_transparent_bg(),
         }
     }
 }
@@ -3092,6 +3099,7 @@ mod tests {
                 },
             ],
             hotkey_enabled: false,
+            transparent_bg: true,
         };
         let json = serde_json::to_string(&cfg).expect("Must serialize");
         let back: OverlayConfig = serde_json::from_str(&json).expect("Must deserialize");
