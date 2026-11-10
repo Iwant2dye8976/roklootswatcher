@@ -197,6 +197,16 @@ fn test_overlay_config_partial_update_dto_leaves_unset_fields_none() {
     assert!(partial.pinned_items.is_none());
     assert!(partial.hotkey_enabled.is_none());
     assert!(partial.transparent_bg.is_none());
+    assert!(partial.fade_timeout_secs.is_none());
+    assert!(partial.fade_style.is_none());
+}
+
+#[test]
+fn test_overlay_config_update_dto_fade() {
+    let partial: OverlayConfigUpdateDto =
+        serde_json::from_str(r#"{"fade_timeout_secs": 60, "fade_style": "Hide"}"#).unwrap();
+    assert_eq!(partial.fade_timeout_secs, Some(60));
+    assert_eq!(partial.fade_style, Some(crate::model::OverlayFadeStyle::Hide));
 }
 
 #[test]

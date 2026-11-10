@@ -1660,6 +1660,12 @@ pub fn update_overlay_config(
         if let Some(tb) = config.transparent_bg {
             cfg.overlay.transparent_bg = tb;
         }
+        if let Some(fts) = config.fade_timeout_secs {
+            cfg.overlay.fade_timeout_secs = fts;
+        }
+        if let Some(fs) = config.fade_style {
+            cfg.overlay.fade_style = fs;
+        }
         cfg.save();
     }
 

@@ -2,7 +2,8 @@ use serde::{Deserialize, Serialize};
 use crate::analyzer::ApEconomics;
 use crate::model::{
     get_item_converted_display_for_lang, AppLanguage, AppTheme, BattleRecord, CloseBehavior,
-    DateFilterPreset, FilterMode, OverlayConfig, OverlayDisplayMode, PinnedItemKey, SpeedupUnit,
+    DateFilterPreset, FilterMode, OverlayConfig, OverlayDisplayMode, OverlayFadeStyle,
+    PinnedItemKey, SpeedupUnit,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -333,4 +334,8 @@ pub struct OverlayConfigUpdateDto {
     pub hotkey_enabled: Option<bool>,
     #[serde(default)]
     pub transparent_bg: Option<bool>,
+    #[serde(default)]
+    pub fade_timeout_secs: Option<u32>,
+    #[serde(default)]
+    pub fade_style: Option<OverlayFadeStyle>,
 }
