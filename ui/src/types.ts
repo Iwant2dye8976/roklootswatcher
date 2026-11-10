@@ -171,6 +171,8 @@ export interface DashboardDto {
   latest_battles: BattleRecord[];
 }
 
+export type OverlayFadeStyle = "Dim" | "Hide";
+
 export interface OverlayConfig {
   enabled: boolean;
   mode: OverlayDisplayMode;
@@ -185,6 +187,8 @@ export interface OverlayConfig {
   pinned_items: PinnedItemKey[];
   hotkey_enabled: boolean;
   transparent_bg?: boolean;
+  fade_timeout_secs?: number;
+  fade_style?: OverlayFadeStyle;
 }
 
 export interface PinnedChipDto {

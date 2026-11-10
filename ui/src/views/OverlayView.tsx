@@ -40,9 +40,23 @@ export const OverlayView: React.FC = () => {
   const isMiniOnly = config.mode === "MiniHud";
 
   const totalIdle = (data.idle_secs || 0) + extraIdleSecs;
-  const idleFactor = totalIdle >= 60 ? 0.88 : 1.0;
   const userOpacity = Math.max(0.3, Math.min(1.0, config.opacity || 0.95));
-  const effectiveOpacity = Math.max(0.35, Math.min(1.0, userOpacity * idleFactor));
+  const fadeTimeout = config.fade_timeout_secs ?? 0;
+  const isFaded = fadeTimeout > 0 && totalIdle >= fadeTimeout;
+
+  let effectiveOpacity = userOpacity;
+  if (isFaded) {
+    if (config.fade_style === "Hide") {
+      effectiveOpacity = 0.0;
+    } else {
+      // Dim mode: faint 25% of configured opacity, minimum 0.12
+      effectiveOpacity = Math.max(0.12, userOpacity * 0.25);
+    }
+  } else if (totalIdle >= 60) {
+    // Subtle idle dimming when auto-fade is disabled
+    effectiveOpacity = Math.max(0.35, userOpacity * 0.92);
+  }
+
   const baseFontPx = Math.max(8.5, Math.min(16, config.font_size || 10.5));
   const textHex = config.text_color_hex || "#F8FAFC";
   const accentHex = config.accent_color_hex || "#38BDF8";
@@ -66,7 +80,7 @@ export const OverlayView: React.FC = () => {
         color: textHex,
         textShadow: "0 1px 2px rgba(0,0,0,0.95), 0 0 2px rgba(0,0,0,0.95)",
       }}
-      className={`w-full h-full select-none font-sans antialiased overflow-hidden transition-opacity duration-300 ${
+      className={`w-full h-full select-none font-sans antialiased overflow-hidden transition-opacity duration-700 ease-in-out ${
         isMiniOnly ? "px-1.5 py-0.5" : "p-1.5"
       }`}
     >
