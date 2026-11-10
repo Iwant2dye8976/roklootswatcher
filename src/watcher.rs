@@ -219,6 +219,8 @@ pub enum WatcherUiEvent {
     },
 }
 
+type CachedRecords = Option<(u64, Arc<Vec<BattleRecord>>)>;
+
 pub struct RoKMailWatcher {
     mail_dir: Arc<RwLock<PathBuf>>,
     out_dir: Arc<RwLock<PathBuf>>,
@@ -233,6 +235,7 @@ pub struct RoKMailWatcher {
     ignore_non_main_reports: Arc<AtomicBool>,
 
     active_records: Arc<RwLock<Arc<Vec<BattleRecord>>>>,
+    cached_all_records: Arc<RwLock<CachedRecords>>,
     stats: Arc<RwLock<Statistics>>,
     catalog: Arc<LootCatalog>,
     pub(crate) vault: Arc<RwLock<MailVault>>,
@@ -279,6 +282,7 @@ impl RoKMailWatcher {
             ignore_non_main_reports: Arc::new(AtomicBool::new(true)),
 
             active_records: Arc::new(RwLock::new(Arc::new(Vec::new()))),
+            cached_all_records: Arc::new(RwLock::new(None)),
             stats: Arc::new(RwLock::new(Statistics::default())),
             catalog: Arc::new(catalog),
             vault: Arc::new(RwLock::new(vault)),
@@ -417,11 +421,51 @@ impl RoKMailWatcher {
         self.start(true);
     }
 
-    pub fn recompute_filtered_records_and_stats(&self) -> (usize, usize) {
-        let all = {
+    pub fn invalidate_records_cache(&self) {
+        *self.cached_all_records.write().unwrap_or_else(|e| e.into_inner()) = None;
+    }
+
+    pub fn get_or_load_all_records(&self) -> Arc<Vec<BattleRecord>> {
+        let v_version = {
             let vault = self.vault.read().unwrap_or_else(|e| e.into_inner());
-            vault.get_records()
+            vault.version()
         };
+
+        {
+            let cached_guard = self.cached_all_records.read().unwrap_or_else(|e| e.into_inner());
+            if let Some((ver, records)) = &*cached_guard {
+                if *ver == v_version {
+                    return Arc::clone(records);
+                }
+            }
+        }
+
+        let fresh = {
+            let vault = self.vault.read().unwrap_or_else(|e| e.into_inner());
+            Arc::new(vault.get_records())
+        };
+        *self.cached_all_records.write().unwrap_or_else(|e| e.into_inner()) = Some((v_version, Arc::clone(&fresh)));
+        fresh
+    }
+
+    pub fn set_filter_state_all(
+        &self,
+        mode: FilterMode,
+        account: Option<String>,
+        start_date: Option<NaiveDate>,
+        end_date: Option<NaiveDate>,
+        days: Option<u32>,
+    ) {
+        *self.mode.write().unwrap_or_else(|e| e.into_inner()) = mode;
+        *self.selected_account.write().unwrap_or_else(|e| e.into_inner()) = account;
+        *self.start_date.write().unwrap_or_else(|e| e.into_inner()) = start_date;
+        *self.end_date.write().unwrap_or_else(|e| e.into_inner()) = end_date;
+        *self.days.write().unwrap_or_else(|e| e.into_inner()) = days;
+        self.recompute_filtered_records_and_stats();
+    }
+
+    pub fn recompute_filtered_records_and_stats(&self) -> (usize, usize) {
+        let all = self.get_or_load_all_records();
         let mode = self.get_mode();
         let sel_acc = self.selected_account.read().unwrap_or_else(|e| e.into_inner()).clone();
         let main_uids = self.main_account_uids.read().unwrap_or_else(|e| e.into_inner()).clone();
@@ -455,9 +499,10 @@ impl RoKMailWatcher {
         let e = *self.end_date.read().unwrap_or_else(|e| e.into_inner());
         let d = *self.days.read().unwrap_or_else(|e| e.into_inner());
 
-        let active_vec = if s.is_none() && e.is_none() && d.is_none() {
-            all.into_iter()
+        let active_vec: Vec<BattleRecord> = if s.is_none() && e.is_none() && d.is_none() {
+            all.iter()
                 .filter(|r| mode.matches(&r.battle_type) && matches_acc(r))
+                .cloned()
                 .collect()
         } else {
             filter_records_by_date(
@@ -526,6 +571,7 @@ impl RoKMailWatcher {
 
     pub fn set_main_account_uids(&self, uids: Vec<String>) {
         *self.main_account_uids.write().unwrap_or_else(|e| e.into_inner()) = uids;
+        self.vault.read().unwrap_or_else(|e| e.into_inner()).clear_ignored_files();
         self.recompute_filtered_records_and_stats();
     }
 
@@ -535,10 +581,14 @@ impl RoKMailWatcher {
 
     pub fn set_ignore_non_main_reports(&self, enabled: bool) {
         self.ignore_non_main_reports.store(enabled, Ordering::SeqCst);
+        self.vault.read().unwrap_or_else(|e| e.into_inner()).clear_ignored_files();
         self.recompute_filtered_records_and_stats();
     }
 
     pub fn count_non_main_records(&self) -> usize {
+        if self.get_ignore_non_main_reports() {
+            return 0;
+        }
         let main_uids = self.get_main_account_uids();
         if main_uids.is_empty() {
             return 0;
@@ -557,6 +607,7 @@ impl RoKMailWatcher {
             v.delete_records_except_uids(&main_uids)
         };
         if deleted > 0 {
+            self.invalidate_records_cache();
             self.recompute_filtered_records_and_stats();
             if !keys.is_empty() {
                 self.send_sync_command(crate::cloud_sync::SyncCommand::DeleteRecords(keys));
@@ -567,13 +618,21 @@ impl RoKMailWatcher {
     }
 
     pub fn get_all_detected_accounts(&self) -> Vec<(String, String)> {
-        let all = {
-            let vault = self.vault.read().unwrap_or_else(|e| e.into_inner());
-            vault.get_records()
-        };
+        let all = self.get_or_load_all_records();
+        let main_uids = self.get_main_account_uids();
+        let ignore_non_main = self.get_ignore_non_main_reports();
         let mut map: HashMap<String, String> = HashMap::new();
-        for r in &all {
+        for r in all.iter() {
             let clean_acc = r.account_id.strip_prefix("player_").unwrap_or(&r.account_id).trim();
+            if ignore_non_main && !main_uids.is_empty() {
+                let is_main = !clean_acc.is_empty() && main_uids.iter().any(|u| {
+                    let clean_u = u.strip_prefix("player_").unwrap_or(u).trim();
+                    clean_u == clean_acc
+                });
+                if !is_main {
+                    continue;
+                }
+            }
             if !clean_acc.is_empty() {
                 let entry = map.entry(clean_acc.to_string()).or_default();
                 if entry.is_empty() && !r.player_name.is_empty() {
@@ -623,8 +682,7 @@ impl RoKMailWatcher {
     where
         F: FnOnce(&[BattleRecord]) -> R,
     {
-        let v = self.vault.read().unwrap_or_else(|e| e.into_inner());
-        let recs = v.get_records();
+        let recs = self.get_or_load_all_records();
         f(&recs)
     }
 
@@ -634,16 +692,13 @@ impl RoKMailWatcher {
     }
 
     pub fn get_today_vault_records(&self, filter: FilterMode) -> Vec<BattleRecord> {
-        let all = {
-            let vault = self.vault.read().unwrap_or_else(|e| e.into_inner());
-            vault.get_records()
-        };
+        let all = self.get_or_load_all_records();
         let today = crate::analyzer::current_date_vn();
         let main_uids = self.get_main_account_uids();
         let ignore_non_main = self.get_ignore_non_main_reports();
 
         let filtered_by_date = crate::analyzer::filter_records_by_date(
-            &all,
+            all.as_slice(),
             Some(today),
             Some(today),
             None,
@@ -959,6 +1014,9 @@ impl RoKMailWatcher {
         };
         self.log("INFO", &cache_msg);
 
+        let main_uids = self.get_main_account_uids();
+        let ignore_non_main = self.get_ignore_non_main_reports();
+
         let (files_to_decode, skipped_count): (Vec<PathBuf>, usize) = if force_all {
             (all_files_map.into_values().collect(), 0)
         } else {
@@ -966,7 +1024,8 @@ impl RoKMailWatcher {
             let mut to_decode = Vec::new();
             let mut skipped = 0;
             for (fname, p) in all_files_map {
-                if v.contains_file_or_id(&fname) && v.record_has_account_id(&fname) {
+                let is_ignored = ignore_non_main && !main_uids.is_empty() && v.is_file_ignored(&fname, &main_uids);
+                if (v.contains_file_or_id(&fname) && v.record_has_account_id(&fname)) || is_ignored {
                     skipped += 1;
                 } else {
                     to_decode.push(p);
@@ -1001,11 +1060,10 @@ impl RoKMailWatcher {
         use rayon::prelude::*;
         let catalog = &self.catalog;
         let mut scanned_records: Vec<BattleRecord> = Vec::new();
-        let main_uids = self.get_main_account_uids();
-        let ignore_non_main = self.get_ignore_non_main_reports();
+        let mut ignored_files: Vec<(String, String)> = Vec::new();
 
         for chunk in files_to_decode.chunks(crate::lilith_stream::MAIL_DECODE_BATCH_SIZE) {
-            let chunk_records: Vec<BattleRecord> = chunk
+            let chunk_items: Vec<Result<BattleRecord, (String, String)>> = chunk
                 .par_iter()
                 .filter_map(|fpath| {
                     let fname = fpath.file_name()?.to_string_lossy();
@@ -1023,20 +1081,32 @@ impl RoKMailWatcher {
                             clean_u == clean_rec
                         });
                         if !is_main {
-                            return None;
+                            return Some(Err((fname.to_string(), rec.account_id)));
                         }
                     }
                     let backup_dst = vault_dir.join(&*fname);
                     if !backup_dst.exists() && fpath.starts_with(&mail_dir) {
                         let _ = std::fs::copy(fpath, &backup_dst);
                     }
-                    Some(rec)
+                    Some(Ok(rec))
                 })
                 .collect();
-            scanned_records.extend(chunk_records);
+
+            for item in chunk_items {
+                match item {
+                    Ok(rec) => scanned_records.push(rec),
+                    Err(ign) => ignored_files.push(ign),
+                }
+            }
+        }
+
+        if !ignored_files.is_empty() {
+            let v = self.vault.read().unwrap_or_else(|e| e.into_inner());
+            v.mark_files_ignored(&ignored_files);
         }
 
         let new_added = if !scanned_records.is_empty() {
+            self.invalidate_records_cache();
             let mut v = self.vault.write().unwrap_or_else(|e| e.into_inner());
             v.upsert_batch(scanned_records)
         } else {
@@ -1249,6 +1319,8 @@ impl RoKMailWatcher {
                 clean_u == clean_rec
             });
             if !is_main {
+                let v = self.vault.read().unwrap_or_else(|e| e.into_inner());
+                v.mark_files_ignored(&[(fname, rec.account_id)]);
                 return;
             }
         }
@@ -1268,9 +1340,9 @@ impl RoKMailWatcher {
 
         if is_new {
             self.notify_sync_trigger();
+            self.invalidate_records_cache();
+            self.recompute_filtered_records_and_stats();
         }
-
-        self.recompute_filtered_records_and_stats();
 
         let loot_preview: Vec<String> = rec
             .item_totals
@@ -1367,6 +1439,7 @@ impl RoKMailWatcher {
             main_account_uids: Arc::clone(&self.main_account_uids),
             ignore_non_main_reports: Arc::clone(&self.ignore_non_main_reports),
             active_records: Arc::clone(&self.active_records),
+            cached_all_records: Arc::clone(&self.cached_all_records),
             stats: Arc::clone(&self.stats),
             catalog: Arc::clone(&self.catalog),
             vault: Arc::clone(&self.vault),
@@ -1854,6 +1927,20 @@ mod tests {
         // Clear account filter -> back to 2
         watcher.set_account_filter(None);
         assert_eq!(watcher.get_active_count(), 2);
+
+        // When main_account_uids configured and ignore_non_main_reports enabled
+        watcher.set_main_account_uids(vec!["11111".to_string()]);
+        watcher.set_ignore_non_main_reports(true);
+        assert_eq!(watcher.count_non_main_records(), 0);
+        let detected = watcher.get_all_detected_accounts();
+        assert_eq!(detected.len(), 1);
+        assert_eq!(detected[0].0, "11111");
+
+        // When ignore_non_main_reports disabled
+        watcher.set_ignore_non_main_reports(false);
+        assert_eq!(watcher.count_non_main_records(), 1);
+        let detected_all = watcher.get_all_detected_accounts();
+        assert_eq!(detected_all.len(), 2);
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }

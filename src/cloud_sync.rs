@@ -895,26 +895,25 @@ fn perform_delta_sync(
         );
 
         if let Err(ref e) = upload_res {
-            if (e.contains("Token phiên làm việc đã hết hạn") || e.contains("401"))
-                && config.refresh_token.is_some()
-            {
-                let ref_tok = config.refresh_token.as_ref().unwrap();
-                if let Ok((new_acc, new_ref)) = refresh_session(&url, &anon_key, ref_tok, timeout) {
-                    access_token = new_acc.clone();
-                    config.access_token = Some(new_acc.clone());
-                    config.refresh_token = Some(new_ref.clone());
-                    if let Ok(mut s) = state.write() {
-                        s.new_tokens = Some((new_acc.clone(), new_ref));
-                    }
+            if e.contains("Token phiên làm việc đã hết hạn") || e.contains("401") {
+                if let Some(ref_tok) = &config.refresh_token {
+                    if let Ok((new_acc, new_ref)) = refresh_session(&url, &anon_key, ref_tok, timeout) {
+                        access_token = new_acc.clone();
+                        config.access_token = Some(new_acc.clone());
+                        config.refresh_token = Some(new_ref.clone());
+                        if let Ok(mut s) = state.write() {
+                            s.new_tokens = Some((new_acc.clone(), new_ref));
+                        }
 
-                    upload_res = upload_report_records_batch(
-                        &url,
-                        &anon_key,
-                        &new_acc,
-                        &user_id,
-                        &records,
-                        timeout,
-                    );
+                        upload_res = upload_report_records_batch(
+                            &url,
+                            &anon_key,
+                            &new_acc,
+                            &user_id,
+                            &records,
+                            timeout,
+                        );
+                    }
                 }
             }
         }
@@ -1043,27 +1042,26 @@ fn perform_restore(
         );
 
         if let Err(ref e) = page_res {
-            if (e.contains("Token phiên làm việc đã hết hạn") || e.contains("401"))
-                && config.refresh_token.is_some()
-            {
-                let ref_tok = config.refresh_token.as_ref().unwrap();
-                if let Ok((new_acc, new_ref)) = refresh_session(&url, &anon_key, ref_tok, Some(Duration::from_secs(15))) {
-                    access_token = new_acc.clone();
-                    config.access_token = Some(new_acc.clone());
-                    config.refresh_token = Some(new_ref.clone());
-                    if let Ok(mut s) = state.write() {
-                        s.new_tokens = Some((new_acc.clone(), new_ref));
-                    }
+            if e.contains("Token phiên làm việc đã hết hạn") || e.contains("401") {
+                if let Some(ref_tok) = &config.refresh_token {
+                    if let Ok((new_acc, new_ref)) = refresh_session(&url, &anon_key, ref_tok, Some(Duration::from_secs(15))) {
+                        access_token = new_acc.clone();
+                        config.access_token = Some(new_acc.clone());
+                        config.refresh_token = Some(new_ref.clone());
+                        if let Ok(mut s) = state.write() {
+                            s.new_tokens = Some((new_acc.clone(), new_ref));
+                        }
 
-                    page_res = fetch_report_records_page(
-                        &url,
-                        &anon_key,
-                        &access_token,
-                        &user_id,
-                        limit,
-                        offset,
-                        Some(Duration::from_secs(15)),
-                    );
+                        page_res = fetch_report_records_page(
+                            &url,
+                            &anon_key,
+                            &access_token,
+                            &user_id,
+                            limit,
+                            offset,
+                            Some(Duration::from_secs(15)),
+                        );
+                    }
                 }
             }
         }
@@ -1111,24 +1109,23 @@ fn perform_restore(
         );
 
         if let Err(ref e) = legacy_res {
-            if (e.contains("Token phiên làm việc đã hết hạn") || e.contains("401"))
-                && config.refresh_token.is_some()
-            {
-                let ref_tok = config.refresh_token.as_ref().unwrap();
-                if let Ok((new_acc, new_ref)) = refresh_session(&url, &anon_key, ref_tok, Some(Duration::from_secs(15))) {
-                    access_token = new_acc.clone();
-                    config.access_token = Some(new_acc.clone());
-                    config.refresh_token = Some(new_ref.clone());
-                    if let Ok(mut s) = state.write() {
-                        s.new_tokens = Some((new_acc.clone(), new_ref));
-                    }
+            if e.contains("Token phiên làm việc đã hết hạn") || e.contains("401") {
+                if let Some(ref_tok) = &config.refresh_token {
+                    if let Ok((new_acc, new_ref)) = refresh_session(&url, &anon_key, ref_tok, Some(Duration::from_secs(15))) {
+                        access_token = new_acc.clone();
+                        config.access_token = Some(new_acc.clone());
+                        config.refresh_token = Some(new_ref.clone());
+                        if let Ok(mut s) = state.write() {
+                            s.new_tokens = Some((new_acc.clone(), new_ref));
+                        }
 
-                    legacy_res = check_legacy_user_vault(
-                        &url,
-                        &anon_key,
-                        &access_token,
-                        Some(Duration::from_secs(15)),
-                    );
+                        legacy_res = check_legacy_user_vault(
+                            &url,
+                            &anon_key,
+                            &access_token,
+                            Some(Duration::from_secs(15)),
+                        );
+                    }
                 }
             }
         }
@@ -1299,16 +1296,17 @@ fn run_sync_worker_loop(
                     let user_id = config.user_id.clone().unwrap_or_default();
                     let mut access_token = config.access_token.clone().unwrap_or_default();
                     if let Err(ref e) = delete_report_records_batch(&url, &anon_key, &access_token, &user_id, &keys, Some(Duration::from_secs(15))) {
-                        if (e.contains("Token phiên làm việc đã hết hạn") || e.contains("401")) && config.refresh_token.is_some() {
-                            let ref_tok = config.refresh_token.as_ref().unwrap();
-                            if let Ok((new_acc, new_ref)) = refresh_session(&url, &anon_key, ref_tok, Some(Duration::from_secs(15))) {
-                                access_token = new_acc.clone();
-                                config.access_token = Some(new_acc.clone());
-                                config.refresh_token = Some(new_ref.clone());
-                                if let Ok(mut s) = state.write() {
-                                    s.new_tokens = Some((new_acc.clone(), new_ref));
+                        if e.contains("Token phiên làm việc đã hết hạn") || e.contains("401") {
+                            if let Some(ref_tok) = &config.refresh_token {
+                                if let Ok((new_acc, new_ref)) = refresh_session(&url, &anon_key, ref_tok, Some(Duration::from_secs(15))) {
+                                    access_token = new_acc.clone();
+                                    config.access_token = Some(new_acc.clone());
+                                    config.refresh_token = Some(new_ref.clone());
+                                    if let Ok(mut s) = state.write() {
+                                        s.new_tokens = Some((new_acc.clone(), new_ref));
+                                    }
+                                    let _ = delete_report_records_batch(&url, &anon_key, &access_token, &user_id, &keys, Some(Duration::from_secs(15)));
                                 }
-                                let _ = delete_report_records_batch(&url, &anon_key, &access_token, &user_id, &keys, Some(Duration::from_secs(15)));
                             }
                         }
                     }

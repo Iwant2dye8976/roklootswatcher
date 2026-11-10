@@ -596,6 +596,7 @@ fn run_gui_mode(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     if !config.main_account_uids.is_empty() {
         watcher.set_main_account_uids(config.main_account_uids.clone());
     }
+    watcher.set_ignore_non_main_reports(config.ignore_non_main_reports);
 
     tauri_app::run(watcher, rx_ui, start_minimized, _single_instance)
 }

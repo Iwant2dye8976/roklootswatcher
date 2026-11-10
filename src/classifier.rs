@@ -203,6 +203,10 @@ pub fn classify_mail(mail: &LilithValue) -> Option<&'static str> {
     None
 }
 
+pub fn format_barbarian_target(levels: &[u32]) -> (String, String) {
+    crate::model::format_barbarian_target(levels)
+}
+
 pub fn extract_barbarian_battle_details(
     mail: &LilithValue,
     filename: &str,
@@ -317,24 +321,7 @@ pub fn extract_barbarian_battle_details(
         }
     }
 
-    let (motte_level, target) = if !levels.is_empty() {
-        let min_lvl = *levels.iter().min().unwrap();
-        let max_lvl = *levels.iter().max().unwrap();
-        let count = levels.len();
-
-        if count == 1 {
-            (min_lvl.to_string(), format!("Dã Man Cấp {}", min_lvl))
-        } else if min_lvl == max_lvl {
-            (min_lvl.to_string(), format!("Dã Man Cấp {} (x{})", min_lvl, count))
-        } else {
-            (
-                format!("{}-{}", min_lvl, max_lvl),
-                format!("Dã Man Cấp {}-{} (x{})", min_lvl, max_lvl, count),
-            )
-        }
-    } else {
-        ("".to_string(), "Dã Man".to_string())
-    };
+    let (motte_level, target) = format_barbarian_target(&levels);
 
     let content_desc = target.clone();
     let (account_id, player_name) = extract_account_info(mail);

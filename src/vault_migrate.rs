@@ -41,7 +41,12 @@ pub fn create_schema(conn: &Connection) -> rusqlite::Result<()> {
         CREATE INDEX IF NOT EXISTS idx_battle_type ON battle_records(battle_type);
         CREATE INDEX IF NOT EXISTS idx_mail_id ON battle_records(mail_id);
         CREATE INDEX IF NOT EXISTS idx_filename ON battle_records(filename);
-        CREATE INDEX IF NOT EXISTS idx_synced_at ON battle_records(synced_at);",
+        CREATE INDEX IF NOT EXISTS idx_synced_at ON battle_records(synced_at);
+
+        CREATE TABLE IF NOT EXISTS ignored_mail_files (
+            filename   TEXT PRIMARY KEY,
+            account_id TEXT NOT NULL DEFAULT ''
+        );",
     )?;
     let _ = conn.execute("ALTER TABLE battle_records ADD COLUMN account_id TEXT NOT NULL DEFAULT ''", []);
     let _ = conn.execute("ALTER TABLE battle_records ADD COLUMN player_name TEXT NOT NULL DEFAULT ''", []);

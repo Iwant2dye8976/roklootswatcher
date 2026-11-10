@@ -1,0 +1,200 @@
+import { AppSnapshotDto, DashboardDto, BattleRecord, OverlayPayloadDto } from "../types";
+
+export function getMockSnapshot(): AppSnapshotDto {
+  return {
+    version: "2.8.10",
+    mail_dir: "C:\\Program Files\\Rise of Kingdoms\\mailcache",
+    mode: "all-targets",
+    date_preset: "Last7Days",
+    date_from: "",
+    date_to: "",
+    account_uid: "102938475",
+    available_accounts: [
+      { uid: "102938475", name: "Governor 1 [Prime]" },
+      { uid: "998877665", name: "Farm Account 2" },
+    ],
+    detected_accounts: [
+      { uid: "102938475", name: "Governor 1 [Prime]" },
+      { uid: "998877665", name: "Farm Account 2" },
+    ],
+    non_main_records_count: 14,
+    main_account_uids: ["102938475"],
+    ignore_non_main_reports: true,
+    theme: "dark",
+    language: "vi",
+    speedup_unit: "hours",
+    close_behavior: "tray",
+    is_watching: true,
+    is_scanning: false,
+    watcher_status_text: "Đang theo dõi",
+    vault_count: 1482,
+    auto_scan: true,
+    autostart: true,
+    autostart_minimized: true,
+    overlay_config: {
+      enabled: true,
+      mode: "Combined",
+      filter: "all-rewards",
+      opacity: 0.9,
+      text_color_hex: "#F8FAFC",
+      accent_color_hex: "#38BDF8",
+      offset_x: 16,
+      offset_y: 60,
+      width: 240,
+      font_size: 10.5,
+      pinned_items: ["SpeedupUniversal"],
+      hotkey_enabled: true,
+      transparent_bg: false,
+      fade_timeout_secs: 5,
+      fade_style: "Dim",
+    },
+    cloud_status: {
+      logged_in: true,
+      login_in_progress: false,
+      email: "governor@rok.gg",
+      last_sync_time: "2026-11-08 19:35",
+      pending_count: 0,
+      is_syncing: false,
+      is_restoring: false,
+      auto_sync: true,
+      backup_interval_minutes: 30,
+      backup_on_exit: true,
+      stay_login: true,
+    },
+  };
+}
+
+export function getMockDashboard(): DashboardDto {
+  return {
+    total_battles: 142,
+    total_crystals: 21300,
+    avg_crystals: 150,
+    speedup_total_mins: 2910,
+    speedup_univ_mins: 1320,
+    speedup_train_mins: 720,
+    speedup_heal_mins: 870,
+    total_resources: 40600000,
+    motte_count: 45,
+    fort_count: 32,
+    barb_count: 55,
+    gathering_count: 10,
+    top_items: [
+      {
+        itype: 1,
+        sub_type: 9,
+        name_vi: "Pha Lê",
+        name_en: "Crystals",
+        display_name: "Crystals",
+        category: "crystals",
+        total_quantity: 21300,
+        converted_value: "21,300",
+        battle_count: 142,
+        drop_rate: 100.0,
+        avg_per_battle: 150.0,
+        max_in_battle: 300,
+        by_battle_type: { motte: 21300 },
+      },
+    ],
+    ap_economics: {
+      total_ap_consumed: 14200,
+      total_ap_recovered: 2500,
+      net_ap_spent: 11700,
+      rebate_pct: 17.6,
+      speedup_mins_per_1k_ap: 3.4,
+      gems_per_1k_ap: 130.2,
+      target_benchmarks: [],
+      daily_timeline: [],
+    },
+    latest_battles: getMockBattles(),
+  };
+}
+
+export function getMockBattles(): BattleRecord[] {
+  return [
+    {
+      id: "mail_001",
+      file_name: "Persistent.Mail.001",
+      battle_type: "motte",
+      time_raw: 1731069600000000,
+      time_utc: "2026-11-08 12:40:00",
+      time_vn: "2026-11-08 19:40:00",
+      target: "Motte Level 10",
+      target_level: "10",
+      damage_pct: 100,
+      plunder_tier: 1,
+      talent_add: 0,
+      pos_x: 412,
+      pos_y: 812,
+      account_uid: "102938475",
+      account_name: "Governor 1 [Prime]",
+      items: [
+        { name_vi: "Pha Lê", name_en: "Crystals", display_name: "Crystals", itype: 1, sub_type: 9, value: 150 },
+      ],
+      crystals: 150,
+      speedup_univ_mins: 180,
+    },
+  ];
+}
+
+export function getMockInventory() {
+  return {
+    items: [],
+    resources: {
+      total_val: 0,
+      food_val: 0,
+      wood_val: 0,
+      stone_val: 0,
+      gold_val: 0,
+      gem_val: 0,
+      food_packs: 0,
+      wood_packs: 0,
+      stone_packs: 0,
+      gold_packs: 0,
+      gem_packs: 0,
+      choice_packs: 0,
+    },
+    materials: {
+      leather_total: 0,
+      iron_total: 0,
+      ebony_total: 0,
+      bone_total: 0,
+      total_normal: 0,
+      total_advanced: 0,
+      total_converted: 0,
+    },
+    apBottles: {
+      ap_50: 0,
+      ap_100: 0,
+      total_bottles: 0,
+      total_points: 0,
+    },
+  };
+}
+
+export function getMockOverlay(): OverlayPayloadDto {
+  return {
+    records: getMockBattles(),
+    config: {
+      enabled: true,
+      mode: "Combined",
+      filter: "all-rewards",
+      opacity: 0.9,
+      text_color_hex: "#F8FAFC",
+      accent_color_hex: "#38BDF8",
+      offset_x: 16,
+      offset_y: 60,
+      width: 240,
+      font_size: 10.5,
+      pinned_items: ["SpeedupUniversal"],
+      hotkey_enabled: true,
+      transparent_bg: false,
+    },
+    pinned_chips: [
+      { id: "SpeedupUniversal", label: "SPEEDUP", display_val: "24h 30m", color_hex: "#38bdf8" },
+    ],
+    today_runs: { motte: 10, fort: 5, barb: 12, gather: 2, total: 29 },
+    last_mail_timestamp: "2026-11-08 19:40:00",
+    rok_window_detected: true,
+    idle_secs: 0,
+  };
+}

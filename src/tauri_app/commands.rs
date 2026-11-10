@@ -1045,9 +1045,7 @@ pub fn set_filter_state(
         cfg.save();
     }
 
-    state.watcher.set_mode(mode);
-    state.watcher.set_account_filter(normalized_acc.clone());
-    state.watcher.set_date_filter(start_date, end_date, days);
+    state.watcher.set_filter_state_all(mode, normalized_acc.clone(), start_date, end_date, days);
 
     let cfg_snap = state
         .config

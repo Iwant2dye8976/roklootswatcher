@@ -110,6 +110,7 @@ pub struct MailVault {
     binary_dir: PathBuf,
     conn: Mutex<Connection>,
     is_corrupted: bool,
+    version: std::sync::atomic::AtomicU64,
 }
 
 impl std::fmt::Debug for MailVault {
@@ -203,10 +204,19 @@ impl MailVault {
             binary_dir,
             conn: Mutex::new(conn),
             is_corrupted,
+            version: std::sync::atomic::AtomicU64::new(1),
         };
 
         vault.init(out_dir);
         vault
+    }
+
+    pub fn version(&self) -> u64 {
+        self.version.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    pub fn bump_version(&self) {
+        self.version.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     }
 
     fn conn(&self) -> MutexGuard<'_, Connection> {
@@ -311,6 +321,49 @@ impl MailVault {
             |_| Ok(()),
         )
         .is_ok()
+    }
+
+    pub fn is_file_ignored(&self, fname: &str, main_uids: &[String]) -> bool {
+        let conn = self.conn();
+        let acc: Option<String> = conn
+            .query_row(
+                "SELECT account_id FROM ignored_mail_files WHERE filename = ?1 LIMIT 1",
+                params![fname],
+                |r| r.get(0),
+            )
+            .ok();
+
+        if let Some(acc_id) = acc {
+            let clean_acc = acc_id.strip_prefix("player_").unwrap_or(&acc_id).trim();
+            !main_uids.iter().any(|u| {
+                let clean_u = u.strip_prefix("player_").unwrap_or(u).trim();
+                clean_u == clean_acc
+            })
+        } else {
+            false
+        }
+    }
+
+    pub fn mark_files_ignored(&self, files: &[(String, String)]) {
+        if files.is_empty() {
+            return;
+        }
+        let mut conn = self.conn();
+        if let Ok(tx) = conn.transaction() {
+            if let Ok(mut stmt) = tx.prepare_cached(
+                "INSERT OR REPLACE INTO ignored_mail_files (filename, account_id) VALUES (?1, ?2)",
+            ) {
+                for (fname, acc_id) in files {
+                    let _ = stmt.execute(params![fname, acc_id]);
+                }
+            }
+            let _ = tx.commit();
+        };
+    }
+
+    pub fn clear_ignored_files(&self) {
+        let conn = self.conn();
+        let _ = conn.execute("DELETE FROM ignored_mail_files", []);
     }
 
     pub fn backfill_missing_account_ids(&mut self, out_dir: &Path) -> usize {
@@ -512,6 +565,8 @@ impl MailVault {
         if deleted == 0 {
             return (0, Vec::new());
         }
+
+        self.bump_version();
 
         // 3. Remove raw binary files from mail_vault
         for fname in &files_to_delete {
@@ -715,7 +770,11 @@ impl MailVault {
 
     pub fn upsert(&mut self, rec: BattleRecord) -> bool {
         let conn = self.conn();
-        Self::upsert_inner(&conn, rec)
+        let is_new = Self::upsert_inner(&conn, rec);
+        if is_new {
+            self.bump_version();
+        }
+        is_new
     }
 
     pub fn upsert_batch(&mut self, recs: Vec<BattleRecord>) -> usize {
@@ -745,6 +804,7 @@ impl MailVault {
         drop(conn);
 
         if new_count > 0 {
+            self.bump_version();
             let _ = self.save_to_disk();
         }
         new_count
@@ -869,6 +929,9 @@ impl MailVault {
         }
         tx.commit()?;
         drop(conn);
+        if restored > 0 {
+            self.bump_version();
+        }
         let _ = self.save_to_disk();
         Ok(restored)
     }
@@ -1312,24 +1375,7 @@ impl MailVault {
                 }
             }
 
-            let (target_level, target) = if !levels.is_empty() {
-                let min_lvl = *levels.iter().min().unwrap();
-                let max_lvl = *levels.iter().max().unwrap();
-                let count = levels.len();
-
-                if count == 1 {
-                    (min_lvl.to_string(), format!("Dã Man Cấp {}", min_lvl))
-                } else if min_lvl == max_lvl {
-                    (min_lvl.to_string(), format!("Dã Man Cấp {} (x{})", min_lvl, count))
-                } else {
-                    (
-                        format!("{}-{}", min_lvl, max_lvl),
-                        format!("Dã Man Cấp {}-{} (x{})", min_lvl, max_lvl, count),
-                    )
-                }
-            } else {
-                ("".to_string(), "Dã Man".to_string())
-            };
+            let (target_level, target) = crate::model::format_barbarian_target(&levels);
 
             let content = target.clone();
 

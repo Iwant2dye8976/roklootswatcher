@@ -246,16 +246,20 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({
   }, []);
 
   useEffect(() => {
-    let unlistenUpdated: (() => void) | undefined;
-    let unlistenStatus: (() => void) | undefined;
-    let unlistenLog: (() => void) | undefined;
-    let unlistenCloud: (() => void) | undefined;
-    let unlistenCloudPush: (() => void) | undefined;
-    let unlistenCloudPull: (() => void) | undefined;
+    let isMounted = true;
+    const cleanups: Array<() => void> = [];
+    const register = (fn: () => void) => {
+      if (isMounted) {
+        cleanups.push(fn);
+      } else {
+        fn();
+      }
+    };
 
     async function init() {
       try {
         const snap = await api.getInitialState();
+        if (!isMounted) return;
         setSnapshot(snap);
         setTheme(snap.theme);
         setLanguage(snap.language);
@@ -269,19 +273,22 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({
         applyDocumentTheme(snap.theme);
 
         const dash = await api.getDashboardData();
+        if (!isMounted) return;
         setDashboard(dash);
       } catch (err) {
         console.error("Initialization error:", err);
       } finally {
-        setLoading(false);
+        if (isMounted) setLoading(false);
       }
 
-      unlistenUpdated = await api.onWatcherUpdated(() => {
+      if (!isMounted) return;
+
+      api.onWatcherUpdated(() => {
         refreshDashboard();
         refreshSnapshot();
-      });
+      }).then(register);
 
-      unlistenStatus = await api.onWatcherStatus((statusPayload) => {
+      api.onWatcherStatus((statusPayload) => {
         const scanningNow = Boolean(statusPayload.is_scanning);
         if (!scanningNow && pendingManualScanRef.current) {
           pendingManualScanRef.current = false;
@@ -305,19 +312,19 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({
               }
             : prev
         );
-      });
+      }).then(register);
 
-      unlistenLog = await api.onWatcherLog((line) => {
+      api.onWatcherLog((line) => {
         setConsoleLogs((prev) => [...prev.slice(-499), line]);
-      });
+      }).then(register);
 
-      unlistenCloud = await api.onCloudUpdated((status) => {
+      api.onCloudUpdated((status) => {
         setSnapshot((prev) =>
           prev ? { ...prev, cloud_status: status } : prev
         );
-      });
+      }).then(register);
 
-      unlistenCloudPush = await api.onCloudPushResult((res) => {
+      api.onCloudPushResult((res) => {
         const isVi = languageRef.current === "vi";
         if (res.success) {
           addToast({
@@ -339,9 +346,9 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({
           });
         }
         refreshSnapshot();
-      });
+      }).then(register);
 
-      unlistenCloudPull = await api.onCloudPullResult((res) => {
+      api.onCloudPullResult((res) => {
         const isVi = languageRef.current === "vi";
         if (res.success) {
           addToast({
@@ -360,18 +367,14 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({
         }
         refreshSnapshot();
         refreshDashboard();
-      });
+      }).then(register);
     }
 
     init();
 
     return () => {
-      if (unlistenUpdated) unlistenUpdated();
-      if (unlistenStatus) unlistenStatus();
-      if (unlistenLog) unlistenLog();
-      if (unlistenCloud) unlistenCloud();
-      if (unlistenCloudPush) unlistenCloudPush();
-      if (unlistenCloudPull) unlistenCloudPull();
+      isMounted = false;
+      cleanups.forEach((fn) => fn());
     };
   }, [refreshDashboard, refreshSnapshot, addToast]);
 

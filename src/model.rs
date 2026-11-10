@@ -2175,6 +2175,26 @@ impl AppConfig {
     }
 }
 
+pub fn format_barbarian_target(levels: &[u32]) -> (String, String) {
+    if levels.is_empty() {
+        return ("".to_string(), "Dã Man".to_string());
+    }
+    let min_lvl = *levels.iter().min().unwrap_or(&0);
+    let max_lvl = *levels.iter().max().unwrap_or(&0);
+    let count = levels.len();
+
+    if count == 1 {
+        (min_lvl.to_string(), format!("Dã Man Cấp {}", min_lvl))
+    } else if min_lvl == max_lvl {
+        (min_lvl.to_string(), format!("Dã Man Cấp {} (x{})", min_lvl, count))
+    } else {
+        (
+            format!("{}-{}", min_lvl, max_lvl),
+            format!("Dã Man Cấp {}-{} (x{})", min_lvl, max_lvl, count),
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
