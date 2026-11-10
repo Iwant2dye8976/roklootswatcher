@@ -177,6 +177,12 @@ export const SettingsView: React.FC = () => {
 
   const [autoScroll, setAutoScroll] = useState(true);
   const logContainerRef = useRef<HTMLDivElement>(null);
+  const lastFadeTimeoutRef = useRef<number>(
+    (overlayCfg.fade_timeout_secs ?? 0) > 0 ? (overlayCfg.fade_timeout_secs ?? 30) : 30
+  );
+  if ((overlayCfg.fade_timeout_secs ?? 0) > 0) {
+    lastFadeTimeoutRef.current = overlayCfg.fade_timeout_secs!;
+  }
 
   useEffect(() => {
     if (snapshot?.mail_dir !== undefined) {
@@ -1478,22 +1484,30 @@ export const SettingsView: React.FC = () => {
           </div>
 
           {/* Auto-Fade when idle after n seconds */}
-          <div className="pt-2 border-t border-binance-hairline space-y-2">
+          <div
+            className={`pt-2 border-t border-binance-hairline space-y-2 transition-all duration-200 ${
+              !overlayCfg.enabled ? "opacity-40 pointer-events-none select-none" : ""
+            }`}
+          >
             <div className="flex items-center justify-between">
               <span className="text-[11px] font-mono text-binance-muted">
                 {t("overlayAutoFade")}
               </span>
               <button
                 type="button"
-                onClick={() =>
+                disabled={!overlayCfg.enabled}
+                onClick={() => {
+                  const isCurrentlyOn = (overlayCfg.fade_timeout_secs ?? 0) > 0;
                   updateOverlay({
-                    fade_timeout_secs: (overlayCfg.fade_timeout_secs ?? 0) > 0 ? 0 : 30,
-                  })
-                }
-                className={`relative inline-flex h-4 w-8 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                  (overlayCfg.fade_timeout_secs ?? 0) > 0
-                    ? "bg-binance-yellow"
-                    : "bg-binance-hairline"
+                    fade_timeout_secs: isCurrentlyOn ? 0 : (lastFadeTimeoutRef.current || 30),
+                  });
+                }}
+                className={`relative inline-flex h-4 w-8 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                  !overlayCfg.enabled
+                    ? "cursor-not-allowed bg-binance-hairline"
+                    : (overlayCfg.fade_timeout_secs ?? 0) > 0
+                    ? "cursor-pointer bg-binance-yellow"
+                    : "cursor-pointer bg-binance-hairline"
                 }`}
               >
                 <span
@@ -1577,7 +1591,13 @@ export const SettingsView: React.FC = () => {
               </span>
               <div className="flex items-center gap-2">
                 {(overlayCfg.fade_timeout_secs ?? 0) > 0 && (
-                  <span className="text-[10px] text-binance-yellow border border-binance-yellow/40 rounded px-1.5 py-0.2 bg-binance-yellow/10">
+                  <span
+                    className={`text-[10px] border rounded px-1.5 py-0.2 ${
+                      overlayCfg.enabled
+                        ? "text-binance-yellow border-binance-yellow/40 bg-binance-yellow/10"
+                        : "text-binance-muted border-binance-hairline bg-binance-hairline/20 opacity-60"
+                    }`}
+                  >
                     Fade {overlayCfg.fade_timeout_secs}s ({overlayCfg.fade_style ?? "Dim"})
                   </span>
                 )}
