@@ -1589,6 +1589,13 @@ pub enum PinnedItemKey {
     SpeedupHealing,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum OverlayFadeStyle {
+    #[default]
+    Dim,
+    Hide,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct OverlayConfig {
     #[serde(default = "default_overlay_enabled")]
@@ -1617,6 +1624,10 @@ pub struct OverlayConfig {
     pub hotkey_enabled: bool,
     #[serde(default = "default_overlay_transparent_bg")]
     pub transparent_bg: bool,
+    #[serde(default = "default_overlay_fade_timeout_secs")]
+    pub fade_timeout_secs: u32,
+    #[serde(default)]
+    pub fade_style: OverlayFadeStyle,
 }
 
 fn default_overlay_enabled() -> bool {
@@ -1688,6 +1699,10 @@ pub fn default_overlay_transparent_bg() -> bool {
     false
 }
 
+pub fn default_overlay_fade_timeout_secs() -> u32 {
+    0
+}
+
 impl Default for OverlayConfig {
     fn default() -> Self {
         Self {
@@ -1704,6 +1719,8 @@ impl Default for OverlayConfig {
             pinned_items: default_overlay_pinned_items(),
             hotkey_enabled: default_overlay_hotkey_enabled(),
             transparent_bg: default_overlay_transparent_bg(),
+            fade_timeout_secs: default_overlay_fade_timeout_secs(),
+            fade_style: OverlayFadeStyle::default(),
         }
     }
 }
@@ -3061,6 +3078,27 @@ mod tests {
     }
 
     #[test]
+    fn test_overlay_config_fade_defaults_and_roundtrip() {
+        let cfg = OverlayConfig {
+            fade_timeout_secs: 45,
+            fade_style: OverlayFadeStyle::Hide,
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&cfg).expect("Must serialize");
+        let back: OverlayConfig = serde_json::from_str(&json).expect("Must deserialize");
+        assert_eq!(back.fade_timeout_secs, 45);
+        assert_eq!(back.fade_style, OverlayFadeStyle::Hide);
+    }
+
+    #[test]
+    fn test_overlay_config_fade_backward_compat() {
+        let legacy_json = r#"{"enabled":true,"opacity":0.8}"#;
+        let config: OverlayConfig = serde_json::from_str(legacy_json).expect("Must parse legacy config");
+        assert_eq!(config.fade_timeout_secs, 0);
+        assert_eq!(config.fade_style, OverlayFadeStyle::Dim);
+    }
+
+    #[test]
     fn test_overlay_display_mode_cycle() {
         assert_eq!(OverlayDisplayMode::Cards.next(), OverlayDisplayMode::MiniHud);
         assert_eq!(OverlayDisplayMode::MiniHud.next(), OverlayDisplayMode::Combined);
@@ -3100,6 +3138,8 @@ mod tests {
             ],
             hotkey_enabled: false,
             transparent_bg: true,
+            fade_timeout_secs: 30,
+            fade_style: OverlayFadeStyle::Dim,
         };
         let json = serde_json::to_string(&cfg).expect("Must serialize");
         let back: OverlayConfig = serde_json::from_str(&json).expect("Must deserialize");
