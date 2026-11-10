@@ -52,7 +52,7 @@ export const OverlayView: React.FC = () => {
       // Dim mode: faint 25% of configured opacity, minimum 0.12
       effectiveOpacity = Math.max(0.12, userOpacity * 0.25);
     }
-  } else if (totalIdle >= 60) {
+  } else if (fadeTimeout === 0 && totalIdle >= 60) {
     // Subtle idle dimming when auto-fade is disabled
     effectiveOpacity = Math.max(0.35, userOpacity * 0.92);
   }

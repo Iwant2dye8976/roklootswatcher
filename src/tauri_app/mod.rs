@@ -306,6 +306,9 @@ pub fn run(
                             &format!("Hotkey triggered: Overlay mode set to {:?}", next_mode),
                         );
                         if let Some(st) = app_hotkey.try_state::<TauriAppState>() {
+                            if let Ok(mut ts) = st.last_mail_arrival.lock() {
+                                *ts = std::time::Instant::now();
+                            }
                             let cfg_snap = st
                                 .config
                                 .lock()
@@ -316,7 +319,7 @@ pub fn run(
                                 &watcher_hotkey,
                                 &cfg_snap,
                                 sel_acc.as_deref(),
-                                st.idle_secs(),
+                                0,
                             );
                             let _ = app_hotkey.emit("overlay://updated", payload);
                         }

@@ -1675,12 +1675,15 @@ pub fn update_overlay_config(
         .unwrap_or_else(|e| e.into_inner())
         .clone();
     sync_settings_to_cloud_async(&cfg_snap);
+    if let Ok(mut ts) = state.last_mail_arrival.lock() {
+        *ts = std::time::Instant::now();
+    }
     let sel_acc = state.selected_account_clone();
     let payload = get_overlay_payload_internal(
         &state.watcher,
         &cfg_snap,
         sel_acc.as_deref(),
-        state.idle_secs(),
+        0,
     );
     let _ = app.emit("overlay://updated", payload);
     Ok(())
