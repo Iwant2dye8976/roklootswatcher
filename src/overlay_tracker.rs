@@ -197,6 +197,7 @@ pub fn is_rok_window_title(title: &str) -> bool {
         || lower.contains("edge")
         || lower.contains("firefox")
         || lower.contains("loot watcher")
+        || lower.contains("loots watcher")
         || lower.contains("explorer")
         || lower.contains("visual studio")
         || lower.contains("code"))
@@ -743,7 +744,7 @@ mod tests {
         assert!(is_rok_window_title("Rise of Kingdoms"));
         assert!(is_rok_window_title("Rise of Kingdoms Game"));
         assert!(!is_rok_window_title("Rise of Kingdoms Guide - Google Chrome"));
-        assert!(!is_rok_window_title("Rise of Kingdoms - Motte, Fort & Barbarian Loot Watcher"));
+        assert!(!is_rok_window_title("Rise of Kingdoms Loots Watcher"));
         assert!(!is_rok_window_title("C:\\Program Files\\Rise of Kingdoms - File Explorer"));
         assert!(!is_rok_window_title("Other Game"));
     }

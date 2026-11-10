@@ -338,4 +338,6 @@ pub struct OverlayConfigUpdateDto {
     pub fade_timeout_secs: Option<u32>,
     #[serde(default)]
     pub fade_style: Option<OverlayFadeStyle>,
+    #[serde(default)]
+    pub fade_dim_opacity: Option<f32>,
 }

@@ -108,11 +108,11 @@ pub fn is_zero(v: &i64) -> bool {
 pub enum DateFilterPreset {
     #[serde(alias = "All", alias = "all")]
     AllTime,
+    #[default]
     Today,
     Yesterday,
     #[serde(alias = "Days3")]
     Last3Days,
-    #[default]
     #[serde(alias = "Days7")]
     Last7Days,
     #[serde(alias = "Days14")]
@@ -1628,6 +1628,8 @@ pub struct OverlayConfig {
     pub fade_timeout_secs: u32,
     #[serde(default)]
     pub fade_style: OverlayFadeStyle,
+    #[serde(default = "default_overlay_fade_dim_opacity")]
+    pub fade_dim_opacity: f32,
 }
 
 fn default_overlay_enabled() -> bool {
@@ -1703,6 +1705,10 @@ pub fn default_overlay_fade_timeout_secs() -> u32 {
     0
 }
 
+pub fn default_overlay_fade_dim_opacity() -> f32 {
+    0.25
+}
+
 impl Default for OverlayConfig {
     fn default() -> Self {
         Self {
@@ -1721,6 +1727,7 @@ impl Default for OverlayConfig {
             transparent_bg: default_overlay_transparent_bg(),
             fade_timeout_secs: default_overlay_fade_timeout_secs(),
             fade_style: OverlayFadeStyle::default(),
+            fade_dim_opacity: default_overlay_fade_dim_opacity(),
         }
     }
 }
@@ -3102,12 +3109,14 @@ mod tests {
         let cfg = OverlayConfig {
             fade_timeout_secs: 45,
             fade_style: OverlayFadeStyle::Hide,
+            fade_dim_opacity: 0.35,
             ..Default::default()
         };
         let json = serde_json::to_string(&cfg).expect("Must serialize");
         let back: OverlayConfig = serde_json::from_str(&json).expect("Must deserialize");
         assert_eq!(back.fade_timeout_secs, 45);
         assert_eq!(back.fade_style, OverlayFadeStyle::Hide);
+        assert_eq!(back.fade_dim_opacity, 0.35);
     }
 
     #[test]
@@ -3116,6 +3125,7 @@ mod tests {
         let config: OverlayConfig = serde_json::from_str(legacy_json).expect("Must parse legacy config");
         assert_eq!(config.fade_timeout_secs, 0);
         assert_eq!(config.fade_style, OverlayFadeStyle::Dim);
+        assert_eq!(config.fade_dim_opacity, 0.25);
     }
 
     #[test]
@@ -3160,6 +3170,7 @@ mod tests {
             transparent_bg: true,
             fade_timeout_secs: 30,
             fade_style: OverlayFadeStyle::Dim,
+            fade_dim_opacity: 0.20,
         };
         let json = serde_json::to_string(&cfg).expect("Must serialize");
         let back: OverlayConfig = serde_json::from_str(&json).expect("Must deserialize");

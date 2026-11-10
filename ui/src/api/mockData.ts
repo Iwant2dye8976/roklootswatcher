@@ -5,7 +5,7 @@ export function getMockSnapshot(): AppSnapshotDto {
     version: "2.8.10",
     mail_dir: "C:\\Program Files\\Rise of Kingdoms\\mailcache",
     mode: "all-targets",
-    date_preset: "Last7Days",
+    date_preset: "Today",
     date_from: "",
     date_to: "",
     account_uid: "102938475",
@@ -47,6 +47,7 @@ export function getMockSnapshot(): AppSnapshotDto {
       transparent_bg: false,
       fade_timeout_secs: 5,
       fade_style: "Dim",
+      fade_dim_opacity: 0.25,
     },
     cloud_status: {
       logged_in: true,

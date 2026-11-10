@@ -1664,6 +1664,9 @@ pub fn update_overlay_config(
         if let Some(fs) = config.fade_style {
             cfg.overlay.fade_style = fs;
         }
+        if let Some(fdo) = config.fade_dim_opacity {
+            cfg.overlay.fade_dim_opacity = fdo.clamp(0.05, 0.90);
+        }
         cfg.save();
     }
 

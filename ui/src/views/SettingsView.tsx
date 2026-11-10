@@ -137,6 +137,7 @@ const DEFAULT_OVERLAY_CFG: OverlayConfig = {
   transparent_bg: false,
   fade_timeout_secs: 0,
   fade_style: "Dim",
+  fade_dim_opacity: 0.25,
 };
 
 export const SettingsView: React.FC = () => {
@@ -1524,9 +1525,20 @@ export const SettingsView: React.FC = () => {
                 <div className="space-y-1">
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-binance-muted">{t("overlayFadeTimeout")}:</span>
-                    <span className="font-mono font-bold text-binance-yellow">
-                      {overlayCfg.fade_timeout_secs}s
-                    </span>
+                    <div className="flex items-center gap-1 font-mono">
+                      <input
+                        type="number"
+                        min={1}
+                        max={3600}
+                        value={overlayCfg.fade_timeout_secs ?? 30}
+                        onChange={(e) => {
+                          const val = Math.max(1, Math.min(3600, parseInt(e.target.value, 10) || 1));
+                          updateOverlay({ fade_timeout_secs: val });
+                        }}
+                        className="w-16 px-1.5 py-0.5 rounded bg-binance-canvas border border-binance-hairline text-center text-xs font-mono font-bold text-binance-yellow focus:border-binance-yellow focus:outline-none"
+                      />
+                      <span className="text-xs text-binance-muted">s</span>
+                    </div>
                   </div>
                   <div className="flex items-center gap-1.5 flex-wrap">
                     {[15, 30, 60, 120, 300].map((sec) => (
@@ -1578,6 +1590,28 @@ export const SettingsView: React.FC = () => {
                       <span>{t("overlayFadeHide")}</span>
                     </button>
                   </div>
+
+                  {(overlayCfg.fade_style ?? "Dim") === "Dim" && (
+                    <div className="pt-1 space-y-1">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-binance-muted">{t("overlayFadeDimOpacity")}:</span>
+                        <span className="font-mono font-bold text-binance-yellow">
+                          {Math.round((overlayCfg.fade_dim_opacity ?? 0.25) * 100)}%
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0.05"
+                        max="0.80"
+                        step="0.05"
+                        value={overlayCfg.fade_dim_opacity ?? 0.25}
+                        onChange={(e) =>
+                          updateOverlay({ fade_dim_opacity: parseFloat(e.target.value) }, 100)
+                        }
+                        className="w-full accent-amber-500"
+                      />
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -1598,7 +1632,7 @@ export const SettingsView: React.FC = () => {
                         : "text-binance-muted border-binance-hairline bg-binance-hairline/20 opacity-60"
                     }`}
                   >
-                    Fade {overlayCfg.fade_timeout_secs}s ({overlayCfg.fade_style ?? "Dim"})
+                    Fade {overlayCfg.fade_timeout_secs}s ({overlayCfg.fade_style === "Hide" ? "Hide" : `Dim ${Math.round((overlayCfg.fade_dim_opacity ?? 0.25) * 100)}%`})
                   </span>
                 )}
                 <span

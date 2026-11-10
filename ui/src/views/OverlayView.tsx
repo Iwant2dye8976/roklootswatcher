@@ -49,8 +49,9 @@ export const OverlayView: React.FC = () => {
     if (config.fade_style === "Hide") {
       effectiveOpacity = 0.0;
     } else {
-      // Dim mode: faint 25% of configured opacity, minimum 0.12
-      effectiveOpacity = Math.max(0.12, userOpacity * 0.25);
+      // Dim mode: user custom dim opacity (default 0.25), capped at userOpacity
+      const dimTarget = Math.max(0.05, Math.min(userOpacity, config.fade_dim_opacity ?? 0.25));
+      effectiveOpacity = dimTarget;
     }
   } else if (fadeTimeout === 0 && totalIdle >= 60) {
     // Subtle idle dimming when auto-fade is disabled

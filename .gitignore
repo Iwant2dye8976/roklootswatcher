@@ -21,14 +21,15 @@ docs/
 docs/superpowers/
 examples/
 .agents/
-AGENT.md
-AUDIT.md
+AGENTS.md
+DESIGN.md
 .env
 .env.*
 !.env.example
 *.dat
 rok_auth.dat
 security-audit/
+graphify-out/
 
 .worktrees/
 *.db

@@ -189,6 +189,7 @@ export interface OverlayConfig {
   transparent_bg?: boolean;
   fade_timeout_secs?: number;
   fade_style?: OverlayFadeStyle;
+  fade_dim_opacity?: number;
 }
 
 export interface PinnedChipDto {

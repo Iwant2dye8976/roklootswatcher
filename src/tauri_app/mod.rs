@@ -97,7 +97,7 @@ pub fn run(
 
     let config = AppConfig::load();
     let initial_mode = config.mode.unwrap_or(crate::model::FilterMode::AllTargets);
-    let initial_date_preset = crate::model::DateFilterPreset::Last7Days;
+    let initial_date_preset = crate::model::DateFilterPreset::Today;
     let initial_speedup_unit = config.speedup_unit;
     let initial_lang = config.language;
     let auto_scan_on_launch = config.auto_scan;

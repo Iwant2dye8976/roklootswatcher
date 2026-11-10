@@ -184,7 +184,7 @@ pub mod windows {
     }
 
     pub fn activate_existing_window() -> bool {
-        let title = to_wide_null("Rise of Kingdoms - Motte, Fort & Barbarian Loot Watcher");
+        let title = to_wide_null("Rise of Kingdoms Loots Watcher");
 
         unsafe {
             let mut hwnd = FindWindowW(std::ptr::null(), title.as_ptr());
