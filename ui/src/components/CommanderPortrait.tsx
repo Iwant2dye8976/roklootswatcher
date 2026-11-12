@@ -68,17 +68,7 @@ export const CommanderPortrait: React.FC<CommanderPortraitProps> = ({
         draggable={false}
       />
 
-      {/* Layer 2: Hero Portrait */}
-      <img
-        src={iconSrc}
-        alt={displayName}
-        className="absolute inset-0 w-full h-full object-contain pointer-events-none transition-transform duration-150"
-        onError={() => setHasError(true)}
-        draggable={false}
-        loading="lazy"
-      />
-
-      {/* Layer 3: Hero Frame (Mask_Orange / Mask_pink if expertised, Mask otherwise) */}
+      {/* Layer 2: Hero Frame (Mask_Orange / Mask_pink if expertised, Mask otherwise) */}
       <img
         src={frameSrc}
         alt=""
@@ -86,11 +76,11 @@ export const CommanderPortrait: React.FC<CommanderPortraitProps> = ({
         draggable={false}
       />
 
-      {/* Layer 4: Wakeup Skill Badge (shown when commander is expertised and has a wakeup skill) */}
+      {/* Layer 3: Wakeup Skill Badge (shown when commander is expertised and has a wakeup skill) */}
       {isExpertised && wakeupSkillSrc && showWakeupBadge && (
         <div
-          className="absolute -bottom-0.5 -right-0.5 z-20 w-[36%] h-[36%] rounded-full overflow-hidden border border-amber-400 bg-black/90 shadow-md ring-1 ring-black/40 pointer-events-none"
-          title={meta?.wakeupSkillName ? `Expertise: ${meta.wakeupSkillName}` : "Expertised"}
+        className="absolute -bottom-0.5 -right-0.5 z-20 w-[36%] h-[36%] rounded-full overflow-hidden border border-amber-400 bg-black/90 shadow-md ring-1 ring-black/40 pointer-events-none"
+        title={meta?.wakeupSkillName ? `Expertise: ${meta.wakeupSkillName}` : "Expertised"}
         >
           <img
             src={wakeupSkillSrc}
@@ -100,6 +90,16 @@ export const CommanderPortrait: React.FC<CommanderPortraitProps> = ({
           />
         </div>
       )}
+
+      {/* Layer 4: Hero Portrait */}
+      <img
+        src={iconSrc}
+        alt={displayName}
+        className="absolute inset-0 w-full h-full object-contain pointer-events-none transition-transform duration-150 z-30"
+        onError={() => setHasError(true)}
+        draggable={false}
+        loading="lazy"
+      />
     </div>
   );
 };

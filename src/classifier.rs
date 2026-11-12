@@ -492,6 +492,15 @@ pub fn extract_gathering_details(
     })
 }
 
+fn lilith_bool_or_truthy(val: Option<&LilithValue>) -> bool {
+    match val {
+        Some(LilithValue::Bool(b)) => *b,
+        Some(LilithValue::Number(n)) => *n > 0.0,
+        Some(LilithValue::String(s)) => s.eq_ignore_ascii_case("true") || s == "1",
+        _ => false,
+    }
+}
+
 pub fn extract_pvp_battle_details(
     mail: &LilithValue,
     filename: &str,
@@ -564,21 +573,9 @@ pub fn extract_pvp_battle_details(
         }
     }
 
-    let is_rally = self_char
-        .and_then(|sc| sc.get("IsRally"))
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false)
-        || self_char
-            .and_then(|sc| sc.get("CTK"))
-            .and_then(|v| v.as_str())
-            .map(|s| s.contains("Rally"))
-            .unwrap_or(false);
+    // let sc = content.get("SelfChar");
 
-    let mut pvp_combat_type = if is_rally {
-        "rally".to_string()
-    } else {
-        "field".to_string()
-    };
+    let mut is_garrison = lilith_bool_or_truthy(content.get("IsRally"));
 
     let mut kp_gained = 0.0;
     let mut kp_lost = 0.0;
@@ -597,18 +594,18 @@ pub fn extract_pvp_battle_details(
     if let Some(attacks) = content.get("Attacks").and_then(|a| a.as_table()) {
         for (_atk_id, atk) in attacks {
             let cidt = atk.get("CIdt");
+            if let Some(c) = cidt {
+                if lilith_bool_or_truthy(c.get("IsRally")) {
+                    is_garrison = true;
+                }
+            }
+
             let pid = cidt
                 .and_then(|c| c.get("PId"))
                 .and_then(|v| v.as_f64())
                 .unwrap_or(0.0);
             if pid <= 0.0 {
                 continue;
-            }
-
-            if let Some(def_val) = atk.get("Def").and_then(|v| v.as_u32()) {
-                if def_val > 0 && pvp_combat_type == "field" {
-                    pvp_combat_type = "garrison".to_string();
-                }
             }
 
             if let Some(cidt) = cidt {
@@ -640,15 +637,6 @@ pub fn extract_pvp_battle_details(
                 }
             }
 
-            // In Lilith Battle reports:
-            // `Damage` table records SelfChar (our troop) losses & KP gained:
-            //   - `Damage.KillScore`: Kill points gained by our troop.
-            //   - `Damage.BadHurt`: Severely wounded taken by our troop.
-            //   - `Damage.Death`: Dead taken by our troop.
-            // `Kill` table records enemy troop casualties & enemy KP:
-            //   - `Kill.KillScore`: Kill points gained by enemy troop (KP conceded/lost by us).
-            //   - `Kill.BadHurt`: Severely wounded dealt to enemy troop.
-            //   - `Kill.Death`: Dead dealt to enemy troop.
             if let Some(dmg) = atk.get("Damage") {
                 kp_gained += dmg.get("KillScore").and_then(|v| v.as_f64()).unwrap_or(0.0);
                 dead_taken += dmg.get("Death").and_then(|v| v.as_f64()).unwrap_or(0.0).max(0.0) as u64;
@@ -673,6 +661,15 @@ pub fn extract_pvp_battle_details(
             }
         }
     }
+
+    let is_self_rally = lilith_bool_or_truthy(content.get("SelfChar").and_then(|sc| sc.get("IsRally")));
+    let pvp_combat_type = if is_self_rally {
+    "rally".to_string()
+    } else if is_garrison {
+        "garrison".to_string()
+    } else {
+        "open-field".to_string()
+    };
 
     let (account_id, player_name) = extract_account_info(mail);
     let target_primary_commander_name = get_commander_name(target_primary_commander_id);
@@ -1242,7 +1239,7 @@ mod tests {
             .expect("Must extract PvP battle record");
 
         assert_eq!(rec.battle_type, "pvp");
-        assert_eq!(rec.pvp_combat_type, "field");
+        assert_eq!(rec.pvp_combat_type, "open-field");
         assert_eq!(rec.primary_commander_id, 198);
         assert_eq!(rec.primary_commander_name, "Ragnar Lodbrok (P)");
         assert_eq!(rec.secondary_commander_id, 140);
@@ -1261,6 +1258,96 @@ mod tests {
         assert_eq!(rec.pos_y, 500);
         assert_eq!(rec.target, "[Zhuge Liang/Yi Seong-Gye]-EnemyGov");
         assert_eq!(rec.target_player_name, "EnemyGov");
+    }
+
+    #[test]
+    fn test_classify_and_extract_pvp_rally_and_garrison() {
+        use indexmap::IndexMap;
+
+        // 1. Self Rally report via IsRally: true inside SelfChar
+        let mut self_char_rally = IndexMap::new();
+        self_char_rally.insert("PName".to_string(), LilithValue::String("RallyLeader".to_string()));
+        self_char_rally.insert("IsRally".to_string(), LilithValue::Bool(true));
+        self_char_rally.insert("HId".to_string(), LilithValue::Number(186.0));
+
+        let mut content_rally = IndexMap::new();
+        content_rally.insert("SelfChar".to_string(), LilithValue::Table(self_char_rally));
+        content_rally.insert("Attacks".to_string(), LilithValue::Table(IndexMap::new()));
+
+        let mut body_rally = IndexMap::new();
+        body_rally.insert("content".to_string(), LilithValue::Table(content_rally));
+
+        let mut mail_rally = IndexMap::new();
+        mail_rally.insert("type".to_string(), LilithValue::String("Battle".to_string()));
+        mail_rally.insert("id".to_string(), LilithValue::String("rally_01".to_string()));
+        mail_rally.insert("body".to_string(), LilithValue::Table(body_rally));
+
+        let rec_rally = extract_pvp_battle_details(&LilithValue::Table(mail_rally), "Persistent.Mail.rally_01")
+            .expect("Must parse rally report");
+        assert_eq!(rec_rally.pvp_combat_type, "rally");
+
+        // 2. Garrison report via IsRally outside SelfChar
+        let mut self_char_def = IndexMap::new();
+        self_char_def.insert("PName".to_string(), LilithValue::String("Defender".to_string()));
+        self_char_def.insert("HId".to_string(), LilithValue::Number(3.0));
+
+        let mut enemy_cidt = IndexMap::new();
+        enemy_cidt.insert("PName".to_string(), LilithValue::String("EnemyRallyLeader".to_string()));
+        enemy_cidt.insert("PId".to_string(), LilithValue::Number(99999.0));
+
+        let mut atk_def = IndexMap::new();
+        atk_def.insert("CIdt".to_string(), LilithValue::Table(enemy_cidt));
+
+        let mut attacks_def = IndexMap::new();
+        attacks_def.insert("1".to_string(), LilithValue::Table(atk_def));
+
+        let mut content_def = IndexMap::new();
+        content_def.insert("SelfChar".to_string(), LilithValue::Table(self_char_def));
+        content_def.insert("IsRally".to_string(), LilithValue::Bool(true));
+        content_def.insert("Attacks".to_string(), LilithValue::Table(attacks_def));
+
+        let mut body_def = IndexMap::new();
+        body_def.insert("content".to_string(), LilithValue::Table(content_def));
+
+        let mut mail_def = IndexMap::new();
+        mail_def.insert("type".to_string(), LilithValue::String("Battle".to_string()));
+        mail_def.insert("id".to_string(), LilithValue::String("def_01".to_string()));
+        mail_def.insert("body".to_string(), LilithValue::Table(body_def));
+
+        let rec_def = extract_pvp_battle_details(&LilithValue::Table(mail_def), "Persistent.Mail.def_01")
+            .expect("Must parse garrison defense report");
+        assert_eq!(rec_def.pvp_combat_type, "garrison");
+
+        // 3. Open-field report: no IsRally anywhere
+        let mut self_char_field = IndexMap::new();
+        self_char_field.insert("PName".to_string(), LilithValue::String("FieldPlayer".to_string()));
+        self_char_field.insert("HId".to_string(), LilithValue::Number(1.0));
+
+        let mut enemy_field = IndexMap::new();
+        enemy_field.insert("PName".to_string(), LilithValue::String("EnemyField".to_string()));
+        enemy_field.insert("PId".to_string(), LilithValue::Number(88888.0));
+
+        let mut atk_field = IndexMap::new();
+        atk_field.insert("CIdt".to_string(), LilithValue::Table(enemy_field));
+
+        let mut attacks_field = IndexMap::new();
+        attacks_field.insert("1".to_string(), LilithValue::Table(atk_field));
+
+        let mut content_field = IndexMap::new();
+        content_field.insert("SelfChar".to_string(), LilithValue::Table(self_char_field));
+        content_field.insert("Attacks".to_string(), LilithValue::Table(attacks_field));
+
+        let mut body_field = IndexMap::new();
+        body_field.insert("content".to_string(), LilithValue::Table(content_field));
+
+        let mut mail_field = IndexMap::new();
+        mail_field.insert("type".to_string(), LilithValue::String("Battle".to_string()));
+        mail_field.insert("id".to_string(), LilithValue::String("field_01".to_string()));
+        mail_field.insert("body".to_string(), LilithValue::Table(body_field));
+
+        let rec_field = extract_pvp_battle_details(&LilithValue::Table(mail_field), "Persistent.Mail.field_01")
+            .expect("Must parse field report");
+        assert_eq!(rec_field.pvp_combat_type, "open-field");
     }
 
     #[test]
