@@ -67,6 +67,8 @@ pub struct LootItemDto {
     pub sub_type: u32,
     pub value: i64,
     pub converted_value: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -98,6 +100,29 @@ pub struct BattleRecordDto {
     pub arrows: Option<i64>,
     pub choice_packs: Option<i64>,
     pub gems: Option<i64>,
+    pub pvp_combat_type: Option<String>,
+    pub primary_commander_id: Option<u32>,
+    pub primary_commander_name: Option<String>,
+    pub secondary_commander_id: Option<u32>,
+    pub secondary_commander_name: Option<String>,
+    pub target_primary_commander_id: Option<u32>,
+    pub target_primary_commander_name: Option<String>,
+    pub target_secondary_commander_id: Option<u32>,
+    pub target_secondary_commander_name: Option<String>,
+    pub primary_is_expertised: Option<bool>,
+    pub secondary_is_expertised: Option<bool>,
+    pub target_primary_is_expertised: Option<bool>,
+    pub target_secondary_is_expertised: Option<bool>,
+    pub target_player_name: Option<String>,
+    pub kills_dealt: Option<u64>,
+    pub kills_taken: Option<u64>,
+    pub kp_gained: Option<f64>,
+    pub kp_lost: Option<f64>,
+    pub trade_ratio_pct: Option<f64>,
+    pub dead_dealt: Option<u64>,
+    pub dead_taken: Option<u64>,
+    pub severely_wounded_dealt: Option<u64>,
+    pub severely_wounded_taken: Option<u64>,
 }
 
 impl BattleRecordDto {
@@ -133,20 +158,38 @@ impl BattleRecordDto {
             items: r
                 .items
                 .iter()
-                .map(|it| LootItemDto {
-                    name_vi: it.name_vi.clone(),
-                    name_en: it.name_en.clone(),
-                    display_name: it.display_name(lang).to_string(),
-                    category: it.category.clone(),
-                    itype: it.itype,
-                    sub_type: it.sub_type,
-                    value: it.value,
-                    converted_value: get_item_converted_display_for_lang(
-                        it.itype,
-                        it.sub_type,
-                        it.value,
-                        lang,
-                    ),
+                .map(|it| {
+                    let icon = it.sprites.first().cloned().or_else(|| {
+                        if !it.pic.is_empty() {
+                            Some(it.pic.clone())
+                        } else {
+                            match (it.itype, it.sub_type) {
+                                (1, 1) => Some("img_food.png".to_string()),
+                                (1, 2) => Some("img_wood.png".to_string()),
+                                (1, 3) => Some("img_stone.png".to_string()),
+                                (1, 4) => Some("img_gold.png".to_string()),
+                                (1, 5) | (1, 10) | (1, 12) | (1, 25) => Some("img_gem.png".to_string()),
+                                (1, 9) => Some("img_Crystal.png".to_string()),
+                                _ => None,
+                            }
+                        }
+                    });
+                    LootItemDto {
+                        name_vi: it.name_vi.clone(),
+                        name_en: it.name_en.clone(),
+                        display_name: it.display_name(lang).to_string(),
+                        category: it.category.clone(),
+                        itype: it.itype,
+                        sub_type: it.sub_type,
+                        value: it.value,
+                        converted_value: get_item_converted_display_for_lang(
+                            it.itype,
+                            it.sub_type,
+                            it.value,
+                            lang,
+                        ),
+                        icon,
+                    }
                 })
                 .collect(),
             display_target: Some(r.display_target(lang)),
@@ -160,6 +203,45 @@ impl BattleRecordDto {
             arrows: (arrows > 0).then_some(arrows),
             choice_packs: (choice_packs > 0).then_some(choice_packs),
             gems: (gems > 0).then_some(gems),
+            pvp_combat_type: (!r.pvp_combat_type.is_empty()).then(|| r.pvp_combat_type.clone()),
+            primary_commander_id: (r.primary_commander_id > 0).then_some(r.primary_commander_id),
+            primary_commander_name: if r.primary_commander_id > 0 {
+                Some(crate::classifier::get_commander_name(r.primary_commander_id))
+            } else {
+                (!r.primary_commander_name.is_empty()).then(|| r.primary_commander_name.clone())
+            },
+            secondary_commander_id: (r.secondary_commander_id > 0).then_some(r.secondary_commander_id),
+            secondary_commander_name: if r.secondary_commander_id > 0 {
+                Some(crate::classifier::get_commander_name(r.secondary_commander_id))
+            } else {
+                (!r.secondary_commander_name.is_empty()).then(|| r.secondary_commander_name.clone())
+            },
+            target_primary_commander_id: (r.target_primary_commander_id > 0).then_some(r.target_primary_commander_id),
+            target_primary_commander_name: if r.target_primary_commander_id > 0 {
+                Some(crate::classifier::get_commander_name(r.target_primary_commander_id))
+            } else {
+                (!r.target_primary_commander_name.is_empty()).then(|| r.target_primary_commander_name.clone())
+            },
+            target_secondary_commander_id: (r.target_secondary_commander_id > 0).then_some(r.target_secondary_commander_id),
+            target_secondary_commander_name: if r.target_secondary_commander_id > 0 {
+                Some(crate::classifier::get_commander_name(r.target_secondary_commander_id))
+            } else {
+                (!r.target_secondary_commander_name.is_empty()).then(|| r.target_secondary_commander_name.clone())
+            },
+            primary_is_expertised: (r.battle_type == "pvp").then_some(r.primary_is_expertised),
+            secondary_is_expertised: (r.battle_type == "pvp").then_some(r.secondary_is_expertised),
+            target_primary_is_expertised: (r.battle_type == "pvp").then_some(r.target_primary_is_expertised),
+            target_secondary_is_expertised: (r.battle_type == "pvp").then_some(r.target_secondary_is_expertised),
+            target_player_name: (!r.target_player_name.is_empty()).then(|| r.target_player_name.clone()),
+            kills_dealt: (r.kills_dealt() > 0 || r.battle_type == "pvp").then_some(r.kills_dealt()),
+            kills_taken: (r.kills_taken() > 0 || r.battle_type == "pvp").then_some(r.kills_taken()),
+            kp_gained: (r.kp_gained > 0.0 || r.battle_type == "pvp").then_some(r.kp_gained),
+            kp_lost: (r.kp_lost > 0.0 || r.battle_type == "pvp").then_some(r.kp_lost),
+            trade_ratio_pct: (r.battle_type == "pvp").then(|| r.trade_ratio_pct()),
+            dead_dealt: (r.dead_dealt > 0).then_some(r.dead_dealt),
+            dead_taken: (r.dead_taken > 0).then_some(r.dead_taken),
+            severely_wounded_dealt: (r.severely_wounded_dealt > 0).then_some(r.severely_wounded_dealt),
+            severely_wounded_taken: (r.severely_wounded_taken > 0).then_some(r.severely_wounded_taken),
         }
     }
 }
@@ -222,6 +304,10 @@ pub struct ItemStatDto {
     pub avg_per_battle: f64,
     pub max_in_battle: i64,
     pub by_battle_type: std::collections::BTreeMap<String, i64>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sprites: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -292,7 +378,27 @@ pub struct TodayRunsDto {
     pub fort: usize,
     pub barb: usize,
     pub gather: usize,
+    #[serde(default)]
+    pub pvp: usize,
     pub total: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TroopTradeSummaryDto {
+    pub troop_id: String,
+    pub display_pair_name: String,
+    pub primary_commander_id: u32,
+    pub primary_commander_name: String,
+    pub secondary_commander_id: u32,
+    pub secondary_commander_name: String,
+    pub primary_is_expertised: bool,
+    pub secondary_is_expertised: bool,
+    pub kills_dealt: u64,
+    pub kills_taken: u64,
+    pub kp_gained: f64,
+    pub kp_lost: f64,
+    pub trade_ratio_pct: f64,
+    pub battle_count: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -300,6 +406,8 @@ pub struct OverlayPayloadDto {
     pub records: Vec<BattleRecordDto>,
     pub config: OverlayConfig,
     pub pinned_chips: Vec<PinnedChipDto>,
+    #[serde(default)]
+    pub troop_trades: Vec<TroopTradeSummaryDto>,
     pub today_runs: TodayRunsDto,
     pub last_mail_timestamp: Option<String>,
     pub rok_window_detected: bool,

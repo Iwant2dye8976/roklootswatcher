@@ -785,6 +785,8 @@ pub fn filter_mode_label(mode: &FilterMode, lang: AppLanguage) -> &'static str {
         (FilterMode::AllRewards, AppLanguage::English) => "All Loot Reports",
         (FilterMode::Gathering, AppLanguage::Vietnamese) => "Chỉ Thu Thập (Gathering)",
         (FilterMode::Gathering, AppLanguage::English) => "Gathering Only",
+        (FilterMode::PvP, AppLanguage::Vietnamese) => "Chiến Đấu PvP (PvP Battles)",
+        (FilterMode::PvP, AppLanguage::English) => "PvP Battles",
     }
 }
 

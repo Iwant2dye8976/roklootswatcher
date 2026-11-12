@@ -2,6 +2,8 @@ import React, { useEffect } from "react";
 import { X, MapPin, Crosshair, Award, Clock, FileText, User } from "lucide-react";
 import { useAppStore } from "../store/appStore";
 import { useI18n, formatSpeedupMinutes } from "../i18n";
+import { CommanderCardPair } from "./CommanderCardPair";
+import { ResourceIcon } from "./ResourceIcon";
 
 export const InspectorDrawer: React.FC = () => {
   const { selectedBattle, setSelectedBattle, language, speedupUnit } = useAppStore();
@@ -22,6 +24,7 @@ export const InspectorDrawer: React.FC = () => {
 
   const b = selectedBattle;
   const isGathering = b.battle_type === "gathering";
+  const isPvp = b.battle_type === "pvp";
   const totalSpdMins =
     (b.speedup_univ_mins || 0) +
     (b.speedup_train_mins || 0) +
@@ -34,6 +37,8 @@ export const InspectorDrawer: React.FC = () => {
       ? "bg-binance-yellow/20 text-binance-yellow border-binance-yellow/40"
       : isGathering
       ? "bg-binance-green/20 text-binance-green border-binance-green/40"
+      : isPvp
+      ? "bg-fuchsia-500/20 text-fuchsia-400 border-fuchsia-500/40"
       : "bg-binance-info/20 text-binance-info border-binance-info/40";
 
   return (
@@ -90,7 +95,81 @@ export const InspectorDrawer: React.FC = () => {
               </span>
             </div>
 
-            {isGathering ? (
+            {isPvp ? (
+              <div className="space-y-1.5 pt-1 border-t border-binance-hairline text-binance-body font-mono">
+                <div className="flex items-center gap-2.5 text-fuchsia-400 font-semibold">
+                  <CommanderCardPair
+                    primaryId={b.primary_commander_id}
+                    primaryName={b.primary_commander_name}
+                    primaryIsExpertised={b.primary_is_expertised}
+                    secondaryId={b.secondary_commander_id}
+                    secondaryName={b.secondary_commander_name}
+                    secondaryIsExpertised={b.secondary_is_expertised}
+                    size="md"
+                  />
+                  <span>
+                    {t("colCommanders")}:{" "}
+                    {b.primary_commander_name
+                      ? b.secondary_commander_name
+                        ? `${b.primary_commander_name} + ${b.secondary_commander_name}`
+                        : b.primary_commander_name
+                      : "Unknown"}
+                  </span>
+                </div>
+                {(b.target_primary_commander_id || b.target_primary_commander_name) && (
+                  <div className="flex items-center gap-2.5 text-binance-muted">
+                    <CommanderCardPair
+                      primaryId={b.target_primary_commander_id}
+                      primaryName={b.target_primary_commander_name}
+                      primaryIsExpertised={b.target_primary_is_expertised}
+                      secondaryId={b.target_secondary_commander_id}
+                      secondaryName={b.target_secondary_commander_name}
+                      secondaryIsExpertised={b.target_secondary_is_expertised}
+                      size="md"
+                    />
+                    <span>
+                      {t("colTarget")}:{" "}
+                      {b.target_primary_commander_name
+                        ? b.target_secondary_commander_name
+                          ? `${b.target_primary_commander_name} + ${b.target_secondary_commander_name}`
+                          : b.target_primary_commander_name
+                        : "Unknown"}
+                    </span>
+                  </div>
+                )}
+                <div className="text-binance-yellow font-bold">
+                  {t("colKpGained")}: +
+                  {(
+                    b.kills_dealt ??
+                    (b.dead_dealt || 0) + (b.severely_wounded_dealt || 0)
+                  ).toLocaleString()}{" "}
+                  ({t("colTradeRatio")}:{" "}
+                  {b.trade_ratio_pct != null
+                    ? `${b.trade_ratio_pct.toFixed(0)}%`
+                    : "100%"}
+                  )
+                </div>
+                <div className="text-binance-red">
+                  {t("colKpLost")}: -
+                  {(
+                    b.kills_taken ??
+                    (b.dead_taken || 0) + (b.severely_wounded_taken || 0)
+                  ).toLocaleString()}
+                </div>
+                <div className="text-binance-muted text-[10px]">
+                  Sev. Wounded: +{(b.severely_wounded_dealt || 0).toLocaleString()} / -
+                  {(b.severely_wounded_taken || 0).toLocaleString()} · Dead: +
+                  {(b.dead_dealt || 0).toLocaleString()} / -
+                  {(b.dead_taken || 0).toLocaleString()}
+                </div>
+                {b.kp_gained != null && b.kp_gained > 0 && (
+                  <div className="text-slate-400 text-[10px]">
+                    KP: +{Math.round(b.kp_gained).toLocaleString()} / -
+                    {Math.round(b.kp_lost || 0).toLocaleString()}
+                  </div>
+                )}
+              </div>
+            ) : isGathering ? (
               b.talent_add > 0 && (
                 <div className="flex items-center gap-1.5 text-binance-green">
                   <Award className="w-3.5 h-3.5" />
@@ -113,7 +192,8 @@ export const InspectorDrawer: React.FC = () => {
           {(b.crystals || totalSpdMins > 0 || b.total_rss || b.gems) && (
             <div className="pt-2 border-t border-binance-hairline flex flex-wrap gap-1.5 text-[10px] font-mono">
               {b.crystals ? (
-                <span className="px-1.5 py-0.5 rounded bg-binance-elevated text-binance-yellow font-semibold">
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-binance-yellow font-semibold">
+                  <ResourceIcon resource="crystals" size="lg" className="object-contain shrink-0" />
                   {b.crystals.toLocaleString()} {t("colCrystals")}
                 </span>
               ) : null}
@@ -123,12 +203,14 @@ export const InspectorDrawer: React.FC = () => {
                 </span>
               ) : null}
               {b.total_rss ? (
-                <span className="px-1.5 py-0.5 rounded bg-binance-elevated text-binance-body">
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-binance-body">
+                  <ResourceIcon resource="food" size="lg" className="object-contain shrink-0" />
                   {(b.total_rss / 1_000_000).toFixed(2)}M RSS
                 </span>
               ) : null}
               {b.gems ? (
-                <span className="px-1.5 py-0.5 rounded bg-binance-elevated text-binance-info font-semibold">
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-binance-info font-semibold">
+                  <ResourceIcon resource="gems" size="lg" className="object-contain shrink-0" />
                   {b.gems.toLocaleString()} Gems
                 </span>
               ) : null}
@@ -151,16 +233,23 @@ export const InspectorDrawer: React.FC = () => {
                 key={idx}
                 className="flex items-center justify-between p-2 rounded-xs bg-binance-card border border-binance-hairline text-xs gap-2"
               >
-                <div className="flex flex-col min-w-0">
-                  <span className="font-medium text-binance-body truncate">
-                    {item.display_name ||
-                      (language === "vi" ? item.name_vi : item.name_en)}
-                  </span>
-                  <span className="text-[10px] font-mono text-binance-muted truncate">
-                    {item.converted_value
-                      ? item.converted_value
-                      : `${item.category || "Item"} (${item.itype}/${item.sub_type})`}
-                  </span>
+                <div className="flex items-center gap-2 min-w-0">
+                  <ResourceIcon
+                    resource={item}
+                    size="lg"
+                    className="shrink-0 object-contain"
+                  />
+                  <div className="flex flex-col min-w-0">
+                    <span className="font-medium text-binance-body truncate">
+                      {item.display_name ||
+                        (language === "vi" ? item.name_vi : item.name_en)}
+                    </span>
+                    <span className="text-[10px] font-mono text-binance-muted truncate">
+                      {item.converted_value
+                        ? item.converted_value
+                        : `${item.category || "Item"} (${item.itype}/${item.sub_type})`}
+                    </span>
+                  </div>
                 </div>
                 <div className="text-right shrink-0">
                   <span className="font-mono font-bold text-binance-yellow">

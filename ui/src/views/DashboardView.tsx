@@ -3,7 +3,6 @@ import {
   Swords,
   Sparkles,
   Clock,
-  Coins,
   TrendingUp,
   ChevronRight,
   BarChart2,
@@ -22,6 +21,7 @@ import {
 import { useAppStore } from "../store/appStore";
 import { useI18n, formatSpeedupMinutes } from "../i18n";
 import { BattleRecord } from "../types";
+import { ResourceIcon } from "../components/ResourceIcon";
 
 type BenchmarkSortKey =
   | "target"
@@ -396,7 +396,12 @@ export const DashboardView: React.FC = () => {
         <div className="p-3 rounded-md bg-binance-card border border-binance-hairline flex flex-col justify-between hover:border-binance-yellow/40 transition">
           <div className="flex items-center justify-between text-[11px] text-binance-muted">
             <span className="font-medium">{t("cardCrystals")}</span>
-            <Sparkles className="w-3.5 h-3.5 text-binance-yellow" />
+            <ResourceIcon
+              resource="crystals"
+              size="sm"
+              className="w-4 h-4 object-contain"
+              fallback={<Sparkles className="w-3.5 h-3.5 text-binance-yellow" />}
+            />
           </div>
           <div className="my-1.5">
             <div className="text-xl sm:text-2xl font-bold font-mono text-binance-yellow tracking-tight">
@@ -411,7 +416,12 @@ export const DashboardView: React.FC = () => {
         <div className="p-3 rounded-md bg-binance-card border border-binance-hairline flex flex-col justify-between hover:border-binance-yellow/40 transition">
           <div className="flex items-center justify-between text-[11px] text-binance-muted">
             <span className="font-medium">{t("cardResources")}</span>
-            <Coins className="w-3.5 h-3.5 text-binance-yellow" />
+            <div className="flex items-center -space-x-1 shrink-0" title="RoK Resources (Food, Wood, Stone, Gold)">
+              <ResourceIcon resource="food" size="xs" className="w-3.5 h-3.5 object-contain" />
+              <ResourceIcon resource="wood" size="xs" className="w-3.5 h-3.5 object-contain" />
+              <ResourceIcon resource="stone" size="xs" className="w-3.5 h-3.5 object-contain" />
+              <ResourceIcon resource="gold" size="xs" className="w-3.5 h-3.5 object-contain" />
+            </div>
           </div>
           <div className="my-1.5">
             <div className="text-xl sm:text-2xl font-bold font-mono text-binance-body tracking-tight">
@@ -1074,6 +1084,11 @@ export const DashboardView: React.FC = () => {
                           <span className="text-[10px] font-mono text-binance-muted w-4 font-semibold">
                             #{idx + 1}
                           </span>
+                          <ResourceIcon
+                            resource={it}
+                            size="lg"
+                            className="shrink-0"
+                          />
                           <span className="font-medium text-binance-body truncate">
                             {it.display_name ||
                               (language === "vi" ? it.name_vi : it.name_en)}

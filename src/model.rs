@@ -47,6 +47,8 @@ pub enum FilterMode {
     AllRewards,
     #[serde(rename = "gathering")]
     Gathering,
+    #[serde(rename = "pvp")]
+    PvP,
 }
 
 impl FilterMode {
@@ -59,6 +61,7 @@ impl FilterMode {
             FilterMode::AllForts => "all-forts",
             FilterMode::AllRewards => "all-rewards",
             FilterMode::Gathering => "gathering",
+            FilterMode::PvP => "pvp",
         }
     }
 
@@ -72,6 +75,7 @@ impl FilterMode {
             FilterMode::AllForts => "Cả Motte & Pháo Đài",
             FilterMode::AllRewards => "Tất cả thư có quà (All Loot)",
             FilterMode::Gathering => "Chỉ Thu Thập (Gathering)",
+            FilterMode::PvP => "Chiến Đấu PvP (PvP Battles)",
         }
     }
 
@@ -83,6 +87,7 @@ impl FilterMode {
             "all-forts" => FilterMode::AllForts,
             "all-rewards" => FilterMode::AllRewards,
             "gathering" | "gather" | "rss" => FilterMode::Gathering,
+            "pvp" | "battle" | "combat" => FilterMode::PvP,
             _ => FilterMode::AllTargets,
         }
     }
@@ -94,14 +99,177 @@ impl FilterMode {
             FilterMode::Fort => battle_type == "fort",
             FilterMode::Barbarian => battle_type == "barbarian",
             FilterMode::AllForts => matches!(battle_type, "motte" | "fort"),
-            FilterMode::AllRewards => true,
+            FilterMode::AllRewards => battle_type != "pvp",
             FilterMode::Gathering => battle_type == "gathering",
+            FilterMode::PvP => battle_type == "pvp",
         }
     }
 }
 
 pub fn is_zero(v: &i64) -> bool {
     *v == 0
+}
+
+pub fn is_zero_u64(v: &u64) -> bool {
+    *v == 0
+}
+
+pub fn is_zero_u32(v: &u32) -> bool {
+    *v == 0
+}
+
+pub fn is_zero_f64(v: &f64) -> bool {
+    *v == 0.0
+}
+
+pub fn is_false(v: &bool) -> bool {
+    !*v
+}
+
+#[allow(dead_code)]
+pub fn calculate_kill_points(t1: u64, t2: u64, t3: u64, t4: u64, t5: u64) -> f64 {
+    (t1 as f64 * 0.2)
+        + (t2 as f64 * 2.0)
+        + (t3 as f64 * 4.0)
+        + (t4 as f64 * 10.0)
+        + (t5 as f64 * 20.0)
+}
+
+fn parse_commanders_yaml(yaml_text: &str) -> std::collections::HashMap<u32, String> {
+    let mut map = std::collections::HashMap::new();
+    let mut current_id: Option<u32> = None;
+    let mut current_name: Option<String> = None;
+    let mut current_prime: bool = false;
+
+    for raw_line in yaml_text.lines() {
+        let line = raw_line.trim_end_matches('\r');
+        if let Some(rest) = line.strip_prefix("  ") {
+            if !rest.starts_with(' ') {
+                if let Some(id_str) = rest.strip_suffix(':') {
+                    if let Ok(id) = id_str.trim().parse::<u32>() {
+                        if let (Some(prev_id), Some(prev_name)) = (current_id, current_name.take()) {
+                            let display = if current_prime || prev_id == 618 {
+                                format!("{} (P)", prev_name)
+                            } else {
+                                prev_name
+                            };
+                            map.insert(prev_id, display);
+                        }
+                        current_id = Some(id);
+                        current_name = None;
+                        current_prime = false;
+                        continue;
+                    }
+                }
+            }
+        }
+
+        if let Some(rest) = line.strip_prefix("    name: ") {
+            let trimmed = rest.trim().trim_matches('"');
+            if !trimmed.is_empty() {
+                current_name = Some(trimmed.to_string());
+            }
+        } else if let Some(rest) = line.strip_prefix("    prime: ") {
+            current_prime = rest.trim() == "true";
+        }
+    }
+
+    if let (Some(prev_id), Some(prev_name)) = (current_id, current_name.take()) {
+        let display = if current_prime || prev_id == 618 {
+            format!("{} (P)", prev_name)
+        } else {
+            prev_name
+        };
+        map.insert(prev_id, display);
+    }
+
+    map
+}
+
+pub fn get_commander_name(id: u32) -> String {
+    if id == 0 {
+        return String::new();
+    }
+    static COMMANDER_MAP: std::sync::OnceLock<std::collections::HashMap<u32, String>> =
+        std::sync::OnceLock::new();
+    let map = COMMANDER_MAP.get_or_init(|| {
+        parse_commanders_yaml(include_str!("../commanders.yaml"))
+    });
+    map.get(&id)
+        .cloned()
+        .unwrap_or_else(|| format!("Cmdr #{}", id))
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct TroopCombatStats {
+    pub primary_commander_id: u32,
+    pub primary_commander_name: String,
+    pub secondary_commander_id: u32,
+    pub secondary_commander_name: String,
+    pub primary_is_expertised: bool,
+    pub secondary_is_expertised: bool,
+    pub kp_gained: f64,
+    pub kp_lost: f64,
+    pub dead_dealt: u64,
+    pub dead_taken: u64,
+    pub severely_wounded_dealt: u64,
+    pub severely_wounded_taken: u64,
+    pub battle_count: usize,
+}
+
+impl TroopCombatStats {
+    pub fn kills_dealt(&self) -> u64 {
+        self.dead_dealt + self.severely_wounded_dealt
+    }
+
+    pub fn kills_taken(&self) -> u64 {
+        self.dead_taken + self.severely_wounded_taken
+    }
+
+    pub fn troop_key(&self) -> String {
+        if self.primary_commander_id > 0 || self.secondary_commander_id > 0 {
+            format!("cmdr_{}_{}", self.primary_commander_id, self.secondary_commander_id)
+        } else {
+            let p = self.primary_commander_name.trim().to_lowercase();
+            let s = self.secondary_commander_name.trim().to_lowercase();
+            format!("name_{}_{}", p, s)
+        }
+    }
+
+    pub fn display_pair_name(&self) -> String {
+        let p = if self.primary_commander_name.trim().is_empty() {
+            if self.primary_commander_id > 0 {
+                format!("Cmdr #{}", self.primary_commander_id)
+            } else {
+                "Unknown".to_string()
+            }
+        } else {
+            self.primary_commander_name.trim().to_string()
+        };
+
+        let s = self.secondary_commander_name.trim();
+        if !s.is_empty() {
+            format!("{} / {}", p, s)
+        } else if self.secondary_commander_id > 0 {
+            format!("{} / Cmdr #{}", p, self.secondary_commander_id)
+        } else {
+            p
+        }
+    }
+
+    pub fn trade_ratio_pct(&self) -> f64 {
+        let dealt = self.kills_dealt();
+        let taken = self.kills_taken();
+        if taken == 0 {
+            if self.kp_lost > 0.0 {
+                ((self.kp_gained / self.kp_lost) * 100.0 * 10.0).round() / 10.0
+            } else {
+                100.0
+            }
+        } else {
+            ((dealt as f64 / taken as f64) * 100.0 * 10.0).round() / 10.0
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -492,10 +660,84 @@ pub struct BattleRecord {
     pub account_id: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub player_name: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub pvp_combat_type: String,
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub primary_commander_id: u32,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub primary_commander_name: String,
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub secondary_commander_id: u32,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub secondary_commander_name: String,
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub target_primary_commander_id: u32,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub target_primary_commander_name: String,
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub target_secondary_commander_id: u32,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub target_secondary_commander_name: String,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub primary_is_expertised: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub secondary_is_expertised: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub target_primary_is_expertised: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub target_secondary_is_expertised: bool,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub target_player_name: String,
+    #[serde(default, skip_serializing_if = "is_zero_f64")]
+    pub kp_gained: f64,
+    #[serde(default, skip_serializing_if = "is_zero_f64")]
+    pub kp_lost: f64,
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub dead_dealt: u64,
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub dead_taken: u64,
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub severely_wounded_dealt: u64,
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub severely_wounded_taken: u64,
 }
 
 impl BattleRecord {
+    pub fn kills_dealt(&self) -> u64 {
+        self.dead_dealt + self.severely_wounded_dealt
+    }
+
+    pub fn kills_taken(&self) -> u64 {
+        self.dead_taken + self.severely_wounded_taken
+    }
+
+    pub fn trade_ratio_pct(&self) -> f64 {
+        let dealt = self.kills_dealt();
+        let taken = self.kills_taken();
+        if taken == 0 {
+            if self.kp_lost > 0.0 {
+                ((self.kp_gained / self.kp_lost) * 100.0 * 10.0).round() / 10.0
+            } else {
+                100.0
+            }
+        } else {
+            ((dealt as f64 / taken as f64) * 100.0 * 10.0).round() / 10.0
+        }
+    }
+
     pub fn display_target(&self, lang: AppLanguage) -> String {
+        if self.battle_type == "pvp" && self.primary_commander_id > 0 {
+            let p = get_commander_name(self.primary_commander_id);
+            let pair = if self.secondary_commander_id > 0 {
+                let s = get_commander_name(self.secondary_commander_id);
+                format!("{} / {}", p, s)
+            } else {
+                p
+            };
+            if let Some(idx) = self.target.rfind(" [") {
+                return format!("{} [{}]", &self.target[..idx], pair);
+            }
+        }
         match lang {
             AppLanguage::Vietnamese => self.target.clone(),
             AppLanguage::English => {
@@ -3394,5 +3636,69 @@ mod tests {
 
         // Applying same settings again returns false
         assert!(!other_cfg.apply_cloud_settings(&cloud_settings));
+    }
+
+    #[test]
+    fn test_kp_calculation_across_tiers() {
+        assert_eq!(calculate_kill_points(0, 0, 0, 0, 0), 0.0);
+        assert_eq!(calculate_kill_points(5, 0, 0, 0, 0), 1.0);
+        assert_eq!(calculate_kill_points(0, 10, 0, 0, 0), 20.0);
+        assert_eq!(calculate_kill_points(0, 0, 10, 0, 0), 40.0);
+        assert_eq!(calculate_kill_points(0, 0, 0, 100, 0), 1000.0);
+        assert_eq!(calculate_kill_points(0, 0, 0, 0, 50), 1000.0);
+        assert_eq!(calculate_kill_points(10, 5, 5, 10, 5), 2.0 + 10.0 + 20.0 + 100.0 + 100.0);
+    }
+
+    #[test]
+    fn test_troop_combat_stats_trade_ratio_and_keys() {
+        let mut stats = TroopCombatStats {
+            primary_commander_id: 101,
+            primary_commander_name: "Scipio".to_string(),
+            secondary_commander_id: 102,
+            secondary_commander_name: "Liu Che".to_string(),
+            kp_gained: 150_000.0,
+            kp_lost: 100_000.0,
+            ..Default::default()
+        };
+        assert_eq!(stats.troop_key(), "cmdr_101_102");
+        assert_eq!(stats.display_pair_name(), "Scipio / Liu Che");
+        assert_eq!(stats.trade_ratio_pct(), 150.0);
+
+        // Zero KP lost with positive KP gained (zero casualties taken)
+        stats.kp_lost = 0.0;
+        assert_eq!(stats.trade_ratio_pct(), 100.0);
+
+        // Both zero
+        stats.kp_gained = 0.0;
+        assert_eq!(stats.trade_ratio_pct(), 100.0);
+
+        // Single commander fallback
+        let solo = TroopCombatStats {
+            primary_commander_id: 205,
+            primary_commander_name: "Zhuge Liang".to_string(),
+            secondary_commander_id: 0,
+            secondary_commander_name: String::new(),
+            kp_gained: 50_000.0,
+            kp_lost: 80_000.0,
+            dead_dealt: 500,
+            severely_wounded_dealt: 1500,
+            dead_taken: 200,
+            severely_wounded_taken: 800,
+            ..Default::default()
+        };
+        assert_eq!(solo.display_pair_name(), "Zhuge Liang");
+        assert_eq!(solo.kills_dealt(), 2000);
+        assert_eq!(solo.kills_taken(), 1000);
+        assert_eq!(solo.trade_ratio_pct(), 200.0);
+    }
+
+    #[test]
+    fn test_filter_mode_pvp() {
+        assert_eq!(FilterMode::from_str_loose("pvp"), FilterMode::PvP);
+        assert_eq!(FilterMode::from_str_loose("combat"), FilterMode::PvP);
+        assert_eq!(FilterMode::PvP.as_str(), "pvp");
+        assert!(FilterMode::PvP.matches("pvp"));
+        assert!(!FilterMode::PvP.matches("barbarian"));
+        assert!(!FilterMode::AllRewards.matches("pvp"));
     }
 }

@@ -36,6 +36,7 @@ export const GlobalFilterBar: React.FC = () => {
     { id: "all-forts", label: t("modeAllForts") },
     { id: "all-rewards", label: t("modeAllRewards") },
     { id: "gathering", label: t("modeGathering") },
+    { id: "pvp", label: t("modePvp") },
   ];
 
   const presets: Array<{ id: DateFilterPreset; label: string }> = [

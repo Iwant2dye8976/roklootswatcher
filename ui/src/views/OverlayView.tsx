@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { OverlayPayloadDto } from "../types";
 import * as api from "../api/tauri";
+import { CommanderCardPair } from "../components/CommanderCardPair";
+import { ResourceIcon } from "../components/ResourceIcon";
 
 export const OverlayView: React.FC = () => {
   const [data, setData] = useState<OverlayPayloadDto | null>(null);
@@ -34,10 +36,26 @@ export const OverlayView: React.FC = () => {
     return null;
   }
 
-  const { config, records, pinned_chips, today_runs } = data;
+  const { config, records, pinned_chips, troop_trades = [], today_runs } = data;
   const showChips = config.mode === "MiniHud" || config.mode === "Combined";
   const showCards = config.mode === "Cards" || config.mode === "Combined";
   const isMiniOnly = config.mode === "MiniHud";
+
+  const formatCompactCount = (val: number): string => {
+    if (val >= 1_000_000) {
+      return `${(val / 1_000_000).toFixed(2)}M`;
+    }
+    if (val >= 1_000) {
+      return `${(val / 1_000).toFixed(1)}K`;
+    }
+    return Math.round(val).toLocaleString();
+  };
+
+  const getRatioBadgeClass = (pct: number): string => {
+    if (pct >= 120) return "text-emerald-400";
+    if (pct >= 100) return "text-sky-400";
+    return "text-rose-400";
+  };
 
   const totalIdle = (data.idle_secs || 0) + extraIdleSecs;
   const userOpacity = Math.max(0.3, Math.min(1.0, config.opacity || 0.95));
@@ -58,7 +76,7 @@ export const OverlayView: React.FC = () => {
     effectiveOpacity = Math.max(0.35, userOpacity * 0.92);
   }
 
-  const baseFontPx = Math.max(8.5, Math.min(16, config.font_size || 10.5));
+  const baseFontPx = Math.max(8.0, Math.min(32, config.font_size || 10.5));
   const textHex = config.text_color_hex || "#F8FAFC";
   const accentHex = config.accent_color_hex || "#38BDF8";
   const isTransparentBg = !!config.transparent_bg;
@@ -106,6 +124,14 @@ export const OverlayView: React.FC = () => {
                   </span>
                 </>
               )}
+              {(today_runs.pvp || 0) > 0 && (
+                <>
+                  <span>·</span>
+                  <span className="text-fuchsia-400 font-bold">
+                    {today_runs.pvp}P
+                  </span>
+                </>
+              )}
             </div>
 
             {/* Pinned Loot Chips */}
@@ -114,6 +140,11 @@ export const OverlayView: React.FC = () => {
                 key={chip.id}
                 className={`flex items-center gap-1 px-1.5 py-0.5 rounded font-mono shrink-0 leading-none ${pillBgClass}`}
               >
+                <ResourceIcon
+                  resource={chip.id}
+                  size="xs"
+                  className="w-3.5 h-3.5 object-contain shrink-0"
+                />
                 <span
                   style={{ color: chip.color_hex || accentHex }}
                   className="font-bold text-[0.88em]"
@@ -128,15 +159,76 @@ export const OverlayView: React.FC = () => {
           </div>
         )}
 
+        {/* Active Session Troop Trade Ratios (Cards & Combined mode) */}
+        {showCards && config.filter === "pvp" && (
+          <div className="space-y-1">
+            {troop_trades.length === 0 ? (
+              <div
+                className={`px-2 py-1 rounded text-[0.85em] text-slate-300 font-mono italic text-center ${cardBgClass}`}
+              >
+                No PvP troop trades recorded today...
+              </div>
+            ) : (
+              troop_trades
+                .slice(0, 5)
+                .map((troop) => (
+                  <div
+                    key={troop.troop_id}
+                    className={`px-2 py-1.5 rounded border-l-[3px] border-l-fuchsia-400 flex flex-col gap-0.5 leading-tight font-mono ${cardBgClass}`}
+                  >
+                    <div className="flex items-center justify-between gap-1 min-w-0">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <CommanderCardPair
+                          primaryId={troop.primary_commander_id}
+                          primaryName={troop.primary_commander_name}
+                          primaryIsExpertised={troop.primary_is_expertised}
+                          secondaryId={troop.secondary_commander_id}
+                          secondaryName={troop.secondary_commander_name}
+                          secondaryIsExpertised={troop.secondary_is_expertised}
+                          size="sm"
+                          showWakeupBadge={true}
+                          showEmblem={true}
+                        />
+                        <span
+                          className="font-bold truncate text-[0.92em]"
+                          style={{ color: textHex }}
+                        >
+                          {troop.display_pair_name}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between gap-1.5 text-[0.88em]">
+                      <span className="text-amber-300 font-bold">
+                        +{formatCompactCount(troop.kills_dealt ?? troop.kp_gained)} Kills
+                      </span>
+                      <span
+                        className={`font-bold ${getRatioBadgeClass(
+                          troop.trade_ratio_pct
+                        )}`}
+                      >
+                        Ratio{" "}
+                        {troop.trade_ratio_pct > 999
+                          ? ">999%"
+                          : `${troop.trade_ratio_pct.toFixed(0)}%`}
+                      </span>
+                    </div>
+                  </div>
+                ))
+            )}
+          </div>
+        )}
+
         {/* Recent Battle Drop Cards (Cards & Combined only) */}
-        {showCards && (
+        {showCards && config.filter !== "pvp" && (
           <div className="space-y-1">
             {records.length === 0 ? (
               <div className={`px-2 py-1.5 rounded text-[0.88em] text-slate-300 font-mono italic text-center ${cardBgClass}`}>
                 Awaiting combat reports...
               </div>
             ) : (
-              records.slice(0, 5).map((rec, idx) => {
+              records
+                .slice(0, 5)
+                .map((rec, idx) => {
                 const borderClass =
                   rec.battle_type === "motte"
                     ? "border-l-red-500"

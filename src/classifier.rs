@@ -106,6 +106,41 @@ pub fn is_barbarian_battle_report(mail: &LilithValue) -> bool {
     false
 }
 
+pub fn get_commander_name(id: u32) -> String {
+    crate::model::get_commander_name(id)
+}
+
+pub fn is_pvp_battle_report(mail: &LilithValue) -> bool {
+    if mail.get("type").and_then(|v| v.as_str()) != Some("Battle") {
+        return false;
+    }
+    if is_barbarian_battle_report(mail) {
+        return false;
+    }
+    let body = match mail.get("body") {
+        Some(b) => b,
+        None => return false,
+    };
+    let content = match body.get("content") {
+        Some(c) => c,
+        None => return false,
+    };
+    let attacks = match content.get("Attacks").and_then(|a| a.as_table()) {
+        Some(a) => a,
+        None => return false,
+    };
+
+    for (_atk_id, atk) in attacks {
+        if let Some(cidt) = atk.get("CIdt") {
+            let pid = cidt.get("PId").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            if pid > 0.0 {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 pub fn classify_mail(mail: &LilithValue) -> Option<&'static str> {
     let box_name = mail.get("box").and_then(|v| v.as_str()).unwrap_or("");
     if box_name != "Report" && box_name != "Archive" {
@@ -114,6 +149,10 @@ pub fn classify_mail(mail: &LilithValue) -> Option<&'static str> {
 
     if is_barbarian_battle_report(mail) {
         return Some("barbarian");
+    }
+
+    if is_pvp_battle_report(mail) {
+        return Some("pvp");
     }
 
     if mail.get("type").and_then(|v| v.as_str()) == Some("Rss") {
@@ -345,6 +384,7 @@ pub fn extract_barbarian_battle_details(
         content: content_desc,
         account_id,
         player_name,
+        ..Default::default()
     })
 }
 
@@ -405,6 +445,15 @@ pub fn extract_gathering_details(
     let mut item_totals = HashMap::new();
 
     if base_val > 0 {
+        let sprites = match res_type {
+            1 => vec!["img_food.png".to_string()],
+            2 => vec!["img_wood.png".to_string()],
+            3 => vec!["img_stone.png".to_string()],
+            4 => vec!["img_gold.png".to_string()],
+            5 => vec!["img_gem.png".to_string()],
+            9 => vec!["img_Crystal.png".to_string()],
+            _ => Vec::new(),
+        };
         items.push(ItemDrop {
             itype: 1,
             sub_type: res_type,
@@ -413,7 +462,7 @@ pub fn extract_gathering_details(
             name_vi: res_name.to_string(),
             name_en: res_name_en.to_string(),
             category: category.to_string(),
-            sprites: Vec::new(),
+            sprites,
         });
         item_totals.insert(res_name.to_string(), base_val);
     }
@@ -439,6 +488,263 @@ pub fn extract_gathering_details(
         content: String::new(),
         account_id,
         player_name,
+        ..Default::default()
+    })
+}
+
+pub fn extract_pvp_battle_details(
+    mail: &LilithValue,
+    filename: &str,
+) -> Result<BattleRecord, String> {
+    let body = mail.get("body").ok_or_else(|| "Missing mail body".to_string())?;
+    let content = body.get("content").ok_or_else(|| "Missing body content".to_string())?;
+
+    let raw_time = mail
+        .get("time")
+        .and_then(|v| v.as_i64())
+        .or_else(|| content.get("Ets").and_then(|v| v.as_i64()))
+        .unwrap_or(0);
+    let (time_utc, time_vn) = format_timestamp(raw_time);
+
+    let mail_id = mail
+        .get("id")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| {
+            mail.get("id")
+                .and_then(|v| v.as_i64())
+                .map(|i| i.to_string())
+                .unwrap_or_default()
+        });
+
+    let self_char = content.get("SelfChar");
+    let mut primary_commander_id = self_char
+        .and_then(|sc| sc.get("HId"))
+        .and_then(|v| v.as_u32())
+        .unwrap_or(0);
+    let mut secondary_commander_id = self_char
+        .and_then(|sc| sc.get("HId2"))
+        .and_then(|v| v.as_u32())
+        .unwrap_or(0);
+
+    // Fallback to STs if SelfChar did not carry HId
+    if primary_commander_id == 0 {
+        if let Some(sts) = content.get("STs").and_then(|s| s.as_table()) {
+            if let Some((_k, st)) = sts.iter().next() {
+                primary_commander_id = st.get("HId").and_then(|v| v.as_u32()).unwrap_or(0);
+                secondary_commander_id = st.get("HId2").and_then(|v| v.as_u32()).unwrap_or(0);
+            }
+        }
+    }
+
+    let primary_commander_name = get_commander_name(primary_commander_id);
+    let secondary_commander_name = get_commander_name(secondary_commander_id);
+
+    let mut primary_is_expertised = self_char
+        .and_then(|sc| sc.get("HAw"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let mut secondary_is_expertised = self_char
+        .and_then(|sc| sc.get("HAw2"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    if !primary_is_expertised {
+        if let Some(hss) = self_char.and_then(|sc| sc.get("HSS")).and_then(|h| h.as_table()) {
+            if hss.len() >= 5 || hss.contains_key("5") {
+                primary_is_expertised = true;
+            }
+        }
+    }
+    if !secondary_is_expertised {
+        if let Some(hss2) = self_char.and_then(|sc| sc.get("HSS2")).and_then(|h| h.as_table()) {
+            if hss2.len() >= 5 || hss2.contains_key("5") {
+                secondary_is_expertised = true;
+            }
+        }
+    }
+
+    let is_rally = self_char
+        .and_then(|sc| sc.get("IsRally"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+        || self_char
+            .and_then(|sc| sc.get("CTK"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.contains("Rally"))
+            .unwrap_or(false);
+
+    let mut pvp_combat_type = if is_rally {
+        "rally".to_string()
+    } else {
+        "field".to_string()
+    };
+
+    let mut kp_gained = 0.0;
+    let mut kp_lost = 0.0;
+    let mut dead_dealt: u64 = 0;
+    let mut dead_taken: u64 = 0;
+    let mut severely_wounded_dealt: u64 = 0;
+    let mut severely_wounded_taken: u64 = 0;
+    let mut pos_x: i32 = 0;
+    let mut pos_y: i32 = 0;
+    let mut enemy_names: Vec<String> = Vec::new();
+    let mut target_primary_commander_id: u32 = 0;
+    let mut target_secondary_commander_id: u32 = 0;
+    let mut target_primary_is_expertised = false;
+    let mut target_secondary_is_expertised = false;
+
+    if let Some(attacks) = content.get("Attacks").and_then(|a| a.as_table()) {
+        for (_atk_id, atk) in attacks {
+            let cidt = atk.get("CIdt");
+            let pid = cidt
+                .and_then(|c| c.get("PId"))
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0);
+            if pid <= 0.0 {
+                continue;
+            }
+
+            if let Some(def_val) = atk.get("Def").and_then(|v| v.as_u32()) {
+                if def_val > 0 && pvp_combat_type == "field" {
+                    pvp_combat_type = "garrison".to_string();
+                }
+            }
+
+            if let Some(cidt) = cidt {
+                if let Some(ename) = cidt.get("PName").and_then(|v| v.as_str()) {
+                    let trimmed = ename.trim();
+                    if !trimmed.is_empty() && !enemy_names.iter().any(|n| n == trimmed) {
+                        enemy_names.push(trimmed.to_string());
+                    }
+                }
+                if target_primary_commander_id == 0 {
+                    target_primary_commander_id = cidt.get("HId").and_then(|v| v.as_u32()).unwrap_or(0);
+                    target_secondary_commander_id = cidt.get("HId2").and_then(|v| v.as_u32()).unwrap_or(0);
+                    target_primary_is_expertised = cidt.get("HAw").and_then(|v| v.as_bool()).unwrap_or(false);
+                    target_secondary_is_expertised = cidt.get("HAw2").and_then(|v| v.as_bool()).unwrap_or(false);
+                    if !target_primary_is_expertised {
+                        if let Some(hss) = cidt.get("HSS").and_then(|h| h.as_table()) {
+                            if hss.len() >= 5 || hss.contains_key("5") {
+                                target_primary_is_expertised = true;
+                            }
+                        }
+                    }
+                    if !target_secondary_is_expertised {
+                        if let Some(hss2) = cidt.get("HSS2").and_then(|h| h.as_table()) {
+                            if hss2.len() >= 5 || hss2.contains_key("5") {
+                                target_secondary_is_expertised = true;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // In Lilith Battle reports:
+            // `Damage` table records SelfChar (our troop) losses & KP gained:
+            //   - `Damage.KillScore`: Kill points gained by our troop.
+            //   - `Damage.BadHurt`: Severely wounded taken by our troop.
+            //   - `Damage.Death`: Dead taken by our troop.
+            // `Kill` table records enemy troop casualties & enemy KP:
+            //   - `Kill.KillScore`: Kill points gained by enemy troop (KP conceded/lost by us).
+            //   - `Kill.BadHurt`: Severely wounded dealt to enemy troop.
+            //   - `Kill.Death`: Dead dealt to enemy troop.
+            if let Some(dmg) = atk.get("Damage") {
+                kp_gained += dmg.get("KillScore").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                dead_taken += dmg.get("Death").and_then(|v| v.as_f64()).unwrap_or(0.0).max(0.0) as u64;
+                severely_wounded_taken += dmg.get("BadHurt").and_then(|v| v.as_f64()).unwrap_or(0.0).max(0.0) as u64;
+            }
+
+            if let Some(kill) = atk.get("Kill") {
+                kp_lost += kill.get("KillScore").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                dead_dealt += kill.get("Death").and_then(|v| v.as_f64()).unwrap_or(0.0).max(0.0) as u64;
+                severely_wounded_dealt += kill.get("BadHurt").and_then(|v| v.as_f64()).unwrap_or(0.0).max(0.0) as u64;
+            }
+
+            if pos_x == 0 && pos_y == 0 {
+                if let Some(pos) = atk.get("Pos") {
+                    let x = pos.get("X").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    let y = pos.get("Y").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    if x > 0.0 && y > 0.0 {
+                        pos_x = (x / 6.0).round() as i32;
+                        pos_y = (y / 6.0).round() as i32;
+                    }
+                }
+            }
+        }
+    }
+
+    let (account_id, player_name) = extract_account_info(mail);
+    let target_primary_commander_name = get_commander_name(target_primary_commander_id);
+    let target_secondary_commander_name = get_commander_name(target_secondary_commander_id);
+
+    let target_pair_display = if !target_secondary_commander_name.is_empty() {
+        format!("{}/{}", target_primary_commander_name, target_secondary_commander_name)
+    } else if !target_primary_commander_name.is_empty() {
+        target_primary_commander_name.clone()
+    } else {
+        String::new()
+    };
+
+    let target_player_name = if !enemy_names.is_empty() {
+        if enemy_names.len() == 1 {
+            enemy_names[0].clone()
+        } else {
+            format!("{} +{}", enemy_names[0], enemy_names.len() - 1)
+        }
+    } else {
+        String::new()
+    };
+
+    let target = if !target_pair_display.is_empty() && !target_player_name.is_empty() {
+        format!("[{}]-{}", target_pair_display, target_player_name)
+    } else if !target_pair_display.is_empty() {
+        format!("[{}]", target_pair_display)
+    } else if !target_player_name.is_empty() {
+        format!("vs {}", target_player_name)
+    } else {
+        "PvP".to_string()
+    };
+
+    Ok(BattleRecord {
+        filename: filename.to_string(),
+        mail_id,
+        battle_type: "pvp".to_string(),
+        time_raw: raw_time,
+        time_utc,
+        time_vn,
+        target: target.clone(),
+        target_level: pvp_combat_type.clone(),
+        talent_add: 0,
+        pos_x,
+        pos_y,
+        damage_pct: 100,
+        plunder_tier: 0,
+        items: Vec::new(),
+        item_totals: HashMap::new(),
+        content: target,
+        account_id,
+        player_name,
+        pvp_combat_type,
+        primary_commander_id,
+        primary_commander_name,
+        secondary_commander_id,
+        secondary_commander_name,
+        target_primary_commander_id,
+        target_primary_commander_name,
+        target_secondary_commander_id,
+        target_secondary_commander_name,
+        primary_is_expertised,
+        secondary_is_expertised,
+        target_primary_is_expertised,
+        target_secondary_is_expertised,
+        target_player_name,
+        kp_gained,
+        kp_lost,
+        dead_dealt,
+        dead_taken,
+        severely_wounded_dealt,
+        severely_wounded_taken,
     })
 }
 
@@ -455,6 +761,10 @@ pub fn extract_motte_details(
 
     if btype == "barbarian" || is_barbarian_battle_report(mail) {
         return extract_barbarian_battle_details(mail, filename, catalog);
+    }
+
+    if btype == "pvp" || is_pvp_battle_report(mail) {
+        return extract_pvp_battle_details(mail, filename);
     }
 
     if btype == "gathering" {
@@ -616,6 +926,7 @@ pub fn extract_motte_details(
         content,
         account_id,
         player_name,
+        ..Default::default()
     })
 }
 
@@ -869,5 +1180,107 @@ mod tests {
         let (acc_id, p_name) = extract_account_info(&mail);
         assert_eq!(acc_id, "12345678");
         assert_eq!(p_name, "GovernorOne");
+    }
+
+    #[test]
+    fn test_classify_and_extract_pvp_battle_report() {
+        use indexmap::IndexMap;
+        let mut self_char = IndexMap::new();
+        self_char.insert("PName".to_string(), LilithValue::String("GovernorOne".to_string()));
+        self_char.insert("PId".to_string(), LilithValue::Number(139825469.0));
+        self_char.insert("HId".to_string(), LilithValue::Number(198.0));
+        self_char.insert("HId2".to_string(), LilithValue::Number(140.0));
+
+        let mut cidt = IndexMap::new();
+        cidt.insert("PId".to_string(), LilithValue::Number(5752412.0));
+        cidt.insert("PName".to_string(), LilithValue::String("EnemyGov".to_string()));
+        cidt.insert("HId".to_string(), LilithValue::Number(179.0));
+        cidt.insert("HId2".to_string(), LilithValue::Number(6.0));
+
+        let mut dmg = IndexMap::new();
+        dmg.insert("KillScore".to_string(), LilithValue::Number(250_000.0));
+        dmg.insert("Death".to_string(), LilithValue::Number(500.0));
+        dmg.insert("BadHurt".to_string(), LilithValue::Number(12000.0));
+
+        let mut kill = IndexMap::new();
+        kill.insert("KillScore".to_string(), LilithValue::Number(100_000.0));
+        kill.insert("Death".to_string(), LilithValue::Number(100.0));
+        kill.insert("BadHurt".to_string(), LilithValue::Number(4900.0));
+
+        let mut pos = IndexMap::new();
+        pos.insert("X".to_string(), LilithValue::Number(3600.0));
+        pos.insert("Y".to_string(), LilithValue::Number(3000.0));
+
+        let mut atk = IndexMap::new();
+        atk.insert("CIdt".to_string(), LilithValue::Table(cidt));
+        atk.insert("Damage".to_string(), LilithValue::Table(dmg));
+        atk.insert("Kill".to_string(), LilithValue::Table(kill));
+        atk.insert("Pos".to_string(), LilithValue::Table(pos));
+
+        let mut attacks = IndexMap::new();
+        attacks.insert("1".to_string(), LilithValue::Table(atk));
+
+        let mut content = IndexMap::new();
+        content.insert("SelfChar".to_string(), LilithValue::Table(self_char));
+        content.insert("Attacks".to_string(), LilithValue::Table(attacks));
+
+        let mut body = IndexMap::new();
+        body.insert("content".to_string(), LilithValue::Table(content));
+
+        let mut mail_map = IndexMap::new();
+        mail_map.insert("box".to_string(), LilithValue::String("Report".to_string()));
+        mail_map.insert("type".to_string(), LilithValue::String("Battle".to_string()));
+        mail_map.insert("id".to_string(), LilithValue::String("pvp_1001".to_string()));
+        mail_map.insert("time".to_string(), LilithValue::Number(1700000000000000.0));
+        mail_map.insert("body".to_string(), LilithValue::Table(body));
+
+        let mail = LilithValue::Table(mail_map);
+        assert_eq!(classify_mail(&mail), Some("pvp"));
+
+        let catalog = LootCatalog::empty();
+        let rec = extract_motte_details(&mail, "Persistent.Mail.pvp_1001", &catalog, None)
+            .expect("Must extract PvP battle record");
+
+        assert_eq!(rec.battle_type, "pvp");
+        assert_eq!(rec.pvp_combat_type, "field");
+        assert_eq!(rec.primary_commander_id, 198);
+        assert_eq!(rec.primary_commander_name, "Ragnar Lodbrok (P)");
+        assert_eq!(rec.secondary_commander_id, 140);
+        assert_eq!(rec.secondary_commander_name, "Scipio Africanus (P)");
+        assert_eq!(rec.target_primary_commander_id, 179);
+        assert_eq!(rec.target_primary_commander_name, "Zhuge Liang");
+        assert_eq!(rec.target_secondary_commander_id, 6);
+        assert_eq!(rec.target_secondary_commander_name, "Yi Seong-Gye");
+        assert_eq!(rec.kp_gained, 250_000.0);
+        assert_eq!(rec.kp_lost, 100_000.0);
+        assert_eq!(rec.dead_dealt, 100);
+        assert_eq!(rec.dead_taken, 500);
+        assert_eq!(rec.severely_wounded_dealt, 4900);
+        assert_eq!(rec.severely_wounded_taken, 12000);
+        assert_eq!(rec.pos_x, 600);
+        assert_eq!(rec.pos_y, 500);
+        assert_eq!(rec.target, "[Zhuge Liang/Yi Seong-Gye]-EnemyGov");
+        assert_eq!(rec.target_player_name, "EnemyGov");
+    }
+
+    #[test]
+    fn test_commanders_yaml_lookup() {
+        assert_eq!(get_commander_name(0), "");
+        assert_eq!(get_commander_name(1), "Julius Caesar");
+        assert_eq!(get_commander_name(3), "Sun Tzu");
+        assert_eq!(get_commander_name(37), "Lohar");
+        assert_eq!(get_commander_name(99), "Æthelflæd");
+        assert_eq!(get_commander_name(140), "Scipio Africanus (P)");
+        assert_eq!(get_commander_name(148), "Joan of Arc (P)");
+        assert_eq!(get_commander_name(185), "Liu Che");
+        assert_eq!(get_commander_name(186), "Ashurbanipal");
+        assert_eq!(get_commander_name(198), "Ragnar Lodbrok (P)");
+        assert_eq!(get_commander_name(506), "Shapur I");
+        assert_eq!(get_commander_name(509), "Qin Shi Huang");
+        assert_eq!(get_commander_name(540), "Arthur Pendragon");
+        assert_eq!(get_commander_name(545), "Bai Qi");
+        assert_eq!(get_commander_name(575), "Achilles");
+        assert_eq!(get_commander_name(595), "Sun Tzu (P)");
+        assert_eq!(get_commander_name(618), "Pelagius (P)");
     }
 }

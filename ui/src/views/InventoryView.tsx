@@ -17,6 +17,7 @@ import {
   ApBottlesSummaryDto,
 } from "../types";
 import * as api from "../api/tauri";
+import { ResourceIcon } from "../components/ResourceIcon";
 
 export const InventoryView: React.FC = () => {
   const { language, mode, datePreset, dateFrom, dateTo, accountUid } =
@@ -155,16 +156,19 @@ export const InventoryView: React.FC = () => {
               <Coins className="w-4 h-4" />
               {t("rssSummary")}
             </span>
-            <span className="font-mono text-binance-green font-bold">
+            <span className="font-mono text-binance-white font-bold">
               {(resources.total_val / 1_000_000).toFixed(2)}M RSS (
               {resources.total_val.toLocaleString()})
             </span>
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 text-xs">
-            <div className="p-2.5 rounded-md bg-binance-canvas border border-binance-hairline">
-              <div className="text-binance-muted">{t("rssFood")}</div>
-              <div className="text-base font-bold font-mono text-binance-yellow">
+            <div className="p-2.5 rounded-md bg-binance-canvas border border-binance-hairline flex flex-col justify-between">
+              <div className="flex items-center gap-1.5 text-binance-muted">
+                <ResourceIcon resource="food" size="lg" />
+                <span className="text-base font-bold font-mono text-binance-white">{t("rssFood")}</span>
+              </div>
+              <div className="text-base font-bold font-mono text-binance-white my-0.5">
                 {(resources.food_val / 1_000_000).toFixed(2)}M
               </div>
               <div className="text-[10px] text-binance-muted font-mono">
@@ -172,9 +176,12 @@ export const InventoryView: React.FC = () => {
               </div>
             </div>
 
-            <div className="p-2.5 rounded-md bg-binance-canvas border border-binance-hairline">
-              <div className="text-binance-muted">{t("rssWood")}</div>
-              <div className="text-base font-bold font-mono text-binance-green">
+            <div className="p-2.5 rounded-md bg-binance-canvas border border-binance-hairline flex flex-col justify-between">
+              <div className="flex items-center gap-1.5 text-binance-muted">
+                <ResourceIcon resource="wood" size="lg" />
+                <span className="text-base font-bold font-mono text-binance-white">{t("rssWood")}</span>
+              </div>
+              <div className="text-base font-bold font-mono text-binance-white my-0.5">
                 {(resources.wood_val / 1_000_000).toFixed(2)}M
               </div>
               <div className="text-[10px] text-binance-muted font-mono">
@@ -182,9 +189,12 @@ export const InventoryView: React.FC = () => {
               </div>
             </div>
 
-            <div className="p-2.5 rounded-md bg-binance-canvas border border-binance-hairline">
-              <div className="text-binance-muted">{t("rssStone")}</div>
-              <div className="text-base font-bold font-mono text-binance-info">
+            <div className="p-2.5 rounded-md bg-binance-canvas border border-binance-hairline flex flex-col justify-between">
+              <div className="flex items-center gap-1.5 text-binance-muted">
+                <ResourceIcon resource="stone" size="lg" />
+                <span className="text-base font-bold font-mono text-binance-white">{t("rssStone")}</span>
+              </div>
+              <div className="text-base font-bold font-mono text-binance-white my-0.5">
                 {(resources.stone_val / 1_000_000).toFixed(2)}M
               </div>
               <div className="text-[10px] text-binance-muted font-mono">
@@ -192,9 +202,12 @@ export const InventoryView: React.FC = () => {
               </div>
             </div>
 
-            <div className="p-2.5 rounded-md bg-binance-canvas border border-binance-hairline">
-              <div className="text-binance-muted">{t("rssGold")}</div>
-              <div className="text-base font-bold font-mono text-binance-yellow">
+            <div className="p-2.5 rounded-md bg-binance-canvas border border-binance-hairline flex flex-col justify-between">
+              <div className="flex items-center gap-1.5 text-binance-muted">
+                <ResourceIcon resource="gold" size="lg" />
+                <span className="text-base font-bold font-mono text-binance-white">{t("rssGold")}</span>
+              </div>
+              <div className="text-base font-bold font-mono text-binance-white my-0.5">
                 {(resources.gold_val / 1_000_000).toFixed(2)}M
               </div>
               <div className="text-[10px] text-binance-muted font-mono">
@@ -202,9 +215,12 @@ export const InventoryView: React.FC = () => {
               </div>
             </div>
 
-            <div className="p-2.5 rounded-md bg-binance-canvas border border-binance-hairline">
-              <div className="text-binance-muted">{t("rssGems")}</div>
-              <div className="text-base font-bold font-mono text-purple-500 dark:text-purple-400">
+            <div className="p-2.5 rounded-md bg-binance-canvas border border-binance-hairline flex flex-col justify-between">
+              <div className="flex items-center gap-1.5 text-binance-muted">
+                <ResourceIcon resource="gems" size="lg" />
+                <span className="text-base font-bold font-mono text-binance-white">{t("rssGems")}</span>
+              </div>
+              <div className="text-base font-bold font-mono text-binance-white my-0.5">
                 {resources.gem_val.toLocaleString()}
               </div>
               <div className="text-[10px] text-binance-muted font-mono">
@@ -212,9 +228,9 @@ export const InventoryView: React.FC = () => {
               </div>
             </div>
 
-            <div className="p-2.5 rounded-md bg-binance-canvas border border-binance-hairline">
-              <div className="text-binance-muted">{t("rssChoicePacks")}</div>
-              <div className="text-base font-bold font-mono text-binance-body">
+            <div className="p-2.5 rounded-md bg-binance-canvas border border-binance-hairline flex flex-col justify-between">
+              <div className="text-binance-muted font-medium">{t("rssChoicePacks")}</div>
+              <div className="text-base font-bold font-mono text-binance-body my-0.5">
                 {resources.choice_packs.toLocaleString()}
               </div>
               <div className="text-[10px] text-binance-muted font-mono">
@@ -370,16 +386,23 @@ export const InventoryView: React.FC = () => {
                 className="grid grid-cols-12 items-center px-4 py-2 text-xs hover:bg-binance-elevated/70 transition font-mono"
               >
                 <div className="col-span-4 flex items-center gap-2 pl-1 min-w-0">
-                  <span className="w-1.5 h-1.5 rounded-xs bg-binance-yellowSolid shrink-0" />
-                  <span className="font-sans font-medium text-binance-body truncate">
+                  <ResourceIcon
+                    resource={it}
+                    size="xl"
+                    className="shrink-0 text-base font-bold font-mono"
+                    fallback={
+                      <span className="w-1.5 h-1.5 rounded-xs bg-binance-yellowSolid shrink-0" />
+                    }
+                  />
+                  <span className="text-sm font-bold font-mono text-binance-white">
                     {it.display_name ||
                       (language === "vi" ? it.name_vi : it.name_en)}
                   </span>
                 </div>
-                <div className="col-span-2 text-right font-bold text-binance-yellow">
+                <div className="col-span-2 text-right font-bold text-binance-white">
                   {it.total_quantity.toLocaleString()}
                 </div>
-                <div className="col-span-2 text-center text-binance-green text-[11px] truncate">
+                <div className="col-span-2 text-center text-binance-white text-[11px] truncate">
                   {it.converted_value || "-"}
                 </div>
                 <div className="col-span-1 text-center text-binance-muted">

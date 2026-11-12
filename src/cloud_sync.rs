@@ -175,6 +175,50 @@ fn generate_secure_state() -> String {
     format!("{:016x}{:016x}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0), std::process::id())
 }
 
+pub(crate) fn render_oauth_callback_html() -> &'static str {
+    r#"<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>RoK Loot Watcher - Login</title>
+</head>
+<body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;text-align:center;padding:60px 20px;background:#1e1e2e;color:#cdd6f4;line-height:1.6;">
+  <div style="max-width:440px;margin:0 auto;background:#25273a;border:1px solid #363a4f;border-radius:12px;padding:32px 24px;box-shadow:0 8px 24px rgba(0,0,0,0.3);">
+    <h2 id="title" style="color:#89b4fa;margin:0 0 12px 0;">RoK Loot Watcher</h2>
+    <p id="msg" style="font-size:16px;margin:0 0 6px 0;">Đang đồng bộ đăng nhập...</p>
+    <p id="sub" style="font-size:13px;color:#a6adc8;margin:0;">Completing sign-in...</p>
+  </div>
+  <script>
+    const hash = window.location.hash ? window.location.hash.substring(1) : '';
+    const search = window.location.search ? window.location.search.substring(1) : '';
+    const fullParams = (hash && search) ? (hash + '&' + search) : (hash || search);
+    const url = fullParams ? ('/token?' + fullParams) : '/token?error=empty_callback';
+    fetch(url)
+      .then(async res => {
+        if (!res.ok) {
+          const txt = await res.text();
+          throw new Error(txt || ('HTTP ' + res.status));
+        }
+        document.getElementById('title').style.color = '#a6e3a1';
+        document.getElementById('title').innerText = '✓ RoK Loot Watcher';
+        document.getElementById('msg').innerText = 'Đăng nhập thành công! Bạn có thể đóng tab này và quay lại ứng dụng.';
+        document.getElementById('sub').innerText = 'Sign-in successful! You may now close this tab and return to the app.';
+      })
+      .catch(err => {
+        document.getElementById('title').style.color = '#f38ba8';
+        document.getElementById('title').innerText = '✕ RoK Loot Watcher';
+        document.getElementById('msg').innerText = 'Đăng nhập thất bại: ' + err.message;
+        document.getElementById('sub').innerText = 'Bạn có thể đóng tab này và thử lại trong ứng dụng.';
+      });
+  </script>
+</body>
+</html>"#
+}
+
+pub(crate) fn render_oauth_cancel_html() -> &'static str {
+    r#"<!DOCTYPE html><html><head><meta charset="utf-8"><title>RoK Loot Watcher</title></head><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;text-align:center;padding:60px 20px;background:#1e1e2e;color:#cdd6f4;line-height:1.6;"><div style="max-width:440px;margin:0 auto;background:#25273a;border:1px solid #363a4f;border-radius:12px;padding:32px 24px;box-shadow:0 8px 24px rgba(0,0,0,0.3);"><h2 style="color:#f38ba8;margin:0 0 12px 0;">RoK Loot Watcher</h2><p style="font-size:16px;margin:0 0 6px 0;">Đã hủy đăng nhập.</p><p style="font-size:13px;color:#a6adc8;margin:0;">Bạn có thể đóng tab này và quay lại ứng dụng.</p></div></body></html>"#
+}
+
 pub fn start_google_login(
     supabase_url: &str,
     anon_key: &str,
@@ -235,42 +279,7 @@ pub fn start_google_login(
         let req_str = String::from_utf8_lossy(&buf[..bytes_read]);
 
         if req_str.starts_with("GET /callback") {
-            let html = r#"<!DOCTYPE html>
-<html>
-<head><meta charset="utf-8"><title>RoK Loot Watcher - Login</title></head>
-<body style="font-family:sans-serif;text-align:center;padding:60px;background:#1e1e2e;color:#cdd6f4;">
-  <h2 style="color:#89b4fa;">RoK Loot Watcher</h2>
-  <p id="msg" style="font-size:16px;">Đang đồng bộ đăng nhập...</p>
-  <div id="btn-container" style="margin-top:20px;display:none;">
-    <button onclick="window.close()" style="background:#313244;color:#cdd6f4;border:1px solid #45475a;padding:8px 16px;border-radius:4px;cursor:pointer;font-size:14px;">Đóng tab</button>
-  </div>
-  <script>
-    function closeTab(delay) {
-      setTimeout(() => {
-        window.close();
-        document.getElementById('btn-container').style.display = 'block';
-      }, delay);
-    }
-    const hash = window.location.hash ? window.location.hash.substring(1) : '';
-    const search = window.location.search ? window.location.search.substring(1) : '';
-    const fullParams = (hash && search) ? (hash + '&' + search) : (hash || search);
-    const url = fullParams ? ('/token?' + fullParams) : '/token?error=empty_callback';
-    fetch(url)
-      .then(async res => {
-        if (!res.ok) {
-          const txt = await res.text();
-          throw new Error(txt || ('HTTP ' + res.status));
-        }
-        document.getElementById('msg').innerText = 'Đăng nhập thành công! Đang đóng tab...';
-        closeTab(1500);
-      })
-      .catch(err => {
-        document.getElementById('msg').innerText = 'Đăng nhập thất bại: ' + err.message + '. Đang đóng tab...';
-        closeTab(1500);
-      });
-  </script>
-</body>
-</html>"#;
+            let html = render_oauth_callback_html();
             let resp = format!(
                 "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
                 html.len(),
@@ -279,7 +288,7 @@ pub fn start_google_login(
             let _ = stream.write_all(resp.as_bytes());
             let _ = stream.flush();
         } else if req_str.starts_with("GET /cancel") {
-            let html = r#"<!DOCTYPE html><html><body style="font-family:sans-serif;text-align:center;padding:60px;background:#1e1e2e;color:#cdd6f4;"><h2 style="color:#f38ba8;">RoK Loot Watcher</h2><p>Đã hủy đăng nhập. Đang đóng tab...</p><script>setTimeout(()=>window.close(),1000);</script></body></html>"#;
+            let html = render_oauth_cancel_html();
             let resp = format!(
                 "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
                 html.len(),
@@ -1471,6 +1480,18 @@ mod tests {
         let res = start_google_login("https://example.supabase.co", "anon_key", Some(&cancel));
         assert!(res.is_err());
         assert!(res.unwrap_err().contains("Đã hủy đăng nhập"));
+    }
+
+    #[test]
+    fn test_oauth_html_templates_do_not_attempt_tab_closing() {
+        let callback_html = render_oauth_callback_html();
+        assert!(!callback_html.contains("window.close"), "Callback HTML must not attempt window.close");
+        assert!(!callback_html.contains("closeTab"), "Callback HTML must not attempt closeTab");
+        assert!(callback_html.contains("Đăng nhập thành công! Bạn có thể đóng tab này"), "Callback HTML must instruct user they can close tab");
+
+        let cancel_html = render_oauth_cancel_html();
+        assert!(!cancel_html.contains("window.close"), "Cancel HTML must not attempt window.close");
+        assert!(cancel_html.contains("Bạn có thể đóng tab này"), "Cancel HTML must instruct user they can close tab");
     }
 
     #[test]

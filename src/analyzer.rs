@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use chrono::{DateTime, Duration, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::model::{BattleRecord, ItemDrop, ItemStat, PlunderTierStat, Statistics};
+use crate::model::{BattleRecord, ItemDrop, ItemStat, PlunderTierStat, Statistics, TroopCombatStats};
 
 pub fn current_date_vn() -> NaiveDate {
     (Utc::now() + Duration::try_hours(7).unwrap_or_else(|| Duration::hours(7))).date_naive()
@@ -582,6 +582,67 @@ pub fn compute_ap_economics(active_records: &[BattleRecord], vault_records: &[Ba
         daily_timeline,
         target_benchmarks,
     }
+}
+
+pub fn aggregate_troop_combat_stats(records: &[BattleRecord]) -> Vec<TroopCombatStats> {
+    let mut map: HashMap<(u32, u32, String, String), TroopCombatStats> = HashMap::new();
+
+    for rec in records {
+        if rec.battle_type != "pvp" {
+            continue;
+        }
+        let primary_name = if rec.primary_commander_id > 0 {
+            crate::classifier::get_commander_name(rec.primary_commander_id)
+        } else {
+            rec.primary_commander_name.clone()
+        };
+        let secondary_name = if rec.secondary_commander_id > 0 {
+            crate::classifier::get_commander_name(rec.secondary_commander_id)
+        } else {
+            rec.secondary_commander_name.clone()
+        };
+        let key = (
+            rec.primary_commander_id,
+            rec.secondary_commander_id,
+            primary_name.clone(),
+            secondary_name.clone(),
+        );
+        let entry = map.entry(key).or_insert_with(|| TroopCombatStats {
+            primary_commander_id: rec.primary_commander_id,
+            primary_commander_name: primary_name,
+            secondary_commander_id: rec.secondary_commander_id,
+            secondary_commander_name: secondary_name,
+            primary_is_expertised: rec.primary_is_expertised,
+            secondary_is_expertised: rec.secondary_is_expertised,
+            ..Default::default()
+        });
+        if rec.primary_is_expertised {
+            entry.primary_is_expertised = true;
+        }
+        if rec.secondary_is_expertised {
+            entry.secondary_is_expertised = true;
+        }
+        entry.kp_gained += rec.kp_gained;
+        entry.kp_lost += rec.kp_lost;
+        entry.dead_dealt += rec.dead_dealt;
+        entry.dead_taken += rec.dead_taken;
+        entry.severely_wounded_dealt += rec.severely_wounded_dealt;
+        entry.severely_wounded_taken += rec.severely_wounded_taken;
+        entry.battle_count += 1;
+    }
+
+    let mut list: Vec<TroopCombatStats> = map.into_values().collect();
+    list.sort_by(|a, b| {
+        b.kills_dealt()
+            .cmp(&a.kills_dealt())
+            .then_with(|| {
+                b.kp_gained
+                    .partial_cmp(&a.kp_gained)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .then_with(|| b.battle_count.cmp(&a.battle_count))
+    });
+    list
 }
 
 #[cfg(test)]
@@ -1241,5 +1302,73 @@ mod tests {
         assert_eq!(econ.total_ap_consumed, 300);
         assert_eq!(econ.target_benchmarks[0].unit_ap_cost, 300);
         assert_eq!(econ.target_benchmarks[0].level, 15);
+    }
+
+    #[test]
+    fn test_aggregate_troop_combat_stats() {
+        let r1 = BattleRecord {
+            battle_type: "pvp".into(),
+            primary_commander_id: 198,
+            primary_commander_name: "Liu Che".into(),
+            secondary_commander_id: 140,
+            secondary_commander_name: "Joan Prime".into(),
+            kp_gained: 200_000.0,
+            kp_lost: 100_000.0,
+            dead_dealt: 500,
+            dead_taken: 100,
+            ..Default::default()
+        };
+        let r2 = BattleRecord {
+            battle_type: "pvp".into(),
+            primary_commander_id: 198,
+            primary_commander_name: "Liu Che".into(),
+            secondary_commander_id: 140,
+            secondary_commander_name: "Joan Prime".into(),
+            kp_gained: 100_000.0,
+            kp_lost: 50_000.0,
+            dead_dealt: 200,
+            dead_taken: 50,
+            ..Default::default()
+        };
+        let r3 = BattleRecord {
+            battle_type: "pvp".into(),
+            primary_commander_id: 595,
+            primary_commander_name: "Achilles".into(),
+            secondary_commander_id: 545,
+            secondary_commander_name: "Arthur".into(),
+            kp_gained: 500_000.0,
+            kp_lost: 400_000.0,
+            dead_dealt: 2000,
+            dead_taken: 1600,
+            ..Default::default()
+        };
+        let r_barb = BattleRecord {
+            battle_type: "barbarian".into(),
+            kp_gained: 999_999.0,
+            ..Default::default()
+        };
+
+        let stats = aggregate_troop_combat_stats(&[r1, r2, r3, r_barb]);
+        assert_eq!(stats.len(), 2);
+
+        // First should be 595 / 545 -> Sun Tzu (P) / Bai Qi (2000 kills dealt)
+        assert_eq!(stats[0].display_pair_name(), "Sun Tzu (P) / Bai Qi");
+        assert_eq!(stats[0].kills_dealt(), 2000);
+        assert_eq!(stats[0].kills_taken(), 1600);
+        assert_eq!(stats[0].kp_gained, 500_000.0);
+        assert_eq!(stats[0].kp_lost, 400_000.0);
+        assert_eq!(stats[0].trade_ratio_pct(), 125.0);
+        assert_eq!(stats[0].battle_count, 1);
+
+        // Second should be 198 / 140 -> Ragnar Lodbrok (P) / Scipio Africanus (P) (700 kills dealt across 2 battles)
+        assert_eq!(stats[1].display_pair_name(), "Ragnar Lodbrok (P) / Scipio Africanus (P)");
+        assert_eq!(stats[1].kills_dealt(), 700);
+        assert_eq!(stats[1].kills_taken(), 150);
+        assert_eq!(stats[1].kp_gained, 300_000.0);
+        assert_eq!(stats[1].kp_lost, 150_000.0);
+        assert_eq!(stats[1].trade_ratio_pct(), 466.7);
+        assert_eq!(stats[1].dead_dealt, 700);
+        assert_eq!(stats[1].dead_taken, 150);
+        assert_eq!(stats[1].battle_count, 2);
     }
 }

@@ -145,6 +145,26 @@ fn row_to_battle_record(row: &rusqlite::Row) -> rusqlite::Result<BattleRecord> {
     let item_totals = serde_json::from_str(&item_totals_json).unwrap_or_default();
     let account_id: String = row.get("account_id").unwrap_or_default();
     let player_name: String = row.get("player_name").unwrap_or_default();
+    let pvp_combat_type: String = row.get("pvp_combat_type").unwrap_or_default();
+    let primary_commander_id: u32 = row.get("primary_commander_id").unwrap_or_default();
+    let primary_commander_name: String = row.get("primary_commander_name").unwrap_or_default();
+    let secondary_commander_id: u32 = row.get("secondary_commander_id").unwrap_or_default();
+    let secondary_commander_name: String = row.get("secondary_commander_name").unwrap_or_default();
+    let target_primary_commander_id: u32 = row.get("target_primary_commander_id").unwrap_or_default();
+    let target_primary_commander_name: String = row.get("target_primary_commander_name").unwrap_or_default();
+    let target_secondary_commander_id: u32 = row.get("target_secondary_commander_id").unwrap_or_default();
+    let target_secondary_commander_name: String = row.get("target_secondary_commander_name").unwrap_or_default();
+    let primary_is_expertised: bool = row.get("primary_is_expertised").map(|v: i32| v != 0).unwrap_or(false);
+    let secondary_is_expertised: bool = row.get("secondary_is_expertised").map(|v: i32| v != 0).unwrap_or(false);
+    let target_primary_is_expertised: bool = row.get("target_primary_is_expertised").map(|v: i32| v != 0).unwrap_or(false);
+    let target_secondary_is_expertised: bool = row.get("target_secondary_is_expertised").map(|v: i32| v != 0).unwrap_or(false);
+    let target_player_name: String = row.get("target_player_name").unwrap_or_default();
+    let kp_gained: f64 = row.get("kp_gained").unwrap_or_default();
+    let kp_lost: f64 = row.get("kp_lost").unwrap_or_default();
+    let dead_dealt: u64 = row.get("dead_dealt").unwrap_or_default();
+    let dead_taken: u64 = row.get("dead_taken").unwrap_or_default();
+    let severely_wounded_dealt: u64 = row.get("severely_wounded_dealt").unwrap_or_default();
+    let severely_wounded_taken: u64 = row.get("severely_wounded_taken").unwrap_or_default();
 
     Ok(BattleRecord {
         filename,
@@ -165,6 +185,26 @@ fn row_to_battle_record(row: &rusqlite::Row) -> rusqlite::Result<BattleRecord> {
         content,
         account_id,
         player_name,
+        pvp_combat_type,
+        primary_commander_id,
+        primary_commander_name,
+        secondary_commander_id,
+        secondary_commander_name,
+        target_primary_commander_id,
+        target_primary_commander_name,
+        target_secondary_commander_id,
+        target_secondary_commander_name,
+        primary_is_expertised,
+        secondary_is_expertised,
+        target_primary_is_expertised,
+        target_secondary_is_expertised,
+        target_player_name,
+        kp_gained,
+        kp_lost,
+        dead_dealt,
+        dead_taken,
+        severely_wounded_dealt,
+        severely_wounded_taken,
     })
 }
 
@@ -728,8 +768,17 @@ impl MailVault {
                     mail_id, filename, battle_type, time_raw, time_utc, time_vn,
                     target, target_level, talent_add, pos_x, pos_y, damage_pct,
                     plunder_tier, items_json, item_totals_json, content, dedup_key, synced_at,
-                    account_id, player_name
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, NULL, ?18, ?19)"
+                    account_id, player_name,
+                    pvp_combat_type, primary_commander_id, primary_commander_name,
+                    secondary_commander_id, secondary_commander_name,
+                    target_primary_commander_id, target_primary_commander_name,
+                    target_secondary_commander_id, target_secondary_commander_name,
+                    primary_is_expertised, secondary_is_expertised,
+                    target_primary_is_expertised, target_secondary_is_expertised,
+                    target_player_name,
+                    kp_gained, kp_lost, dead_dealt, dead_taken,
+                    severely_wounded_dealt, severely_wounded_taken
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, NULL, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39)"
             ) {
                 Ok(s) => s,
                 Err(e) => {
@@ -758,6 +807,26 @@ impl MailVault {
                 dedup_key,
                 rec.account_id,
                 rec.player_name,
+                rec.pvp_combat_type,
+                rec.primary_commander_id,
+                rec.primary_commander_name,
+                rec.secondary_commander_id,
+                rec.secondary_commander_name,
+                rec.target_primary_commander_id,
+                rec.target_primary_commander_name,
+                rec.target_secondary_commander_id,
+                rec.target_secondary_commander_name,
+                rec.primary_is_expertised as i32,
+                rec.secondary_is_expertised as i32,
+                rec.target_primary_is_expertised as i32,
+                rec.target_secondary_is_expertised as i32,
+                rec.target_player_name,
+                rec.kp_gained,
+                rec.kp_lost,
+                rec.dead_dealt,
+                rec.dead_taken,
+                rec.severely_wounded_dealt,
+                rec.severely_wounded_taken,
             ]) {
                 Ok(_) => true,
                 Err(e) => {
@@ -889,8 +958,17 @@ impl MailVault {
                     mail_id, filename, battle_type, time_raw, time_utc, time_vn,
                     target, target_level, talent_add, pos_x, pos_y, damage_pct,
                     plunder_tier, items_json, item_totals_json, content, dedup_key, synced_at,
-                    account_id, player_name
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)
+                    account_id, player_name,
+                    pvp_combat_type, primary_commander_id, primary_commander_name,
+                    secondary_commander_id, secondary_commander_name,
+                    target_primary_commander_id, target_primary_commander_name,
+                    target_secondary_commander_id, target_secondary_commander_name,
+                    primary_is_expertised, secondary_is_expertised,
+                    target_primary_is_expertised, target_secondary_is_expertised,
+                    target_player_name,
+                    kp_gained, kp_lost, dead_dealt, dead_taken,
+                    severely_wounded_dealt, severely_wounded_taken
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40)
                 ON CONFLICT(dedup_key) DO UPDATE SET
                     synced_at = COALESCE(battle_records.synced_at, excluded.synced_at),
                     account_id = CASE WHEN battle_records.account_id IS NULL OR battle_records.account_id = '' THEN excluded.account_id ELSE battle_records.account_id END,
@@ -921,6 +999,26 @@ impl MailVault {
                     timestamp,
                     r.account_id,
                     r.player_name,
+                    r.pvp_combat_type,
+                    r.primary_commander_id,
+                    r.primary_commander_name,
+                    r.secondary_commander_id,
+                    r.secondary_commander_name,
+                    r.target_primary_commander_id,
+                    r.target_primary_commander_name,
+                    r.target_secondary_commander_id,
+                    r.target_secondary_commander_name,
+                    r.primary_is_expertised as i32,
+                    r.secondary_is_expertised as i32,
+                    r.target_primary_is_expertised as i32,
+                    r.target_secondary_is_expertised as i32,
+                    r.target_player_name,
+                    r.kp_gained,
+                    r.kp_lost,
+                    r.dead_dealt,
+                    r.dead_taken,
+                    r.severely_wounded_dealt,
+                    r.severely_wounded_taken,
                 ])?;
                 if changed > 0 {
                     restored += 1;
@@ -956,7 +1054,7 @@ impl MailVault {
     pub fn query_latest_filtered(&self, filter: FilterMode, limit: usize) -> Vec<BattleRecord> {
         let sql = match filter {
             FilterMode::AllRewards => {
-                "SELECT * FROM battle_records ORDER BY time_raw DESC LIMIT ?1"
+                "SELECT * FROM battle_records WHERE battle_type != 'pvp' ORDER BY time_raw DESC LIMIT ?1"
             }
             FilterMode::AllTargets => {
                 "SELECT * FROM battle_records WHERE battle_type IN ('motte', 'fort', 'barbarian') ORDER BY time_raw DESC LIMIT ?1"
@@ -975,6 +1073,9 @@ impl MailVault {
             }
             FilterMode::Gathering => {
                 "SELECT * FROM battle_records WHERE battle_type = 'gathering' ORDER BY time_raw DESC LIMIT ?1"
+            }
+            FilterMode::PvP => {
+                "SELECT * FROM battle_records WHERE battle_type = 'pvp' ORDER BY time_raw DESC LIMIT ?1"
             }
         };
 
@@ -1398,6 +1499,7 @@ impl MailVault {
                 content,
                 account_id: account_id.clone(),
                 player_name: player_name.clone(),
+                ..Default::default()
             });
         }
 
@@ -1470,6 +1572,7 @@ impl MailVault {
             content,
             account_id,
             player_name,
+            ..Default::default()
         })
     }
 }
@@ -2344,6 +2447,54 @@ mod tests {
         assert_eq!(vault.total_count(), 1);
         let remaining = vault.get_records();
         assert_eq!(remaining[0].account_id, "122980539");
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_vault_pvp_record_roundtrip() {
+        let temp_dir = std::env::temp_dir().join(format!("rok_test_pvp_vault_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&temp_dir);
+        let _ = fs::create_dir_all(&temp_dir);
+        let mut vault = MailVault::new(&temp_dir);
+
+        let mut rec = create_test_record("pvp_mail_001", 5000);
+        rec.battle_type = "pvp".to_string();
+        rec.pvp_combat_type = "field".to_string();
+        rec.primary_commander_id = 198;
+        rec.primary_commander_name = "Liu Che".to_string();
+        rec.secondary_commander_id = 140;
+        rec.secondary_commander_name = "Joan Prime".to_string();
+        rec.target_primary_commander_id = 179;
+        rec.target_primary_commander_name = "Zhuge Liang".to_string();
+        rec.target_secondary_commander_id = 6;
+        rec.target_secondary_commander_name = "Yi Seong-Gye".to_string();
+        rec.kp_gained = 350_000.0;
+        rec.kp_lost = 120_000.0;
+        rec.dead_dealt = 1000;
+        rec.dead_taken = 200;
+        rec.severely_wounded_dealt = 15000;
+        rec.severely_wounded_taken = 5000;
+
+        assert!(vault.upsert(rec));
+
+        let pvp_list = vault.query_latest_filtered(FilterMode::PvP, 10);
+        assert_eq!(pvp_list.len(), 1);
+        let r = &pvp_list[0];
+        assert_eq!(r.primary_commander_id, 198);
+        assert_eq!(r.primary_commander_name, "Liu Che");
+        assert_eq!(r.secondary_commander_id, 140);
+        assert_eq!(r.secondary_commander_name, "Joan Prime");
+        assert_eq!(r.target_primary_commander_id, 179);
+        assert_eq!(r.target_primary_commander_name, "Zhuge Liang");
+        assert_eq!(r.target_secondary_commander_id, 6);
+        assert_eq!(r.target_secondary_commander_name, "Yi Seong-Gye");
+        assert_eq!(r.kp_gained, 350_000.0);
+        assert_eq!(r.kp_lost, 120_000.0);
+        assert_eq!(r.dead_dealt, 1000);
+        assert_eq!(r.dead_taken, 200);
+        assert_eq!(r.severely_wounded_dealt, 15000);
+        assert_eq!(r.severely_wounded_taken, 5000);
 
         let _ = fs::remove_dir_all(&temp_dir);
     }

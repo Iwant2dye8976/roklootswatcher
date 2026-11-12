@@ -5,7 +5,8 @@ export type FilterMode =
   | "barbarian"
   | "all-forts"
   | "all-rewards"
-  | "gathering";
+  | "gathering"
+  | "pvp";
 
 export type DateFilterPreset =
   | "AllTime"
@@ -45,6 +46,7 @@ export interface LootItem {
   sub_type: number;
   value: number;
   converted_value?: string;
+  icon?: string;
 }
 
 export interface BattleRecord {
@@ -75,6 +77,29 @@ export interface BattleRecord {
   total_rss?: number;
   choice_packs?: number;
   gems?: number;
+  pvp_combat_type?: string;
+  primary_commander_id?: number;
+  primary_commander_name?: string;
+  secondary_commander_id?: number;
+  secondary_commander_name?: string;
+  target_primary_commander_id?: number;
+  target_primary_commander_name?: string;
+  target_secondary_commander_id?: number;
+  target_secondary_commander_name?: string;
+  primary_is_expertised?: boolean;
+  secondary_is_expertised?: boolean;
+  target_primary_is_expertised?: boolean;
+  target_secondary_is_expertised?: boolean;
+  target_player_name?: string;
+  kills_dealt?: number;
+  kills_taken?: number;
+  kp_gained?: number;
+  kp_lost?: number;
+  trade_ratio_pct?: number;
+  dead_dealt?: number;
+  dead_taken?: number;
+  severely_wounded_dealt?: number;
+  severely_wounded_taken?: number;
 }
 
 export interface DailyApPoint {
@@ -119,6 +144,8 @@ export interface ItemStatDto {
   avg_per_battle: number;
   max_in_battle: number;
   by_battle_type: Record<string, number>;
+  sprites?: string[];
+  icon?: string;
 }
 
 export interface ResourceSummaryDto {
@@ -199,15 +226,34 @@ export interface PinnedChipDto {
   color_hex: string;
 }
 
+export interface TroopTradeSummaryDto {
+  troop_id: string;
+  display_pair_name: string;
+  primary_commander_id?: number;
+  primary_commander_name: string;
+  secondary_commander_id?: number;
+  secondary_commander_name: string;
+  primary_is_expertised?: boolean;
+  secondary_is_expertised?: boolean;
+  kills_dealt?: number;
+  kills_taken?: number;
+  kp_gained: number;
+  kp_lost: number;
+  trade_ratio_pct: number;
+  battle_count: number;
+}
+
 export interface OverlayPayloadDto {
   records: BattleRecord[];
   config: OverlayConfig;
   pinned_chips: PinnedChipDto[];
+  troop_trades?: TroopTradeSummaryDto[];
   today_runs: {
     motte: number;
     fort: number;
     barb: number;
     gather: number;
+    pvp?: number;
     total: number;
   };
   last_mail_timestamp?: string;

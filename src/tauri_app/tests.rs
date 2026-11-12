@@ -61,6 +61,7 @@ fn make_today_record(
         content: String::new(),
         account_id: account_id.to_string(),
         player_name: player_name.to_string(),
+        ..Default::default()
     };
     rec.item_totals = rec.compute_item_totals();
     rec
@@ -77,6 +78,7 @@ fn test_serde_wire_contracts_exact_ts_and_legacy_aliases() {
         ("all-forts", FilterMode::AllForts),
         ("all-rewards", FilterMode::AllRewards),
         ("gathering", FilterMode::Gathering),
+        ("pvp", FilterMode::PvP),
     ];
     for (wire, expected) in modes {
         let json = format!("\"{}\"", wire);
@@ -490,4 +492,53 @@ fn test_query_inventory_disjoint_six_tabs_and_gem_packs() {
     let other_arr = other_tab["items"].as_array().unwrap();
     assert_eq!(other_arr.len(), 1, "Only the 50 AP bottle should be in Other");
     assert_eq!(other_arr[0]["sub_type"].as_u64(), Some(124));
+}
+
+#[test]
+fn test_resource_item_icon_mapping_in_dtos() {
+    let rec = make_today_record(
+        "1002",
+        "102938475",
+        "GovPrime",
+        "gathering",
+        "Mỏ Đá Cấp 6",
+        vec![
+            make_drop(1, 1, 10_000, "Thực phẩm", "Food", "Tài Nguyên"),
+            make_drop(1, 2, 20_000, "Gỗ", "Wood", "Tài Nguyên"),
+            make_drop(1, 3, 30_000, "Đá", "Stone", "Tài Nguyên"),
+            make_drop(1, 4, 40_000, "Vàng", "Gold", "Tài Nguyên"),
+            make_drop(1, 5, 50, "Đá quý", "Gems", "Tài Nguyên"),
+            make_drop(1, 9, 60, "Pha Lê", "Crystals", "Pha Lê"),
+        ],
+    );
+
+    let dto = BattleRecordDto::from_record(&rec, AppLanguage::English);
+    assert_eq!(dto.items.len(), 6);
+    assert_eq!(dto.items[0].icon.as_deref(), Some("img_food.png"));
+    assert_eq!(dto.items[1].icon.as_deref(), Some("img_wood.png"));
+    assert_eq!(dto.items[2].icon.as_deref(), Some("img_stone.png"));
+    assert_eq!(dto.items[3].icon.as_deref(), Some("img_gold.png"));
+    assert_eq!(dto.items[4].icon.as_deref(), Some("img_gem.png"));
+    assert_eq!(dto.items[5].icon.as_deref(), Some("img_Crystal.png"));
+
+    let json = serde_json::to_string(&dto).unwrap();
+    assert!(json.contains("\"icon\":\"img_food.png\""));
+    assert!(json.contains("\"icon\":\"img_Crystal.png\""));
+}
+
+#[test]
+fn test_inventory_item_sprite_layers_are_preserved() {
+    let mut drop = make_drop(2, 9, 3, "Tăng tốc", "Speedup", "Tăng Tốc");
+    drop.sprites = vec![
+        "img_icon_item_BGBlue.png".to_string(),
+        "img_icon_item_9.png".to_string(),
+    ];
+    let record = make_today_record("sprite-item", "111", "Alpha", "fort", "Fort", vec![drop]);
+    let stats = generate_statistics(&[record]);
+    let inventory = query_inventory_from_stats(&stats, AppLanguage::English, "", "All", None, None);
+
+    assert_eq!(
+        inventory["items"][0]["sprites"],
+        serde_json::json!(["img_icon_item_BGBlue.png", "img_icon_item_9.png"])
+    );
 }

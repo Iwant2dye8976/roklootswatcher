@@ -23,6 +23,7 @@ examples/
 .agents/
 AGENTS.md
 DESIGN.md
+SPEC-pvp-battle-tracking.md
 .env
 .env.*
 !.env.example

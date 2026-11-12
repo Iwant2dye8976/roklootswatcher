@@ -33,6 +33,7 @@ import {
   OverlayDisplayMode,
   PinnedItemKey,
 } from "../types";
+import { ResourceIcon } from "../components/ResourceIcon";
 import * as api from "../api/tauri";
 
 interface PinnedPreset {
@@ -600,6 +601,7 @@ export const SettingsView: React.FC = () => {
     { value: "all-forts", label: t("modeAllForts") },
     { value: "barbarian", label: t("modeBarbarian") },
     { value: "gathering", label: t("modeGathering") },
+    { value: "pvp", label: t("modePvp") },
   ];
 
   const overlayModes: Array<{ id: OverlayDisplayMode; label: string }> = [
@@ -1250,8 +1252,8 @@ export const SettingsView: React.FC = () => {
                 </div>
                 <input
                   type="range"
-                  min="8.5"
-                  max="16.0"
+                  min="8.0"
+                  max="32.0"
                   step="0.5"
                   value={overlayCfg.font_size ?? 10.5}
                   onChange={(e) =>
@@ -1339,13 +1341,18 @@ export const SettingsView: React.FC = () => {
                   <button
                     key={preset.id}
                     onClick={() => togglePinnedItem(preset.key)}
-                    className={`px-2.5 py-1 rounded text-xs font-mono border transition ${
+                    className={`px-2.5 py-1 rounded text-xs font-mono border transition flex items-center gap-1.5 ${
                       active
                         ? "bg-binance-yellow/15 border-binance-yellow/50 text-binance-yellow font-semibold"
                         : "bg-binance-canvas border-binance-hairline text-binance-muted hover:text-binance-body"
                     }`}
                   >
-                    {language === "vi" ? preset.labelVi : preset.labelEn}
+                    <ResourceIcon
+                      resource={preset.id}
+                      size="xs"
+                      className="w-3.5 h-3.5 object-contain shrink-0"
+                    />
+                    <span>{language === "vi" ? preset.labelVi : preset.labelEn}</span>
                   </button>
                 );
               })}
@@ -1659,7 +1666,7 @@ export const SettingsView: React.FC = () => {
             <div
               style={{
                 opacity: overlayCfg.opacity ?? 0.95,
-                fontSize: `${Math.max(8.5, Math.min(16, overlayCfg.font_size ?? 10.5))}px`,
+                fontSize: `${Math.max(8.0, Math.min(32, overlayCfg.font_size ?? 10.5))}px`,
                 maxWidth: `${Math.max(220, Math.min(520, overlayCfg.width ?? 280))}px`,
                 color: overlayCfg.text_color_hex || "#F8FAFC",
                 textShadow: "0 1px 2px rgba(0,0,0,0.95), 0 0 2px rgba(0,0,0,0.95)",

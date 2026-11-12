@@ -440,6 +440,7 @@ pub fn get_overlay_payload_internal(
     let mut fort = 0;
     let mut barb = 0;
     let mut gather = 0;
+    let mut pvp = 0;
 
     for r in today_records.iter() {
         match r.battle_type.as_str() {
@@ -447,9 +448,39 @@ pub fn get_overlay_payload_internal(
             "fort" => fort += 1,
             "barbarian" => barb += 1,
             "gathering" => gather += 1,
+            "pvp" => pvp += 1,
             _ => {}
         }
     }
+
+    let today_pvp_records: Vec<BattleRecord> = watcher
+        .get_today_vault_records(FilterMode::PvP)
+        .into_iter()
+        .filter(|r| matches_account_filter(r, &main_uids, selected_account))
+        .collect();
+    if pvp == 0 {
+        pvp = today_pvp_records.len();
+    }
+
+    let troop_trades: Vec<TroopTradeSummaryDto> = crate::analyzer::aggregate_troop_combat_stats(&today_pvp_records)
+        .into_iter()
+        .map(|s| TroopTradeSummaryDto {
+            troop_id: s.troop_key(),
+            display_pair_name: s.display_pair_name(),
+            primary_commander_id: s.primary_commander_id,
+            primary_commander_name: s.primary_commander_name.clone(),
+            secondary_commander_id: s.secondary_commander_id,
+            secondary_commander_name: s.secondary_commander_name.clone(),
+            primary_is_expertised: s.primary_is_expertised,
+            secondary_is_expertised: s.secondary_is_expertised,
+            kills_dealt: s.kills_dealt(),
+            kills_taken: s.kills_taken(),
+            kp_gained: s.kp_gained,
+            kp_lost: s.kp_lost,
+            trade_ratio_pct: s.trade_ratio_pct(),
+            battle_count: s.battle_count,
+        })
+        .collect();
 
     let last_mail_timestamp = recent.first().map(|r| r.time_vn.clone());
     let records_dto: Vec<BattleRecordDto> = recent
@@ -468,12 +499,14 @@ pub fn get_overlay_payload_internal(
         records: records_dto,
         config: overlay_cfg,
         pinned_chips,
+        troop_trades,
         today_runs: TodayRunsDto {
             motte,
             fort,
             barb,
             gather,
-            total: motte + fort + barb + gather,
+            pvp,
+            total: motte + fort + barb + gather + pvp,
         },
         last_mail_timestamp,
         rok_window_detected: rok_detected,
@@ -634,6 +667,39 @@ pub fn query_battles_from_slice(
                 gb.cmp(&ga)
             }
         }),
+        Some("kp_gained") | Some("kills") => filtered.sort_by(|a, b| {
+            let ka = a.kills_dealt();
+            let kb = b.kills_dealt();
+            let ord = if is_asc { ka.cmp(&kb) } else { kb.cmp(&ka) };
+            if ord != std::cmp::Ordering::Equal {
+                ord
+            } else if is_asc {
+                a.kp_gained.partial_cmp(&b.kp_gained).unwrap_or(std::cmp::Ordering::Equal)
+            } else {
+                b.kp_gained.partial_cmp(&a.kp_gained).unwrap_or(std::cmp::Ordering::Equal)
+            }
+        }),
+        Some("kp_lost") | Some("casualties") => filtered.sort_by(|a, b| {
+            let ka = a.kills_taken();
+            let kb = b.kills_taken();
+            let ord = if is_asc { ka.cmp(&kb) } else { kb.cmp(&ka) };
+            if ord != std::cmp::Ordering::Equal {
+                ord
+            } else if is_asc {
+                a.kp_lost.partial_cmp(&b.kp_lost).unwrap_or(std::cmp::Ordering::Equal)
+            } else {
+                b.kp_lost.partial_cmp(&a.kp_lost).unwrap_or(std::cmp::Ordering::Equal)
+            }
+        }),
+        Some("trade_ratio") => filtered.sort_by(|a, b| {
+            let ta = a.trade_ratio_pct();
+            let tb = b.trade_ratio_pct();
+            if is_asc {
+                ta.partial_cmp(&tb).unwrap_or(std::cmp::Ordering::Equal)
+            } else {
+                tb.partial_cmp(&ta).unwrap_or(std::cmp::Ordering::Equal)
+            }
+        }),
         _ => filtered.sort_by_key(|a| std::cmp::Reverse(a.time_raw)),
     }
 
@@ -738,25 +804,44 @@ pub fn query_inventory_from_stats(
     let total_battles_f = stats.total_battles.max(1) as f64;
     let mut items_dto: Vec<ItemStatDto> = items
         .into_iter()
-        .map(|it| ItemStatDto {
-            itype: it.itype,
-            sub_type: it.sub_type,
-            name_vi: it.name_vi.clone(),
-            name_en: it.name_en.clone(),
-            display_name: it.display_name(lang).to_string(),
-            category: it.category.clone(),
-            total_quantity: it.total_quantity,
-            converted_value: get_item_converted_display_for_lang(
-                it.itype,
-                it.sub_type,
-                it.total_quantity,
-                lang,
-            ),
-            battle_count: it.battle_count,
-            drop_rate: (it.battle_count as f64 / total_battles_f) * 100.0,
-            avg_per_battle: it.avg_per_battle,
-            max_in_battle: it.max_in_battle,
-            by_battle_type: it.by_battle_type.clone().into_iter().collect(),
+        .map(|it| {
+            let icon = it.sprites.first().cloned().or_else(|| {
+                if !it.pic.is_empty() {
+                    Some(it.pic.clone())
+                } else {
+                    match (it.itype, it.sub_type) {
+                        (1, 1) => Some("img_food.png".to_string()),
+                        (1, 2) => Some("img_wood.png".to_string()),
+                        (1, 3) => Some("img_stone.png".to_string()),
+                        (1, 4) => Some("img_gold.png".to_string()),
+                        (1, 5) | (1, 10) | (1, 12) | (1, 25) => Some("img_gem.png".to_string()),
+                        (1, 9) => Some("img_Crystal.png".to_string()),
+                        _ => None,
+                    }
+                }
+            });
+            ItemStatDto {
+                itype: it.itype,
+                sub_type: it.sub_type,
+                name_vi: it.name_vi.clone(),
+                name_en: it.name_en.clone(),
+                display_name: it.display_name(lang).to_string(),
+                category: it.category.clone(),
+                total_quantity: it.total_quantity,
+                converted_value: get_item_converted_display_for_lang(
+                    it.itype,
+                    it.sub_type,
+                    it.total_quantity,
+                    lang,
+                ),
+                battle_count: it.battle_count,
+                drop_rate: (it.battle_count as f64 / total_battles_f) * 100.0,
+                avg_per_battle: it.avg_per_battle,
+                max_in_battle: it.max_in_battle,
+                by_battle_type: it.by_battle_type.clone().into_iter().collect(),
+                sprites: it.sprites.clone(),
+                icon,
+            }
         })
         .collect();
 
@@ -1174,25 +1259,44 @@ pub fn get_dashboard_data(state: State<'_, TauriAppState>) -> Result<DashboardDt
     let top_items = sorted_items
         .into_iter()
         .take(15)
-        .map(|it| ItemStatDto {
-            itype: it.itype,
-            sub_type: it.sub_type,
-            name_vi: it.name_vi.clone(),
-            name_en: it.name_en.clone(),
-            display_name: it.display_name(lang).to_string(),
-            category: it.category.clone(),
-            total_quantity: it.total_quantity,
-            converted_value: get_item_converted_display_for_lang(
-                it.itype,
-                it.sub_type,
-                it.total_quantity,
-                lang,
-            ),
-            battle_count: it.battle_count,
-            drop_rate: (it.battle_count as f64 / total_battles_f) * 100.0,
-            avg_per_battle: it.avg_per_battle,
-            max_in_battle: it.max_in_battle,
-            by_battle_type: it.by_battle_type.clone().into_iter().collect(),
+        .map(|it| {
+            let icon = it.sprites.first().cloned().or_else(|| {
+                if !it.pic.is_empty() {
+                    Some(it.pic.clone())
+                } else {
+                    match (it.itype, it.sub_type) {
+                        (1, 1) => Some("img_food.png".to_string()),
+                        (1, 2) => Some("img_wood.png".to_string()),
+                        (1, 3) => Some("img_stone.png".to_string()),
+                        (1, 4) => Some("img_gold.png".to_string()),
+                        (1, 5) | (1, 10) | (1, 12) | (1, 25) => Some("img_gem.png".to_string()),
+                        (1, 9) => Some("img_Crystal.png".to_string()),
+                        _ => None,
+                    }
+                }
+            });
+            ItemStatDto {
+                itype: it.itype,
+                sub_type: it.sub_type,
+                name_vi: it.name_vi.clone(),
+                name_en: it.name_en.clone(),
+                display_name: it.display_name(lang).to_string(),
+                category: it.category.clone(),
+                total_quantity: it.total_quantity,
+                converted_value: get_item_converted_display_for_lang(
+                    it.itype,
+                    it.sub_type,
+                    it.total_quantity,
+                    lang,
+                ),
+                battle_count: it.battle_count,
+                drop_rate: (it.battle_count as f64 / total_battles_f) * 100.0,
+                avg_per_battle: it.avg_per_battle,
+                max_in_battle: it.max_in_battle,
+                by_battle_type: it.by_battle_type.clone().into_iter().collect(),
+                sprites: it.sprites.clone(),
+                icon,
+            }
         })
         .collect();
 
@@ -1647,7 +1751,7 @@ pub fn update_overlay_config(
             cfg.overlay.width = w.clamp(180.0, 520.0);
         }
         if let Some(fs) = config.font_size {
-            cfg.overlay.font_size = fs.clamp(8.5, 16.0);
+            cfg.overlay.font_size = fs.clamp(8.0, 32.0);
         }
         if let Some(pinned) = config.pinned_items {
             cfg.overlay.pinned_items = pinned;

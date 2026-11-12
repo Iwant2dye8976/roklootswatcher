@@ -33,6 +33,26 @@ pub fn create_schema(conn: &Connection) -> rusqlite::Result<()> {
             content          TEXT NOT NULL DEFAULT '',
             account_id       TEXT NOT NULL DEFAULT '',
             player_name      TEXT NOT NULL DEFAULT '',
+            pvp_combat_type  TEXT NOT NULL DEFAULT '',
+            primary_commander_id INTEGER NOT NULL DEFAULT 0,
+            primary_commander_name TEXT NOT NULL DEFAULT '',
+            secondary_commander_id INTEGER NOT NULL DEFAULT 0,
+            secondary_commander_name TEXT NOT NULL DEFAULT '',
+            target_primary_commander_id INTEGER NOT NULL DEFAULT 0,
+            target_primary_commander_name TEXT NOT NULL DEFAULT '',
+            target_secondary_commander_id INTEGER NOT NULL DEFAULT 0,
+            target_secondary_commander_name TEXT NOT NULL DEFAULT '',
+            primary_is_expertised INTEGER NOT NULL DEFAULT 0,
+            secondary_is_expertised INTEGER NOT NULL DEFAULT 0,
+            target_primary_is_expertised INTEGER NOT NULL DEFAULT 0,
+            target_secondary_is_expertised INTEGER NOT NULL DEFAULT 0,
+            target_player_name TEXT NOT NULL DEFAULT '',
+            kp_gained        REAL NOT NULL DEFAULT 0.0,
+            kp_lost          REAL NOT NULL DEFAULT 0.0,
+            dead_dealt       INTEGER NOT NULL DEFAULT 0,
+            dead_taken       INTEGER NOT NULL DEFAULT 0,
+            severely_wounded_dealt INTEGER NOT NULL DEFAULT 0,
+            severely_wounded_taken INTEGER NOT NULL DEFAULT 0,
             dedup_key        TEXT NOT NULL,
             synced_at        INTEGER,
             PRIMARY KEY (dedup_key)
@@ -50,6 +70,26 @@ pub fn create_schema(conn: &Connection) -> rusqlite::Result<()> {
     )?;
     let _ = conn.execute("ALTER TABLE battle_records ADD COLUMN account_id TEXT NOT NULL DEFAULT ''", []);
     let _ = conn.execute("ALTER TABLE battle_records ADD COLUMN player_name TEXT NOT NULL DEFAULT ''", []);
+    let _ = conn.execute("ALTER TABLE battle_records ADD COLUMN pvp_combat_type TEXT NOT NULL DEFAULT ''", []);
+    let _ = conn.execute("ALTER TABLE battle_records ADD COLUMN primary_commander_id INTEGER NOT NULL DEFAULT 0", []);
+    let _ = conn.execute("ALTER TABLE battle_records ADD COLUMN primary_commander_name TEXT NOT NULL DEFAULT ''", []);
+    let _ = conn.execute("ALTER TABLE battle_records ADD COLUMN secondary_commander_id INTEGER NOT NULL DEFAULT 0", []);
+    let _ = conn.execute("ALTER TABLE battle_records ADD COLUMN secondary_commander_name TEXT NOT NULL DEFAULT ''", []);
+    let _ = conn.execute("ALTER TABLE battle_records ADD COLUMN target_primary_commander_id INTEGER NOT NULL DEFAULT 0", []);
+    let _ = conn.execute("ALTER TABLE battle_records ADD COLUMN target_primary_commander_name TEXT NOT NULL DEFAULT ''", []);
+    let _ = conn.execute("ALTER TABLE battle_records ADD COLUMN target_secondary_commander_id INTEGER NOT NULL DEFAULT 0", []);
+    let _ = conn.execute("ALTER TABLE battle_records ADD COLUMN target_secondary_commander_name TEXT NOT NULL DEFAULT ''", []);
+    let _ = conn.execute("ALTER TABLE battle_records ADD COLUMN primary_is_expertised INTEGER NOT NULL DEFAULT 0", []);
+    let _ = conn.execute("ALTER TABLE battle_records ADD COLUMN secondary_is_expertised INTEGER NOT NULL DEFAULT 0", []);
+    let _ = conn.execute("ALTER TABLE battle_records ADD COLUMN target_primary_is_expertised INTEGER NOT NULL DEFAULT 0", []);
+    let _ = conn.execute("ALTER TABLE battle_records ADD COLUMN target_secondary_is_expertised INTEGER NOT NULL DEFAULT 0", []);
+    let _ = conn.execute("ALTER TABLE battle_records ADD COLUMN target_player_name TEXT NOT NULL DEFAULT ''", []);
+    let _ = conn.execute("ALTER TABLE battle_records ADD COLUMN kp_gained REAL NOT NULL DEFAULT 0.0", []);
+    let _ = conn.execute("ALTER TABLE battle_records ADD COLUMN kp_lost REAL NOT NULL DEFAULT 0.0", []);
+    let _ = conn.execute("ALTER TABLE battle_records ADD COLUMN dead_dealt INTEGER NOT NULL DEFAULT 0", []);
+    let _ = conn.execute("ALTER TABLE battle_records ADD COLUMN dead_taken INTEGER NOT NULL DEFAULT 0", []);
+    let _ = conn.execute("ALTER TABLE battle_records ADD COLUMN severely_wounded_dealt INTEGER NOT NULL DEFAULT 0", []);
+    let _ = conn.execute("ALTER TABLE battle_records ADD COLUMN severely_wounded_taken INTEGER NOT NULL DEFAULT 0", []);
     let _ = conn.execute("CREATE INDEX IF NOT EXISTS idx_account_id ON battle_records(account_id)", []);
     Ok(())
 }

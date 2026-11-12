@@ -719,13 +719,14 @@ impl RoKMailWatcher {
                 }
 
                 match filter {
-                    FilterMode::AllRewards => true,
-                    FilterMode::AllTargets => r.battle_type != "gathering",
+                    FilterMode::AllRewards => r.battle_type != "pvp",
+                    FilterMode::AllTargets => !matches!(r.battle_type.as_str(), "gathering" | "pvp"),
                     FilterMode::Fort => r.battle_type == "fort",
                     FilterMode::Motte => r.battle_type == "motte",
                     FilterMode::Barbarian => r.battle_type == "barbarian",
                     FilterMode::Gathering => r.battle_type == "gathering",
                     FilterMode::AllForts => matches!(r.battle_type.as_str(), "motte" | "fort"),
+                    FilterMode::PvP => r.battle_type == "pvp",
                 }
             })
             .collect()
