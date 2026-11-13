@@ -171,49 +171,78 @@ export const OverlayView: React.FC = () => {
             ) : (
               troop_trades
                 .slice(0, 5)
-                .map((troop) => (
-                  <div
-                    key={troop.troop_id}
-                    className={`px-2 py-1.5 rounded border-l-[3px] border-l-fuchsia-400 flex flex-col gap-0.5 leading-tight font-mono ${cardBgClass}`}
-                  >
-                    <div className="flex items-center justify-between gap-1 min-w-0">
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        <CommanderCardPair
-                          primaryId={troop.primary_commander_id}
-                          primaryName={troop.primary_commander_name}
-                          primaryIsExpertised={troop.primary_is_expertised}
-                          secondaryId={troop.secondary_commander_id}
-                          secondaryName={troop.secondary_commander_name}
-                          secondaryIsExpertised={troop.secondary_is_expertised}
-                          size="sm"
-                          showWakeupBadge={true}
-                          showEmblem={true}
-                        />
+                .map((troop) => {
+                  const combatType = troop.combat_type || "open-field";
+                  const borderClass =
+                    combatType === "rally"
+                      ? "border-l-rose-500"
+                      : combatType === "garrison"
+                      ? "border-l-sky-400"
+                      : "border-l-fuchsia-400";
+
+                  const badgeClass =
+                    combatType === "rally"
+                      ? "bg-rose-500/20 text-rose-300 border-rose-500/40"
+                      : combatType === "garrison"
+                      ? "bg-sky-500/20 text-sky-300 border-sky-500/40"
+                      : "bg-fuchsia-500/20 text-fuchsia-300 border-fuchsia-500/40";
+
+                  const badgeText =
+                    combatType === "open-field"
+                      ? "Field"
+                      : combatType === "rally"
+                      ? "Rally"
+                      : "Garrison";
+
+                  return (
+                    <div
+                      key={troop.troop_id}
+                      className={`px-2 py-1.5 rounded border-l-[3px] ${borderClass} flex flex-col gap-0.5 leading-tight font-mono ${cardBgClass}`}
+                    >
+                      <div className="flex items-center justify-between gap-1 min-w-0">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <CommanderCardPair
+                            primaryId={troop.primary_commander_id}
+                            primaryName={troop.primary_commander_name}
+                            primaryIsExpertised={troop.primary_is_expertised}
+                            secondaryId={troop.secondary_commander_id}
+                            secondaryName={troop.secondary_commander_name}
+                            secondaryIsExpertised={troop.secondary_is_expertised}
+                            size="sm"
+                            showWakeupBadge={true}
+                            showEmblem={true}
+                          />
+                          <span
+                            className="font-bold truncate text-[0.92em]"
+                            style={{ color: textHex }}
+                          >
+                            {troop.display_pair_name}
+                          </span>
+                        </div>
                         <span
-                          className="font-bold truncate text-[0.92em]"
-                          style={{ color: textHex }}
+                          className={`text-[8.5px] font-bold uppercase tracking-wider px-1 py-0.5 rounded border leading-none shrink-0 ${badgeClass}`}
                         >
-                          {troop.display_pair_name}
+                          {badgeText}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between gap-1.5 text-[0.88em]">
+                        <span className="text-amber-300 font-bold">
+                          +{formatCompactCount(troop.kills_dealt ?? troop.kp_gained)} Kills
+                        </span>
+                        <span
+                          className={`font-bold ${getRatioBadgeClass(
+                            troop.trade_ratio_pct
+                          )}`}
+                        >
+                          Ratio{" "}
+                          {troop.trade_ratio_pct > 999
+                            ? ">999%"
+                            : `${troop.trade_ratio_pct.toFixed(0)}%`}
                         </span>
                       </div>
                     </div>
-                    <div className="flex items-center justify-between gap-1.5 text-[0.88em]">
-                      <span className="text-amber-300 font-bold">
-                        +{formatCompactCount(troop.kills_dealt ?? troop.kp_gained)} Kills
-                      </span>
-                      <span
-                        className={`font-bold ${getRatioBadgeClass(
-                          troop.trade_ratio_pct
-                        )}`}
-                      >
-                        Ratio{" "}
-                        {troop.trade_ratio_pct > 999
-                          ? ">999%"
-                          : `${troop.trade_ratio_pct.toFixed(0)}%`}
-                      </span>
-                    </div>
-                  </div>
-                ))
+                  );
+                })
             )}
           </div>
         )}

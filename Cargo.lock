@@ -3106,7 +3106,7 @@ dependencies = [
 
 [[package]]
 name = "rok_watcher"
-version = "2.14.2"
+version = "2.14.3"
 dependencies = [
  "chrono",
  "indexmap 2.14.2",

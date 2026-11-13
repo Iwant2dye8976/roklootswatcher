@@ -235,6 +235,7 @@ export interface TroopTradeSummaryDto {
   secondary_commander_name: string;
   primary_is_expertised?: boolean;
   secondary_is_expertised?: boolean;
+  combat_type?: "open-field" | "rally" | "garrison" | string;
   kills_dealt?: number;
   kills_taken?: number;
   kp_gained: number;

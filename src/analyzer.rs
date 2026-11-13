@@ -585,7 +585,7 @@ pub fn compute_ap_economics(active_records: &[BattleRecord], vault_records: &[Ba
 }
 
 pub fn aggregate_troop_combat_stats(records: &[BattleRecord]) -> Vec<TroopCombatStats> {
-    let mut map: HashMap<(u32, u32, String, String), TroopCombatStats> = HashMap::new();
+    let mut map: HashMap<(u32, u32, String, String, String), TroopCombatStats> = HashMap::new();
 
     for rec in records {
         if rec.battle_type != "pvp" {
@@ -601,11 +601,17 @@ pub fn aggregate_troop_combat_stats(records: &[BattleRecord]) -> Vec<TroopCombat
         } else {
             rec.secondary_commander_name.clone()
         };
+        let combat_type = match rec.pvp_combat_type.as_str() {
+            "rally" => "rally".to_string(),
+            "garrison" => "garrison".to_string(),
+            _ => "open-field".to_string(),
+        };
         let key = (
             rec.primary_commander_id,
             rec.secondary_commander_id,
             primary_name.clone(),
             secondary_name.clone(),
+            combat_type.clone(),
         );
         let entry = map.entry(key).or_insert_with(|| TroopCombatStats {
             primary_commander_id: rec.primary_commander_id,
@@ -614,6 +620,7 @@ pub fn aggregate_troop_combat_stats(records: &[BattleRecord]) -> Vec<TroopCombat
             secondary_commander_name: secondary_name,
             primary_is_expertised: rec.primary_is_expertised,
             secondary_is_expertised: rec.secondary_is_expertised,
+            combat_type,
             ..Default::default()
         });
         if rec.primary_is_expertised {

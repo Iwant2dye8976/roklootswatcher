@@ -1,6 +1,6 @@
 [package]
 name = "rok_watcher"
-version = "2.14.2"
+version = "2.14.3"
 edition = "2021"
 description = "Rise of Kingdoms - Loots Watcher & Analyzer for Windows"
 authors = ["Antigravity"]

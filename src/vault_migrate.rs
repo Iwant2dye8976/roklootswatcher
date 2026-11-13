@@ -91,6 +91,10 @@ pub fn create_schema(conn: &Connection) -> rusqlite::Result<()> {
     let _ = conn.execute("ALTER TABLE battle_records ADD COLUMN severely_wounded_dealt INTEGER NOT NULL DEFAULT 0", []);
     let _ = conn.execute("ALTER TABLE battle_records ADD COLUMN severely_wounded_taken INTEGER NOT NULL DEFAULT 0", []);
     let _ = conn.execute("CREATE INDEX IF NOT EXISTS idx_account_id ON battle_records(account_id)", []);
+    let _ = conn.execute(
+        "UPDATE battle_records SET pvp_combat_type = 'open-field' WHERE pvp_combat_type = 'field'",
+        [],
+    );
     Ok(())
 }
 

@@ -31,7 +31,8 @@ SPEC-pvp-battle-tracking.md
 rok_auth.dat
 security-audit/
 graphify-out/
-
+imgs/
+tasks/
 .worktrees/
 *.db
 *.db-*

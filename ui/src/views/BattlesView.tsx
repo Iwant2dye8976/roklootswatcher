@@ -336,6 +336,8 @@ export const BattlesView: React.FC = () => {
             >
               {rowVirtualizer.getVirtualItems().map((virtualRow) => {
                 const b = records[virtualRow.index];
+                const isPvp = b.battle_type === "pvp";
+                const pvpType = b.pvp_combat_type || "open-field";
                 const badgeColor =
                   b.battle_type === "motte"
                     ? "bg-binance-red/20 text-binance-red border-binance-red/40"
@@ -343,9 +345,21 @@ export const BattlesView: React.FC = () => {
                     ? "bg-binance-yellow/20 text-binance-yellow border-binance-yellow/40"
                     : b.battle_type === "gathering"
                     ? "bg-binance-green/20 text-binance-green border-binance-green/40"
-                    : b.battle_type === "pvp"
-                    ? "bg-fuchsia-500/20 text-fuchsia-400 border-fuchsia-500/40"
+                    : isPvp
+                    ? pvpType === "rally"
+                      ? "bg-rose-500/20 text-rose-300 border-rose-500/40"
+                      : pvpType === "garrison"
+                      ? "bg-sky-500/20 text-sky-300 border-sky-500/40"
+                      : "bg-fuchsia-500/20 text-fuchsia-400 border-fuchsia-500/40"
                     : "bg-binance-info/20 text-binance-info border-binance-info/40";
+
+                const badgeText = isPvp
+                  ? pvpType === "open-field"
+                    ? "Field"
+                    : pvpType === "rally"
+                    ? "Rally"
+                    : "Garrison"
+                  : b.battle_type;
 
                 return (
                   <div
@@ -374,7 +388,7 @@ export const BattlesView: React.FC = () => {
                       <span
                         className={`px-1.5 py-0.5 rounded-xs text-[9px] font-bold uppercase border ${badgeColor}`}
                       >
-                        {b.battle_type}
+                        {badgeText}
                       </span>
                     </div>
 
@@ -389,9 +403,7 @@ export const BattlesView: React.FC = () => {
                               secondaryId={b.secondary_commander_id}
                               secondaryName={b.secondary_commander_name}
                               secondaryIsExpertised={b.secondary_is_expertised}
-                              size="sm"
-                              showWakeupBadge={true}
-                              showEmblem={true}
+                              size="md"
                             />
                           ) : (
                             <span>-</span>

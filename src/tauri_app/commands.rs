@@ -473,6 +473,7 @@ pub fn get_overlay_payload_internal(
             secondary_commander_name: s.secondary_commander_name.clone(),
             primary_is_expertised: s.primary_is_expertised,
             secondary_is_expertised: s.secondary_is_expertised,
+            combat_type: s.combat_type.clone(),
             kills_dealt: s.kills_dealt(),
             kills_taken: s.kills_taken(),
             kp_gained: s.kp_gained,

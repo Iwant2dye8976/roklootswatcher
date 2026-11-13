@@ -145,7 +145,12 @@ fn row_to_battle_record(row: &rusqlite::Row) -> rusqlite::Result<BattleRecord> {
     let item_totals = serde_json::from_str(&item_totals_json).unwrap_or_default();
     let account_id: String = row.get("account_id").unwrap_or_default();
     let player_name: String = row.get("player_name").unwrap_or_default();
-    let pvp_combat_type: String = row.get("pvp_combat_type").unwrap_or_default();
+    let raw_pvp_combat_type: String = row.get("pvp_combat_type").unwrap_or_default();
+    let pvp_combat_type = if raw_pvp_combat_type == "field" {
+        "open-field".to_string()
+    } else {
+        raw_pvp_combat_type
+    };
     let primary_commander_id: u32 = row.get("primary_commander_id").unwrap_or_default();
     let primary_commander_name: String = row.get("primary_commander_name").unwrap_or_default();
     let secondary_commander_id: u32 = row.get("secondary_commander_id").unwrap_or_default();
@@ -2460,7 +2465,7 @@ mod tests {
 
         let mut rec = create_test_record("pvp_mail_001", 5000);
         rec.battle_type = "pvp".to_string();
-        rec.pvp_combat_type = "field".to_string();
+        rec.pvp_combat_type = "open-field".to_string();
         rec.primary_commander_id = 198;
         rec.primary_commander_name = "Liu Che".to_string();
         rec.secondary_commander_id = 140;

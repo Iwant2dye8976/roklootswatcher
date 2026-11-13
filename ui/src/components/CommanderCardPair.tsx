@@ -140,7 +140,7 @@ const SingleCard: React.FC<SingleCardProps> = ({
         <img
           src={iconSrc}
           alt={name || meta?.name || "Commander"}
-          className="absolute inset-0 w-full h-full object-contain pointer-events-none scale-105"
+          className="absolute inset-0 w-full h-full object-contain pointer-events-none scale-105 z-30"
           onError={() => setHasError(true)}
           draggable={false}
           loading="lazy"

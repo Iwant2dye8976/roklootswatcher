@@ -208,6 +208,8 @@ pub struct TroopCombatStats {
     pub secondary_commander_name: String,
     pub primary_is_expertised: bool,
     pub secondary_is_expertised: bool,
+    #[serde(default = "default_combat_type")]
+    pub combat_type: String,
     pub kp_gained: f64,
     pub kp_lost: f64,
     pub dead_dealt: u64,
@@ -215,6 +217,10 @@ pub struct TroopCombatStats {
     pub severely_wounded_dealt: u64,
     pub severely_wounded_taken: u64,
     pub battle_count: usize,
+}
+
+fn default_combat_type() -> String {
+    "open-field".to_string()
 }
 
 impl TroopCombatStats {
@@ -227,12 +233,17 @@ impl TroopCombatStats {
     }
 
     pub fn troop_key(&self) -> String {
+        let type_suffix = if !self.combat_type.is_empty() {
+            format!("_{}", self.combat_type)
+        } else {
+            String::new()
+        };
         if self.primary_commander_id > 0 || self.secondary_commander_id > 0 {
-            format!("cmdr_{}_{}", self.primary_commander_id, self.secondary_commander_id)
+            format!("cmdr_{}_{}{}", self.primary_commander_id, self.secondary_commander_id, type_suffix)
         } else {
             let p = self.primary_commander_name.trim().to_lowercase();
             let s = self.secondary_commander_name.trim().to_lowercase();
-            format!("name_{}_{}", p, s)
+            format!("name_{}_{}{}", p, s, type_suffix)
         }
     }
 

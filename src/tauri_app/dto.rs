@@ -393,12 +393,18 @@ pub struct TroopTradeSummaryDto {
     pub secondary_commander_name: String,
     pub primary_is_expertised: bool,
     pub secondary_is_expertised: bool,
+    #[serde(default = "default_dto_combat_type")]
+    pub combat_type: String,
     pub kills_dealt: u64,
     pub kills_taken: u64,
     pub kp_gained: f64,
     pub kp_lost: f64,
     pub trade_ratio_pct: f64,
     pub battle_count: usize,
+}
+
+fn default_dto_combat_type() -> String {
+    "open-field".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
