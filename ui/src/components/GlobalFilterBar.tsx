@@ -29,12 +29,12 @@ export const GlobalFilterBar: React.FC = () => {
   }, [datePreset, dateFrom, dateTo]);
 
   const modes: Array<{ id: FilterMode; label: string }> = [
+    { id: "all-rewards", label: t("modeAllRewards") },
     { id: "all-targets", label: t("modeAll") },
     { id: "motte", label: t("modeMotte") },
     { id: "fort", label: t("modeFort") },
     { id: "barbarian", label: t("modeBarbarian") },
     { id: "all-forts", label: t("modeAllForts") },
-    { id: "all-rewards", label: t("modeAllRewards") },
     { id: "gathering", label: t("modeGathering") },
     { id: "pvp", label: t("modePvp") },
   ];

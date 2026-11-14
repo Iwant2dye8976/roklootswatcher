@@ -243,7 +243,7 @@ export const InspectorDrawer: React.FC = () => {
             </span>
           </div>
 
-          <div className="space-y-1.5 max-h-72 overflow-y-auto pr-1">
+          <div className="space-y-1.5 max-h-96 overflow-y-auto pr-1">
             {b.items.map((item, idx) => (
               <div
                 key={idx}

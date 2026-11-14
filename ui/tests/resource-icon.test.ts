@@ -19,6 +19,7 @@ before(async () => {
   server = await createServer({
     root: uiRoot,
     configFile: fileURLToPath(new URL("../vite.config.ts", import.meta.url)),
+    optimizeDeps: { noDiscovery: true, include: [] },
     server: { middlewareMode: true },
     appType: "custom",
   });

@@ -47,6 +47,7 @@ export interface LootItem {
   value: number;
   converted_value?: string;
   icon?: string;
+  sprites?: string[];
 }
 
 export interface BattleRecord {
@@ -180,6 +181,37 @@ export interface ApBottlesSummaryDto {
   total_points: number;
 }
 
+export interface PvpTimelinePoint {
+  label: string;
+  timestamp: number;
+  kills_dealt: number;
+  kills_taken: number;
+  kills_t4_dealt: number;
+  kills_t5_dealt: number;
+  kills_t4_taken: number;
+  kills_t5_taken: number;
+  kp_gained: number;
+  kp_lost: number;
+  trade_ratio_pct: number;
+  battle_count: number;
+}
+
+export interface PvpDashboardData {
+  total_battles: number;
+  kills_dealt: number;
+  kills_taken: number;
+  kills_t4_dealt: number;
+  kills_t5_dealt: number;
+  kills_t4_taken: number;
+  kills_t5_taken: number;
+  kp_gained: number;
+  kp_lost: number;
+  trade_ratio_pct: number;
+  top_march?: TroopTradeSummaryDto;
+  timeline: PvpTimelinePoint[];
+  is_hourly: boolean;
+}
+
 export interface DashboardDto {
   total_battles: number;
   total_crystals: number;
@@ -193,9 +225,11 @@ export interface DashboardDto {
   fort_count: number;
   barb_count: number;
   gathering_count: number;
+  pvp_count?: number;
   ap_economics: ApEconomics;
   top_items: ItemStatDto[];
   latest_battles: BattleRecord[];
+  pvp_stats?: PvpDashboardData;
 }
 
 export type OverlayFadeStyle = "Dim" | "Hide";
@@ -217,6 +251,7 @@ export interface OverlayConfig {
   fade_timeout_secs?: number;
   fade_style?: OverlayFadeStyle;
   fade_dim_opacity?: number;
+  card_count?: number;
 }
 
 export interface PinnedChipDto {

@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use chrono::{DateTime, Duration, NaiveDate, Utc};
+use chrono::{DateTime, Datelike, Duration, NaiveDate, Timelike, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::model::{BattleRecord, ItemDrop, ItemStat, PlunderTierStat, Statistics, TroopCombatStats};
@@ -18,32 +18,45 @@ pub fn get_record_date_vn(r: &BattleRecord) -> Option<NaiveDate> {
         } else {
             r.time_raw
         };
-        if let Some(dt) = DateTime::from_timestamp(secs, 0) {
-            return Some((dt + Duration::try_hours(7).unwrap_or_else(|| Duration::hours(7))).date_naive());
+        // VN timezone is UTC+7 (25,200 seconds)
+        if let Some(dt) = DateTime::from_timestamp(secs + 25_200, 0) {
+            return Some(dt.date_naive());
         }
     }
     None
 }
 
 fn parse_single_date_token(token: &str) -> Option<NaiveDate> {
-    let parts: Vec<&str> = token.split(['-', '/', '.']).collect();
-    if parts.len() == 3 {
-        if parts[0].len() == 4 && (1..=2).contains(&parts[1].len()) && (1..=2).contains(&parts[2].len()) {
+    let mut parts = [""; 4];
+    let mut count = 0;
+    for part in token.split(['-', '/', '.']) {
+        if count < 4 {
+            parts[count] = part;
+            count += 1;
+        } else {
+            return None;
+        }
+    }
+    if count == 3 {
+        let p0 = parts[0];
+        let p1 = parts[1];
+        let p2 = parts[2];
+        if p0.len() == 4 && (1..=2).contains(&p1.len()) && (1..=2).contains(&p2.len()) {
             if let (Ok(y), Ok(m), Ok(d)) = (
-                parts[0].parse::<i32>(),
-                parts[1].parse::<u32>(),
-                parts[2].parse::<u32>(),
+                p0.parse::<i32>(),
+                p1.parse::<u32>(),
+                p2.parse::<u32>(),
             ) {
                 if let Some(date) = NaiveDate::from_ymd_opt(y, m, d) {
                     return Some(date);
                 }
             }
         }
-        if parts[2].len() == 4 && (1..=2).contains(&parts[0].len()) && (1..=2).contains(&parts[1].len()) {
+        if p2.len() == 4 && (1..=2).contains(&p0.len()) && (1..=2).contains(&p1.len()) {
             if let (Ok(d), Ok(m), Ok(y)) = (
-                parts[0].parse::<u32>(),
-                parts[1].parse::<u32>(),
-                parts[2].parse::<i32>(),
+                p0.parse::<u32>(),
+                p1.parse::<u32>(),
+                p2.parse::<i32>(),
             ) {
                 if let Some(date) = NaiveDate::from_ymd_opt(y, m, d) {
                     return Some(date);
@@ -58,6 +71,22 @@ pub fn parse_date_str(d_str: &str) -> Option<NaiveDate> {
     let clean = d_str.trim();
     if clean.is_empty() {
         return None;
+    }
+
+    // Fast path: standard YYYY-MM-DD (e.g. "2026-11-14 12:00:00" or "2026-11-14")
+    if clean.len() >= 10 {
+        let b = clean.as_bytes();
+        if b[4] == b'-' && b[7] == b'-' {
+            if let (Ok(y), Ok(m), Ok(d)) = (
+                std::str::from_utf8(&b[0..4]).unwrap_or("").parse::<i32>(),
+                std::str::from_utf8(&b[5..7]).unwrap_or("").parse::<u32>(),
+                std::str::from_utf8(&b[8..10]).unwrap_or("").parse::<u32>(),
+            ) {
+                if let Some(date) = NaiveDate::from_ymd_opt(y, m, d) {
+                    return Some(date);
+                }
+            }
+        }
     }
 
     if let Some(d) = parse_single_date_token(clean) {
@@ -163,7 +192,7 @@ pub fn generate_statistics(records: &[BattleRecord]) -> Statistics {
     let min_dmg = records.iter().map(|r| r.damage_pct).min().unwrap_or(0);
     let max_dmg = records.iter().map(|r| r.damage_pct).max().unwrap_or(0);
 
-    let mut item_stats: HashMap<String, ItemStat> = HashMap::new();
+    let mut item_stats: HashMap<(u32, u32), ItemStat> = HashMap::new();
     let mut battle_items: HashMap<(u32, u32), (&ItemDrop, i64)> = HashMap::new();
 
     for r in records {
@@ -175,8 +204,7 @@ pub fn generate_statistics(records: &[BattleRecord]) -> Statistics {
         }
 
         for (&(itype, sub_type), &(sample_it, battle_qty)) in &battle_items {
-            let key = format!("{}_{}", itype, sub_type);
-            let entry = item_stats.entry(key).or_insert_with(|| {
+            let entry = item_stats.entry((itype, sub_type)).or_insert_with(|| {
                 let cat = crate::loot_catalog::LootCatalog::determine_category(itype, sub_type);
                 ItemStat {
                     itype,
@@ -200,8 +228,12 @@ pub fn generate_statistics(records: &[BattleRecord]) -> Statistics {
             entry.max_in_battle = entry.max_in_battle.max(battle_qty);
             entry.min_in_battle = entry.min_in_battle.min(battle_qty);
 
-            let btype = if r.battle_type.is_empty() { "other".to_string() } else { r.battle_type.clone() };
-            *entry.by_battle_type.entry(btype).or_insert(0) += battle_qty;
+            let btype = if r.battle_type.is_empty() { "other" } else { r.battle_type.as_str() };
+            if let Some(val) = entry.by_battle_type.get_mut(btype) {
+                *val += battle_qty;
+            } else {
+                entry.by_battle_type.insert(btype.to_string(), battle_qty);
+            }
         }
 
         battle_items.clear();
@@ -211,6 +243,11 @@ pub fn generate_statistics(records: &[BattleRecord]) -> Statistics {
         stat.avg_per_battle =
             ((stat.total_quantity as f64) / (total_battles as f64) * 10.0).round() / 10.0;
     }
+
+    let final_item_stats: HashMap<String, ItemStat> = item_stats
+        .into_iter()
+        .map(|((itype, sub_type), stat)| (format!("{}_{}", itype, sub_type), stat))
+        .collect();
 
     #[allow(dead_code)]
     struct TierAccum {
@@ -296,18 +333,13 @@ pub fn generate_statistics(records: &[BattleRecord]) -> Statistics {
         avg_damage_pct: (avg_dmg * 10.0).round() / 10.0,
         min_damage_pct: min_dmg,
         max_damage_pct: max_dmg,
-        item_stats,
+        item_stats: final_item_stats,
         plunder_breakdown,
     }
 }
 
-pub fn calculate_ap_cost(battle_type: &str, target_level: &str) -> i64 {
-    let lvl: u32 = target_level
-        .split(|c: char| !c.is_ascii_digit())
-        .filter_map(|s| s.parse::<u32>().ok())
-        .max()
-        .unwrap_or(0);
-
+#[inline]
+pub fn calculate_ap_cost_from_lvl(battle_type: &str, lvl: u32) -> i64 {
     match battle_type {
         "fort" => {
             if lvl <= 10 { 150 } else { 300 }
@@ -322,25 +354,45 @@ pub fn calculate_ap_cost(battle_type: &str, target_level: &str) -> i64 {
     }
 }
 
-pub fn calculate_record_ap_cost(r: &BattleRecord) -> i64 {
-    let lvl: u32 = {
-        let parsed = r.target_level
+#[allow(dead_code)]
+pub fn calculate_ap_cost(battle_type: &str, target_level: &str) -> i64 {
+    let lvl: u32 = if let Ok(n) = target_level.trim().parse::<u32>() {
+        n
+    } else {
+        target_level
             .split(|c: char| !c.is_ascii_digit())
             .filter_map(|s| s.parse::<u32>().ok())
             .max()
-            .unwrap_or(0);
-        if parsed > 0 {
-            parsed
-        } else {
-            r.target
-                .split(|c: char| !c.is_ascii_digit())
-                .filter_map(|s| s.parse::<u32>().ok())
-                .max()
-                .unwrap_or(0)
-        }
+            .unwrap_or(0)
     };
 
-    calculate_ap_cost(&r.battle_type, &lvl.to_string())
+    calculate_ap_cost_from_lvl(battle_type, lvl)
+}
+
+#[inline]
+pub fn parse_target_level_from_str(target_level: &str, target: &str) -> u32 {
+    if let Ok(n) = target_level.trim().parse::<u32>() {
+        return n;
+    }
+    let parsed = target_level
+        .split(|c: char| !c.is_ascii_digit())
+        .filter_map(|s| s.parse::<u32>().ok())
+        .max()
+        .unwrap_or(0);
+    if parsed > 0 {
+        parsed
+    } else {
+        target
+            .split(|c: char| !c.is_ascii_digit())
+            .filter_map(|s| s.parse::<u32>().ok())
+            .max()
+            .unwrap_or(0)
+    }
+}
+
+pub fn calculate_record_ap_cost(r: &BattleRecord) -> i64 {
+    let lvl = parse_target_level_from_str(&r.target_level, &r.target);
+    calculate_ap_cost_from_lvl(&r.battle_type, lvl)
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -402,24 +454,8 @@ pub fn compute_ap_economics(active_records: &[BattleRecord], vault_records: &[Ba
             continue;
         }
 
-        let lvl: u32 = {
-            let parsed = r.target_level
-                .split(|c: char| !c.is_ascii_digit())
-                .filter_map(|s| s.parse::<u32>().ok())
-                .max()
-                .unwrap_or(0);
-            if parsed > 0 {
-                parsed
-            } else {
-                r.target
-                    .split(|c: char| !c.is_ascii_digit())
-                    .filter_map(|s| s.parse::<u32>().ok())
-                    .max()
-                    .unwrap_or(0)
-            }
-        };
-
-        let ap_cost = calculate_record_ap_cost(r);
+        let lvl = parse_target_level_from_str(&r.target_level, &r.target);
+        let ap_cost = calculate_ap_cost_from_lvl(&r.battle_type, lvl);
         total_ap_consumed += ap_cost;
         total_ap_recovered += r.ap_breakdown().total_ap_points();
 
@@ -492,11 +528,20 @@ pub fn compute_ap_economics(active_records: &[BattleRecord], vault_records: &[Ba
 
     let today = current_date_vn();
     let min_date = today - Duration::days(6);
+    let min_epoch_sec = min_date.and_hms_opt(0, 0, 0).map(|dt| dt.and_utc().timestamp() - 7 * 3600);
     let mut day_stats = [(0i64, 0i64); 7];
 
     for r in vault_records {
         if r.battle_type == "gathering" {
             continue;
+        }
+        if let Some(min_sec) = min_epoch_sec {
+            if r.time_raw > 0 {
+                let r_sec = if r.time_raw > 100_000_000_000 { r.time_raw / 1_000_000 } else { r.time_raw };
+                if r_sec < min_sec {
+                    continue;
+                }
+            }
         }
         if let Some(d) = get_record_date_vn(r) {
             if d >= min_date && d <= today {
@@ -650,6 +695,298 @@ pub fn aggregate_troop_combat_stats(records: &[BattleRecord]) -> Vec<TroopCombat
             .then_with(|| b.battle_count.cmp(&a.battle_count))
     });
     list
+}
+
+pub fn estimate_t4_t5_breakdown(total_kills: u64, kp: f64) -> (u64, u64) {
+    if total_kills == 0 || kp <= 0.0 {
+        return (0, 0);
+    }
+    let k_f = total_kills as f64;
+    let t5_raw = (kp - 10.0 * k_f) / 10.0;
+    let t5 = t5_raw.clamp(0.0, k_f).round() as u64;
+    let t4 = total_kills.saturating_sub(t5);
+    (t4, t5)
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct PvpTimelinePoint {
+    pub label: String,
+    pub timestamp: i64,
+    pub kills_dealt: u64,
+    pub kills_taken: u64,
+    pub kills_t4_dealt: u64,
+    pub kills_t5_dealt: u64,
+    pub kills_t4_taken: u64,
+    pub kills_t5_taken: u64,
+    pub kp_gained: f64,
+    pub kp_lost: f64,
+    pub trade_ratio_pct: f64,
+    pub battle_count: usize,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct PvpDashboardStats {
+    pub total_battles: usize,
+    pub kills_dealt: u64,
+    pub kills_taken: u64,
+    pub kills_t4_dealt: u64,
+    pub kills_t5_dealt: u64,
+    pub kills_t4_taken: u64,
+    pub kills_t5_taken: u64,
+    pub kp_gained: f64,
+    pub kp_lost: f64,
+    pub trade_ratio_pct: f64,
+    pub top_march: Option<TroopCombatStats>,
+    pub timeline: Vec<PvpTimelinePoint>,
+    pub is_hourly: bool,
+}
+
+pub fn record_hour_vn(r: &BattleRecord) -> Option<u32> {
+    if r.time_vn.len() >= 13 {
+        let parts: Vec<&str> = r.time_vn.split_whitespace().collect();
+        if parts.len() >= 2 {
+            if let Some(hour_str) = parts[1].split(':').next() {
+                if let Ok(h) = hour_str.parse::<u32>() {
+                    if h < 24 {
+                        return Some(h);
+                    }
+                }
+            }
+        }
+    }
+    if r.time_raw > 0 {
+        let secs = if r.time_raw > 100_000_000_000 {
+            r.time_raw / 1_000_000
+        } else {
+            r.time_raw
+        };
+        DateTime::from_timestamp(secs, 0).map(|dt| {
+            let vn_dt = dt + Duration::try_hours(7).unwrap_or_else(|| Duration::hours(7));
+            vn_dt.hour()
+        })
+    } else {
+        None
+    }
+}
+
+pub fn compute_pvp_dashboard_analytics(records: &[BattleRecord], is_single_day: bool) -> PvpDashboardStats {
+    let pvp_records: Vec<&BattleRecord> = records
+        .iter()
+        .filter(|r| r.battle_type == "pvp")
+        .collect();
+
+    if pvp_records.is_empty() {
+        return PvpDashboardStats {
+            is_hourly: is_single_day,
+            ..Default::default()
+        };
+    }
+
+    let total_battles = pvp_records.len();
+    let mut total_dealt = 0u64;
+    let mut total_taken = 0u64;
+    let mut total_kp_gained = 0.0f64;
+    let mut total_kp_lost = 0.0f64;
+
+    for r in &pvp_records {
+        total_dealt += r.kills_dealt();
+        total_taken += r.kills_taken();
+        total_kp_gained += r.kp_gained;
+        total_kp_lost += r.kp_lost;
+    }
+
+    let (kills_t4_dealt, kills_t5_dealt) = estimate_t4_t5_breakdown(total_dealt, total_kp_gained);
+    let (kills_t4_taken, kills_t5_taken) = estimate_t4_t5_breakdown(total_taken, total_kp_lost);
+
+    let overall_trade_ratio_pct = if total_taken == 0 {
+        if total_kp_lost > 0.0 {
+            ((total_kp_gained / total_kp_lost) * 100.0 * 10.0).round() / 10.0
+        } else if total_dealt > 0 || total_kp_gained > 0.0 {
+            100.0
+        } else {
+            0.0
+        }
+    } else {
+        ((total_dealt as f64 / total_taken as f64) * 100.0 * 10.0).round() / 10.0
+    };
+
+    let pvp_cloned: Vec<BattleRecord> = pvp_records.iter().map(|&r| r.clone()).collect();
+    let troop_trades = aggregate_troop_combat_stats(&pvp_cloned);
+    let top_march = troop_trades.into_iter().next();
+
+    let mut timeline: Vec<PvpTimelinePoint> = Vec::new();
+
+    if is_single_day {
+        struct HourBucket {
+            min_ts: i64,
+            kills_dealt: u64,
+            kills_taken: u64,
+            kp_gained: f64,
+            kp_lost: f64,
+            battle_count: usize,
+        }
+        let mut hour_map: HashMap<u32, HourBucket> = HashMap::new();
+
+        for r in &pvp_records {
+            let h = record_hour_vn(r).unwrap_or(0);
+            let ts = if r.time_raw > 100_000_000_000 {
+                r.time_raw / 1_000_000
+            } else {
+                r.time_raw
+            };
+            let entry = hour_map.entry(h).or_insert_with(|| HourBucket {
+                min_ts: ts,
+                kills_dealt: 0,
+                kills_taken: 0,
+                kp_gained: 0.0,
+                kp_lost: 0.0,
+                battle_count: 0,
+            });
+            entry.kills_dealt += r.kills_dealt();
+            entry.kills_taken += r.kills_taken();
+            entry.kp_gained += r.kp_gained;
+            entry.kp_lost += r.kp_lost;
+            entry.battle_count += 1;
+            if ts > 0 && (entry.min_ts == 0 || ts < entry.min_ts) {
+                entry.min_ts = ts;
+            }
+        }
+
+        let hours: Vec<u32> = (0..24).collect();
+
+        for h in hours {
+            if let Some(b) = hour_map.get(&h) {
+                let (t4_d, t5_d) = estimate_t4_t5_breakdown(b.kills_dealt, b.kp_gained);
+                let (t4_t, t5_t) = estimate_t4_t5_breakdown(b.kills_taken, b.kp_lost);
+                let ratio = if b.kills_taken == 0 {
+                    if b.kp_lost > 0.0 {
+                        ((b.kp_gained / b.kp_lost) * 100.0 * 10.0).round() / 10.0
+                    } else if b.kills_dealt > 0 || b.kp_gained > 0.0 {
+                        100.0
+                    } else {
+                        0.0
+                    }
+                } else {
+                    ((b.kills_dealt as f64 / b.kills_taken as f64) * 100.0 * 10.0).round() / 10.0
+                };
+                timeline.push(PvpTimelinePoint {
+                    label: format!("{:02}:00", h),
+                    timestamp: b.min_ts,
+                    kills_dealt: b.kills_dealt,
+                    kills_taken: b.kills_taken,
+                    kills_t4_dealt: t4_d,
+                    kills_t5_dealt: t5_d,
+                    kills_t4_taken: t4_t,
+                    kills_t5_taken: t5_t,
+                    kp_gained: b.kp_gained,
+                    kp_lost: b.kp_lost,
+                    trade_ratio_pct: ratio,
+                    battle_count: b.battle_count,
+                });
+            } else {
+                timeline.push(PvpTimelinePoint {
+                    label: format!("{:02}:00", h),
+                    ..Default::default()
+                });
+            }
+        }
+    } else {
+        struct DayBucket {
+            min_ts: i64,
+            kills_dealt: u64,
+            kills_taken: u64,
+            kp_gained: f64,
+            kp_lost: f64,
+            battle_count: usize,
+        }
+        let mut day_map: HashMap<NaiveDate, DayBucket> = HashMap::new();
+
+        for r in &pvp_records {
+            let d = get_record_date_vn(r).unwrap_or_else(current_date_vn);
+            let ts = if r.time_raw > 100_000_000_000 {
+                r.time_raw / 1_000_000
+            } else {
+                r.time_raw
+            };
+            let entry = day_map.entry(d).or_insert_with(|| DayBucket {
+                min_ts: ts,
+                kills_dealt: 0,
+                kills_taken: 0,
+                kp_gained: 0.0,
+                kp_lost: 0.0,
+                battle_count: 0,
+            });
+            entry.kills_dealt += r.kills_dealt();
+            entry.kills_taken += r.kills_taken();
+            entry.kp_gained += r.kp_gained;
+            entry.kp_lost += r.kp_lost;
+            entry.battle_count += 1;
+            if ts > 0 && (entry.min_ts == 0 || ts < entry.min_ts) {
+                entry.min_ts = ts;
+            }
+        }
+
+        let mut dates: Vec<NaiveDate> = day_map.keys().copied().collect();
+        dates.sort_unstable();
+
+        if let (Some(first_date), Some(last_date)) = (dates.first().copied(), dates.last().copied()) {
+            let day_count = (last_date - first_date).num_days();
+            for day_offset in 0..=day_count {
+                let d = first_date + Duration::days(day_offset);
+                if let Some(b) = day_map.get(&d) {
+                    let (t4_d, t5_d) = estimate_t4_t5_breakdown(b.kills_dealt, b.kp_gained);
+                    let (t4_t, t5_t) = estimate_t4_t5_breakdown(b.kills_taken, b.kp_lost);
+                    let ratio = if b.kills_taken == 0 {
+                        if b.kp_lost > 0.0 {
+                            ((b.kp_gained / b.kp_lost) * 100.0 * 10.0).round() / 10.0
+                        } else if b.kills_dealt > 0 || b.kp_gained > 0.0 {
+                            100.0
+                        } else {
+                            0.0
+                        }
+                    } else {
+                        ((b.kills_dealt as f64 / b.kills_taken as f64) * 100.0 * 10.0).round()
+                            / 10.0
+                    };
+                    timeline.push(PvpTimelinePoint {
+                        label: format!("{:02}/{:02}", d.month(), d.day()),
+                        timestamp: b.min_ts,
+                        kills_dealt: b.kills_dealt,
+                        kills_taken: b.kills_taken,
+                        kills_t4_dealt: t4_d,
+                        kills_t5_dealt: t5_d,
+                        kills_t4_taken: t4_t,
+                        kills_t5_taken: t5_t,
+                        kp_gained: b.kp_gained,
+                        kp_lost: b.kp_lost,
+                        trade_ratio_pct: ratio,
+                        battle_count: b.battle_count,
+                    });
+                } else {
+                    timeline.push(PvpTimelinePoint {
+                        label: format!("{:02}/{:02}", d.month(), d.day()),
+                        ..Default::default()
+                    });
+                }
+            }
+        }
+    }
+
+    PvpDashboardStats {
+        total_battles,
+        kills_dealt: total_dealt,
+        kills_taken: total_taken,
+        kills_t4_dealt,
+        kills_t5_dealt,
+        kills_t4_taken,
+        kills_t5_taken,
+        kp_gained: total_kp_gained,
+        kp_lost: total_kp_lost,
+        trade_ratio_pct: overall_trade_ratio_pct,
+        top_march,
+        timeline,
+        is_hourly: is_single_day,
+    }
 }
 
 #[cfg(test)]
@@ -1377,5 +1714,135 @@ mod tests {
         assert_eq!(stats[1].dead_dealt, 700);
         assert_eq!(stats[1].dead_taken, 150);
         assert_eq!(stats[1].battle_count, 2);
+    }
+
+    #[test]
+    fn test_estimate_t4_t5_breakdown() {
+        // Zero kills
+        assert_eq!(estimate_t4_t5_breakdown(0, 0.0), (0, 0));
+        assert_eq!(estimate_t4_t5_breakdown(100, 0.0), (0, 0));
+
+        // All T4: 1000 kills * 10 KP = 10,000 KP
+        let (t4, t5) = estimate_t4_t5_breakdown(1000, 10_000.0);
+        assert_eq!(t4, 1000);
+        assert_eq!(t5, 0);
+
+        // All T5: 1000 kills * 20 KP = 20,000 KP
+        let (t4, t5) = estimate_t4_t5_breakdown(1000, 20_000.0);
+        assert_eq!(t4, 0);
+        assert_eq!(t5, 1000);
+
+        // 50/50 mix: 500 T4 (5,000 KP) + 500 T5 (10,000 KP) = 15,000 KP
+        let (t4, t5) = estimate_t4_t5_breakdown(1000, 15_000.0);
+        assert_eq!(t4, 500);
+        assert_eq!(t5, 500);
+
+        // Clamping lower bound (T1-T3 kills or low KP)
+        let (t4, t5) = estimate_t4_t5_breakdown(1000, 5_000.0);
+        assert_eq!(t4, 1000);
+        assert_eq!(t5, 0);
+
+        // Clamping upper bound (super high KP)
+        let (t4, t5) = estimate_t4_t5_breakdown(1000, 25_000.0);
+        assert_eq!(t4, 0);
+        assert_eq!(t5, 1000);
+    }
+
+    #[test]
+    fn test_compute_pvp_dashboard_analytics_hourly_and_daily() {
+        let r1 = BattleRecord {
+            battle_type: "pvp".into(),
+            time_vn: "2026-11-13 09:15:00".into(),
+            time_raw: 1794561300000000,
+            primary_commander_id: 198,
+            primary_commander_name: "Liu Che".into(),
+            secondary_commander_id: 140,
+            secondary_commander_name: "Joan Prime".into(),
+            kp_gained: 150_000.0,
+            kp_lost: 100_000.0,
+            dead_dealt: 500,
+            severely_wounded_dealt: 9500, // 10,000 kills dealt (150k KP -> 5000 T4, 5000 T5)
+            dead_taken: 200,
+            severely_wounded_taken: 4800, // 5,000 kills taken
+            ..Default::default()
+        };
+
+        let r2 = BattleRecord {
+            battle_type: "pvp".into(),
+            time_vn: "2026-11-13 09:45:00".into(),
+            time_raw: 1794563100000000,
+            primary_commander_id: 198,
+            primary_commander_name: "Liu Che".into(),
+            secondary_commander_id: 140,
+            secondary_commander_name: "Joan Prime".into(),
+            kp_gained: 200_000.0,
+            kp_lost: 50_000.0,
+            dead_dealt: 1000,
+            severely_wounded_dealt: 9000, // 10,000 kills dealt
+            dead_taken: 100,
+            severely_wounded_taken: 1900, // 2,000 kills taken
+            ..Default::default()
+        };
+
+        let r3 = BattleRecord {
+            battle_type: "pvp".into(),
+            time_vn: "2026-11-13 14:20:00".into(),
+            time_raw: 1794579600000000,
+            primary_commander_id: 595,
+            primary_commander_name: "Sun Tzu (P)".into(),
+            secondary_commander_id: 545,
+            secondary_commander_name: "Bai Qi".into(),
+            kp_gained: 50_000.0,
+            kp_lost: 25_000.0,
+            dead_dealt: 500,
+            severely_wounded_dealt: 2000, // 2500 kills dealt
+            dead_taken: 100,
+            severely_wounded_taken: 900,  // 1000 kills taken
+            ..Default::default()
+        };
+
+        let r_pve = BattleRecord {
+            battle_type: "barbarian".into(),
+            time_vn: "2026-11-13 09:30:00".into(),
+            ..Default::default()
+        };
+        let r4 = BattleRecord {
+            battle_type: "pvp".into(),
+            time_vn: "2026-11-15 09:00:00".into(),
+            ..Default::default()
+        };
+
+        // Test hourly single-day analytics
+        let hourly = compute_pvp_dashboard_analytics(&[r1.clone(), r2.clone(), r3.clone(), r_pve.clone()], true);
+        assert_eq!(hourly.total_battles, 3);
+        assert_eq!(hourly.kills_dealt, 22_500);
+        assert_eq!(hourly.kills_taken, 8_000);
+        assert_eq!(hourly.kp_gained, 400_000.0);
+        assert_eq!(hourly.kp_lost, 175_000.0);
+        assert!(hourly.is_hourly);
+        assert!(hourly.top_march.is_some());
+        assert_eq!(hourly.timeline.len(), 24);
+        assert_eq!(hourly.timeline[0].label, "00:00");
+        assert_eq!(hourly.timeline[9].label, "09:00");
+        assert_eq!(hourly.timeline[9].battle_count, 2);
+        assert_eq!(hourly.timeline[9].kills_dealt, 20_000);
+        assert_eq!(hourly.timeline[10].battle_count, 0);
+        assert_eq!(hourly.timeline[10].kills_dealt, 0);
+        assert_eq!(hourly.timeline[14].label, "14:00");
+        assert_eq!(hourly.timeline[14].battle_count, 1);
+        assert_eq!(hourly.timeline[14].kills_dealt, 2_500);
+
+        // Test daily multi-day analytics
+        let daily = compute_pvp_dashboard_analytics(&[r1, r2, r3, r4, r_pve], false);
+        assert_eq!(daily.total_battles, 4);
+        assert!(!daily.is_hourly);
+        assert_eq!(daily.timeline.len(), 3);
+        assert_eq!(daily.timeline[0].battle_count, 3);
+        assert_eq!(daily.timeline[0].kills_dealt, 22_500);
+        assert_eq!(daily.timeline[1].label, "11/14");
+        assert_eq!(daily.timeline[1].battle_count, 0);
+        assert_eq!(daily.timeline[1].kills_dealt, 0);
+        assert_eq!(daily.timeline[2].label, "11/15");
+        assert_eq!(daily.timeline[2].battle_count, 1);
     }
 }

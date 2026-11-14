@@ -21,5 +21,14 @@ export default defineConfig({
     outDir: "dist",
     emptyOutDir: true,
     target: "es2022",
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          "vendor-icons": ["lucide-react"],
+          "vendor-virtual": ["@tanstack/react-virtual"],
+          "vendor-tauri": ["@tauri-apps/api"],
+        },
+      },
+    },
   },
 });

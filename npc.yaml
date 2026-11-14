@@ -1,0 +1,46 @@
+NpcType:
+  '150009':
+    name: Lvl 41 English Soldiers
+    sprite: ui\public\npc\S10_barbarian_lod3.png
+  '150010':
+    name: Lvl 42 English Soldiers
+    sprite: ui\public\npc\S10_barbarian_lod3.png
+  '150011':
+    name: Lvl 43 English Soldiers
+    sprite: ui\public\npc\S10_barbarian_lod3.png
+  '150012':
+    name: Lvl 44 English Soldiers
+    sprite: ui\public\npc\S10_barbarian_lod3.png
+  '150013':
+    name: Lvl 45 English Soldiers
+    sprite: ui\public\npc\S10_barbarian_lod3.png
+  '150014':
+    name: Lvl 46 English Soldiers
+    sprite: ui\public\npc\S10_barbarian_lod3.png
+  '150015':
+    name: Lvl 47 English Soldiers
+    sprite: ui\public\npc\S10_barbarian_lod3.png
+  '150016':
+    name: Lvl 48 English Soldiers
+    sprite: ui\public\npc\S10_barbarian_lod3.png
+  '150017':
+    name: Lvl 49 English Soldiers
+    sprite: ui\public\npc\S10_barbarian_lod3.png
+  '150018':
+    name: Lvl 50 English Soldiers
+    sprite: ui\public\npc\S10_barbarian_lod3.png
+  '150019':
+    name: Lvl 51 English Soldiers
+    sprite: ui\public\npc\S10_barbarian_lod3.png
+  '150020':
+    name: Lvl 52 English Soldiers
+    sprite: ui\public\npc\S10_barbarian_lod3.png
+  '150021':
+    name: Lvl 53 English Soldiers
+    sprite: ui\public\npc\S10_barbarian_lod3.png
+  '150022':
+    name: Lvl 54 English Soldiers
+    sprite: ui\public\npc\S10_barbarian_lod3.png
+  '150023':
+    name: Lvl 55 English Soldiers
+    sprite: ui\public\npc\S10_barbarian_lod3.png

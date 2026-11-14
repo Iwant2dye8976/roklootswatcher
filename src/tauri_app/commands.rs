@@ -515,6 +515,19 @@ pub fn get_overlay_payload_internal(
     }
 }
 
+#[inline]
+fn contains_case_insensitive(haystack: &str, needle_lower: &str) -> bool {
+    if needle_lower.is_empty() {
+        return true;
+    }
+    if needle_lower.is_ascii() {
+        let n_bytes = needle_lower.as_bytes();
+        haystack.as_bytes().windows(n_bytes.len()).any(|w| w.eq_ignore_ascii_case(n_bytes))
+    } else {
+        haystack.to_lowercase().contains(needle_lower)
+    }
+}
+
 pub fn query_battles_from_slice(
     records: &[BattleRecord],
     lang: AppLanguage,
@@ -529,145 +542,125 @@ pub fn query_battles_from_slice(
         records
             .iter()
             .filter(|r| {
-                r.target.to_lowercase().contains(&q)
-                    || r.display_target(lang).to_lowercase().contains(&q)
-                    || r.filename.to_lowercase().contains(&q)
-                    || r.mail_id.to_lowercase().contains(&q)
-                    || r.account_id.to_lowercase().contains(&q)
-                    || r.player_name.to_lowercase().contains(&q)
-                    || r.battle_type.to_lowercase().contains(&q)
-                    || r.time_vn.to_lowercase().contains(&q)
+                contains_case_insensitive(&r.target, &q)
+                    || contains_case_insensitive(&r.display_target(lang), &q)
+                    || contains_case_insensitive(&r.filename, &q)
+                    || contains_case_insensitive(&r.mail_id, &q)
+                    || contains_case_insensitive(&r.account_id, &q)
+                    || contains_case_insensitive(&r.player_name, &q)
+                    || contains_case_insensitive(&r.battle_type, &q)
+                    || contains_case_insensitive(&r.time_vn, &q)
             })
             .collect()
     };
 
     let is_asc = sort_dir == Some("asc");
     match sort_col {
-        Some("time") => filtered.sort_by(|a, b| {
+        Some("time") => {
             if is_asc {
-                a.time_raw.cmp(&b.time_raw)
+                filtered.sort_by_key(|a| a.time_raw);
             } else {
-                b.time_raw.cmp(&a.time_raw)
+                filtered.sort_by_key(|a| std::cmp::Reverse(a.time_raw));
             }
-        }),
-        Some("type") => filtered.sort_by(|a, b| {
+        }
+        Some("type") => {
             if is_asc {
-                a.battle_type.cmp(&b.battle_type)
+                filtered.sort_by_key(|a| &a.battle_type);
             } else {
-                b.battle_type.cmp(&a.battle_type)
+                filtered.sort_by_key(|a| std::cmp::Reverse(&a.battle_type));
             }
-        }),
-        Some("target") => filtered.sort_by(|a, b| {
-            let ta = a.display_target(lang);
-            let tb = b.display_target(lang);
+        }
+        Some("target") => {
             if is_asc {
-                ta.cmp(&tb)
+                filtered.sort_by_cached_key(|a| a.display_target(lang));
             } else {
-                tb.cmp(&ta)
+                filtered.sort_by_cached_key(|a| std::cmp::Reverse(a.display_target(lang)));
             }
-        }),
-        Some("damage") => filtered.sort_by(|a, b| {
+        }
+        Some("damage") => {
             if is_asc {
-                a.damage_pct.cmp(&b.damage_pct)
+                filtered.sort_by_key(|a| a.damage_pct);
             } else {
-                b.damage_pct.cmp(&a.damage_pct)
+                filtered.sort_by_key(|a| std::cmp::Reverse(a.damage_pct));
             }
-        }),
-        Some("tier") => filtered.sort_by(|a, b| {
+        }
+        Some("tier") => {
             if is_asc {
-                a.plunder_tier.cmp(&b.plunder_tier)
+                filtered.sort_by_key(|a| a.plunder_tier);
             } else {
-                b.plunder_tier.cmp(&a.plunder_tier)
+                filtered.sort_by_key(|a| std::cmp::Reverse(a.plunder_tier));
             }
-        }),
-        Some("bonus") => filtered.sort_by(|a, b| {
+        }
+        Some("bonus") => {
             if is_asc {
-                a.talent_add.cmp(&b.talent_add)
+                filtered.sort_by_key(|a| a.talent_add);
             } else {
-                b.talent_add.cmp(&a.talent_add)
+                filtered.sort_by_key(|a| std::cmp::Reverse(a.talent_add));
             }
-        }),
-        Some("crystals") => filtered.sort_by(|a, b| {
-            let ca = a.crystal_quantity();
-            let cb = b.crystal_quantity();
+        }
+        Some("crystals") => {
             if is_asc {
-                ca.cmp(&cb)
+                filtered.sort_by_cached_key(|a| a.crystal_quantity());
             } else {
-                cb.cmp(&ca)
+                filtered.sort_by_cached_key(|a| std::cmp::Reverse(a.crystal_quantity()));
             }
-        }),
-        Some("speedups") => filtered.sort_by(|a, b| {
-            let sa = a.univ_speedup_minutes();
-            let sb = b.univ_speedup_minutes();
+        }
+        Some("speedups") => {
             if is_asc {
-                sa.cmp(&sb)
+                filtered.sort_by_cached_key(|a| a.univ_speedup_minutes());
             } else {
-                sb.cmp(&sa)
+                filtered.sort_by_cached_key(|a| std::cmp::Reverse(a.univ_speedup_minutes()));
             }
-        }),
-        Some("train_spd") => filtered.sort_by(|a, b| {
-            let sa = a.training_speedup_minutes();
-            let sb = b.training_speedup_minutes();
+        }
+        Some("train_spd") => {
             if is_asc {
-                sa.cmp(&sb)
+                filtered.sort_by_cached_key(|a| a.training_speedup_minutes());
             } else {
-                sb.cmp(&sa)
+                filtered.sort_by_cached_key(|a| std::cmp::Reverse(a.training_speedup_minutes()));
             }
-        }),
-        Some("heal_spd") => filtered.sort_by(|a, b| {
-            let sa = a.heal_speedup_minutes();
-            let sb = b.heal_speedup_minutes();
+        }
+        Some("heal_spd") => {
             if is_asc {
-                sa.cmp(&sb)
+                filtered.sort_by_cached_key(|a| a.heal_speedup_minutes());
             } else {
-                sb.cmp(&sa)
+                filtered.sort_by_cached_key(|a| std::cmp::Reverse(a.heal_speedup_minutes()));
             }
-        }),
-        Some("resources") => filtered.sort_by(|a, b| {
-            let ra = a.total_resource_value();
-            let rb = b.total_resource_value();
+        }
+        Some("resources") => {
             if is_asc {
-                ra.cmp(&rb)
+                filtered.sort_by_cached_key(|a| a.total_resource_value());
             } else {
-                rb.cmp(&ra)
+                filtered.sort_by_cached_key(|a| std::cmp::Reverse(a.total_resource_value()));
             }
-        }),
-        Some("tome_exp") => filtered.sort_by(|a, b| {
-            let ea = a.total_exp_value();
-            let eb = b.total_exp_value();
+        }
+        Some("tome_exp") => {
             if is_asc {
-                ea.cmp(&eb)
+                filtered.sort_by_cached_key(|a| a.total_exp_value());
             } else {
-                eb.cmp(&ea)
+                filtered.sort_by_cached_key(|a| std::cmp::Reverse(a.total_exp_value()));
             }
-        }),
-        Some("books") => filtered.sort_by(|a, b| {
-            let ba = a.item_quantity(2, 109);
-            let bb = b.item_quantity(2, 109);
+        }
+        Some("books") => {
             if is_asc {
-                ba.cmp(&bb)
+                filtered.sort_by_cached_key(|a| a.item_quantity(2, 109));
             } else {
-                bb.cmp(&ba)
+                filtered.sort_by_cached_key(|a| std::cmp::Reverse(a.item_quantity(2, 109)));
             }
-        }),
-        Some("arrows") => filtered.sort_by(|a, b| {
-            let aa = a.item_quantity(2, 145);
-            let ab = b.item_quantity(2, 145);
+        }
+        Some("arrows") => {
             if is_asc {
-                aa.cmp(&ab)
+                filtered.sort_by_cached_key(|a| a.item_quantity(2, 145));
             } else {
-                ab.cmp(&aa)
+                filtered.sort_by_cached_key(|a| std::cmp::Reverse(a.item_quantity(2, 145)));
             }
-        }),
-        Some("gems") => filtered.sort_by(|a, b| {
-            let ga = a.compute_gems();
-            let gb = b.compute_gems();
+        }
+        Some("gems") => {
             if is_asc {
-                ga.cmp(&gb)
+                filtered.sort_by_cached_key(|a| a.compute_gems());
             } else {
-                gb.cmp(&ga)
+                filtered.sort_by_cached_key(|a| std::cmp::Reverse(a.compute_gems()));
             }
-        }),
+        }
         Some("kp_gained") | Some("kills") => filtered.sort_by(|a, b| {
             let ka = a.kills_dealt();
             let kb = b.kills_dealt();
@@ -1307,6 +1300,12 @@ pub fn get_dashboard_data(state: State<'_, TauriAppState>) -> Result<DashboardDt
         .map(|r| BattleRecordDto::from_record(r, lang))
         .collect();
 
+    let pvp_records = state.watcher.get_filtered_pvp_records();
+    let is_single_day = state.watcher.is_single_day_filter();
+    let pvp_stats = crate::analyzer::compute_pvp_dashboard_analytics(&pvp_records, is_single_day);
+    let pvp_stats_dto = PvpDashboardDto::from_stats(pvp_stats);
+    let pvp_count = pvp_records.len();
+
     Ok(DashboardDto {
         total_battles: stats.total_battles,
         total_crystals: crystals,
@@ -1320,9 +1319,11 @@ pub fn get_dashboard_data(state: State<'_, TauriAppState>) -> Result<DashboardDt
         fort_count,
         barb_count,
         gathering_count,
+        pvp_count,
         ap_economics: ap_econ,
         top_items,
         latest_battles,
+        pvp_stats: Some(pvp_stats_dto),
     })
 }
 
@@ -1771,6 +1772,9 @@ pub fn update_overlay_config(
         }
         if let Some(fdo) = config.fade_dim_opacity {
             cfg.overlay.fade_dim_opacity = fdo.clamp(0.05, 0.90);
+        }
+        if let Some(cc) = config.card_count {
+            cfg.overlay.card_count = cc.clamp(1, 5);
         }
         cfg.save();
     }

@@ -527,13 +527,20 @@ fn test_resource_item_icon_mapping_in_dtos() {
 }
 
 #[test]
-fn test_inventory_item_sprite_layers_are_preserved() {
+fn test_battle_and_inventory_item_sprite_layers_are_preserved() {
     let mut drop = make_drop(2, 9, 3, "Tăng tốc", "Speedup", "Tăng Tốc");
     drop.sprites = vec![
         "img_icon_item_BGBlue.png".to_string(),
         "img_icon_item_9.png".to_string(),
     ];
     let record = make_today_record("sprite-item", "111", "Alpha", "fort", "Fort", vec![drop]);
+    let battle = BattleRecordDto::from_record(&record, AppLanguage::English);
+    let battle_json = serde_json::to_value(&battle).unwrap();
+    assert_eq!(
+        battle_json["items"][0]["sprites"],
+        serde_json::json!(["img_icon_item_BGBlue.png", "img_icon_item_9.png"])
+    );
+
     let stats = generate_statistics(&[record]);
     let inventory = query_inventory_from_stats(&stats, AppLanguage::English, "", "All", None, None);
 
@@ -542,3 +549,56 @@ fn test_inventory_item_sprite_layers_are_preserved() {
         serde_json::json!(["img_icon_item_BGBlue.png", "img_icon_item_9.png"])
     );
 }
+
+#[test]
+fn test_bench_query_battles_search_and_sorting() {
+    let mut records = Vec::with_capacity(5_000);
+    for i in 0..5_000 {
+        let btype = match i % 3 {
+            0 => "fort",
+            1 => "barbarian",
+            _ => "motte",
+        };
+        let rec = make_today_record(
+            &format!("bench_{}", i),
+            &format!("uid_{}", i % 4),
+            &format!("Player_{}", i % 4),
+            btype,
+            &format!("Target Lvl {}", (i % 25) + 1),
+            vec![
+                make_drop(1, 5, (i % 50) as i64 * 10, "Đá quý", "Gems", "Tài Nguyên"),
+                make_drop(2, 9, (i % 10) as i64 * 60, "Tăng tốc", "Speedup", "Tăng Tốc"),
+            ],
+        );
+        records.push(rec);
+    }
+
+    // Benchmark search
+    let start_search = std::time::Instant::now();
+    let iters = 10;
+    for _ in 0..iters {
+        let res = query_battles_from_slice(&records, AppLanguage::English, "Target Lvl 10", None, None);
+        assert!(!res.is_empty());
+    }
+    let elapsed_search = start_search.elapsed() / iters;
+    println!("\n[BENCH] query_battles_from_slice (5,000 records, search): {:?}", elapsed_search);
+
+    // Benchmark sort by gems
+    let start_sort_gems = std::time::Instant::now();
+    for _ in 0..iters {
+        let res = query_battles_from_slice(&records, AppLanguage::English, "", Some("gems"), Some("desc"));
+        assert_eq!(res.len(), 5_000);
+    }
+    let elapsed_sort_gems = start_sort_gems.elapsed() / iters;
+    println!("[BENCH] query_battles_from_slice (5,000 records, sort gems): {:?}", elapsed_sort_gems);
+
+    // Benchmark sort by target
+    let start_sort_target = std::time::Instant::now();
+    for _ in 0..iters {
+        let res = query_battles_from_slice(&records, AppLanguage::English, "", Some("target"), Some("asc"));
+        assert_eq!(res.len(), 5_000);
+    }
+    let elapsed_sort_target = start_sort_target.elapsed() / iters;
+    println!("[BENCH] query_battles_from_slice (5,000 records, sort target): {:?}", elapsed_sort_target);
+}
+

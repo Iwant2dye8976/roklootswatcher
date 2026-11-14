@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { Package } from "lucide-react";
 import {
   getResourceIconLayers,
   ResourceItemInput,
@@ -19,7 +20,7 @@ export const ResourceIcon: React.FC<ResourceIconProps> = ({
   size = "sm",
   className = "",
   alt = "",
-  fallback = null,
+  fallback,
 }) => {
   const [failedSources, setFailedSources] = useState<string[]>([]);
 
@@ -54,7 +55,21 @@ export const ResourceIcon: React.FC<ResourceIconProps> = ({
   );
 
   if (iconSources.length === 0) {
-    return <>{fallback}</>;
+    if (fallback !== undefined) return <>{fallback}</>;
+
+    return (
+      <span
+        style={inlineStyle}
+        className={`inline-flex shrink-0 select-none pointer-events-none ${sizeClasses} ${className}`}
+        role={alt ? "img" : undefined}
+        aria-label={alt || undefined}
+      >
+        <Package
+          className="w-full h-full text-binance-muted"
+          aria-hidden="true"
+        />
+      </span>
+    );
   }
 
   const handleImageError = (source: string) => {

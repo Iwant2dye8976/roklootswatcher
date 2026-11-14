@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, lazy, Suspense } from "react";
 import { AppStoreProvider, useAppStore } from "./store/appStore";
 import { Titlebar } from "./components/Titlebar";
 import { Sidebar } from "./components/Sidebar";
@@ -9,10 +9,26 @@ import { ToastContainer } from "./components/ToastContainer";
 import { ConfirmDialogProvider } from "./components/ConfirmDialog";
 
 import { DashboardView } from "./views/DashboardView";
-import { BattlesView } from "./views/BattlesView";
-import { InventoryView } from "./views/InventoryView";
-import { SettingsView } from "./views/SettingsView";
-import { OverlayView } from "./views/OverlayView";
+
+const BattlesView = lazy(() =>
+  import("./views/BattlesView").then((m) => ({ default: m.BattlesView }))
+);
+const InventoryView = lazy(() =>
+  import("./views/InventoryView").then((m) => ({ default: m.InventoryView }))
+);
+const SettingsView = lazy(() =>
+  import("./views/SettingsView").then((m) => ({ default: m.SettingsView }))
+);
+const OverlayView = lazy(() =>
+  import("./views/OverlayView").then((m) => ({ default: m.OverlayView }))
+);
+
+const ViewLoadingFallback: React.FC = () => (
+  <div className="flex-1 flex items-center justify-center p-8 text-neutral-400">
+    <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin mr-3" />
+    <span className="text-xs font-medium">Loading view...</span>
+  </div>
+);
 
 const MainLayout: React.FC = () => {
   const { tab } = useAppStore();
@@ -22,11 +38,23 @@ const MainLayout: React.FC = () => {
       case 0:
         return <DashboardView />;
       case 1:
-        return <BattlesView />;
+        return (
+          <Suspense fallback={<ViewLoadingFallback />}>
+            <BattlesView />
+          </Suspense>
+        );
       case 2:
-        return <InventoryView />;
+        return (
+          <Suspense fallback={<ViewLoadingFallback />}>
+            <InventoryView />
+          </Suspense>
+        );
       case 3:
-        return <SettingsView />;
+        return (
+          <Suspense fallback={<ViewLoadingFallback />}>
+            <SettingsView />
+          </Suspense>
+        );
       default:
         return <DashboardView />;
     }
@@ -69,7 +97,11 @@ export const App: React.FC = () => {
   }, []);
 
   if (isOverlayRoute) {
-    return <OverlayView />;
+    return (
+      <Suspense fallback={null}>
+        <OverlayView />
+      </Suspense>
+    );
   }
 
   return (

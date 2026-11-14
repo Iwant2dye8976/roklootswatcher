@@ -1883,6 +1883,8 @@ pub struct OverlayConfig {
     pub fade_style: OverlayFadeStyle,
     #[serde(default = "default_overlay_fade_dim_opacity")]
     pub fade_dim_opacity: f32,
+    #[serde(default = "default_overlay_card_count")]
+    pub card_count: u32,
 }
 
 fn default_overlay_enabled() -> bool {
@@ -1962,6 +1964,10 @@ pub fn default_overlay_fade_dim_opacity() -> f32 {
     0.25
 }
 
+pub fn default_overlay_card_count() -> u32 {
+    3
+}
+
 impl Default for OverlayConfig {
     fn default() -> Self {
         Self {
@@ -1981,6 +1987,7 @@ impl Default for OverlayConfig {
             fade_timeout_secs: default_overlay_fade_timeout_secs(),
             fade_style: OverlayFadeStyle::default(),
             fade_dim_opacity: default_overlay_fade_dim_opacity(),
+            card_count: default_overlay_card_count(),
         }
     }
 }
@@ -3396,6 +3403,7 @@ mod tests {
         assert_eq!(config.mode, OverlayDisplayMode::Cards);
         assert_eq!(config.pinned_items, default_overlay_pinned_items());
         assert!(config.hotkey_enabled);
+        assert_eq!(config.card_count, 3);
     }
 
     #[test]
@@ -3424,6 +3432,7 @@ mod tests {
             fade_timeout_secs: 30,
             fade_style: OverlayFadeStyle::Dim,
             fade_dim_opacity: 0.20,
+            card_count: 4,
         };
         let json = serde_json::to_string(&cfg).expect("Must serialize");
         let back: OverlayConfig = serde_json::from_str(&json).expect("Must deserialize");

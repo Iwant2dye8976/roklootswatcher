@@ -69,6 +69,8 @@ pub struct LootItemDto {
     pub converted_value: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icon: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sprites: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -189,6 +191,7 @@ impl BattleRecordDto {
                             lang,
                         ),
                         icon,
+                        sprites: it.sprites.clone(),
                     }
                 })
                 .collect(),
@@ -359,9 +362,99 @@ pub struct DashboardDto {
     pub fort_count: usize,
     pub barb_count: usize,
     pub gathering_count: usize,
+    #[serde(default)]
+    pub pvp_count: usize,
     pub ap_economics: ApEconomics,
     pub top_items: Vec<ItemStatDto>,
     pub latest_battles: Vec<BattleRecordDto>,
+    #[serde(default)]
+    pub pvp_stats: Option<PvpDashboardDto>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PvpTimelinePointDto {
+    pub label: String,
+    pub timestamp: i64,
+    pub kills_dealt: u64,
+    pub kills_taken: u64,
+    pub kills_t4_dealt: u64,
+    pub kills_t5_dealt: u64,
+    pub kills_t4_taken: u64,
+    pub kills_t5_taken: u64,
+    pub kp_gained: f64,
+    pub kp_lost: f64,
+    pub trade_ratio_pct: f64,
+    pub battle_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PvpDashboardDto {
+    pub total_battles: usize,
+    pub kills_dealt: u64,
+    pub kills_taken: u64,
+    pub kills_t4_dealt: u64,
+    pub kills_t5_dealt: u64,
+    pub kills_t4_taken: u64,
+    pub kills_t5_taken: u64,
+    pub kp_gained: f64,
+    pub kp_lost: f64,
+    pub trade_ratio_pct: f64,
+    pub top_march: Option<TroopTradeSummaryDto>,
+    pub timeline: Vec<PvpTimelinePointDto>,
+    pub is_hourly: bool,
+}
+
+impl PvpDashboardDto {
+    pub fn from_stats(stats: crate::analyzer::PvpDashboardStats) -> Self {
+        let top_march = stats.top_march.map(|s| TroopTradeSummaryDto {
+            troop_id: s.troop_key(),
+            display_pair_name: s.display_pair_name(),
+            primary_commander_id: s.primary_commander_id,
+            primary_commander_name: s.primary_commander_name.clone(),
+            secondary_commander_id: s.secondary_commander_id,
+            secondary_commander_name: s.secondary_commander_name.clone(),
+            primary_is_expertised: s.primary_is_expertised,
+            secondary_is_expertised: s.secondary_is_expertised,
+            combat_type: s.combat_type.clone(),
+            kills_dealt: s.kills_dealt(),
+            kills_taken: s.kills_taken(),
+            kp_gained: s.kp_gained,
+            kp_lost: s.kp_lost,
+            trade_ratio_pct: s.trade_ratio_pct(),
+            battle_count: s.battle_count,
+        });
+
+        let timeline = stats.timeline.into_iter().map(|p| PvpTimelinePointDto {
+            label: p.label,
+            timestamp: p.timestamp,
+            kills_dealt: p.kills_dealt,
+            kills_taken: p.kills_taken,
+            kills_t4_dealt: p.kills_t4_dealt,
+            kills_t5_dealt: p.kills_t5_dealt,
+            kills_t4_taken: p.kills_t4_taken,
+            kills_t5_taken: p.kills_t5_taken,
+            kp_gained: p.kp_gained,
+            kp_lost: p.kp_lost,
+            trade_ratio_pct: p.trade_ratio_pct,
+            battle_count: p.battle_count,
+        }).collect();
+
+        Self {
+            total_battles: stats.total_battles,
+            kills_dealt: stats.kills_dealt,
+            kills_taken: stats.kills_taken,
+            kills_t4_dealt: stats.kills_t4_dealt,
+            kills_t5_dealt: stats.kills_t5_dealt,
+            kills_t4_taken: stats.kills_t4_taken,
+            kills_t5_taken: stats.kills_t5_taken,
+            kp_gained: stats.kp_gained,
+            kp_lost: stats.kp_lost,
+            trade_ratio_pct: stats.trade_ratio_pct,
+            top_march,
+            timeline,
+            is_hourly: stats.is_hourly,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -454,4 +547,6 @@ pub struct OverlayConfigUpdateDto {
     pub fade_style: Option<OverlayFadeStyle>,
     #[serde(default)]
     pub fade_dim_opacity: Option<f32>,
+    #[serde(default)]
+    pub card_count: Option<u32>,
 }

@@ -9,7 +9,12 @@ export type ResourceKey =
   | "stone"
   | "gold"
   | "gems"
-  | "crystals";
+  | "crystals"
+  | "spd_univ"
+  | "spd_train"
+  | "spd_heal"
+  | "books"
+  | "arrows";
 
 export const RESOURCE_ICONS: Record<ResourceKey, string> = {
   food: "./items/resources/img_food.png",
@@ -18,7 +23,16 @@ export const RESOURCE_ICONS: Record<ResourceKey, string> = {
   gold: "./items/resources/img_gold.png",
   gems: "./items/resources/img_gem.png",
   crystals: "./items/resources/img_Crystal.png",
+  spd_univ: "./items/others/img_icon_item_10.png",
+  spd_train: "./items/others/img_icon_item_12.png",
+  spd_heal: "./items/others/img_icon_item_11.png",
+  books: "./items/others/img_icon_item_24.png",
+  arrows: "./items/others/img_icon_item_2.png",
 };
+
+function isResourceKey(value: string): value is ResourceKey {
+  return Object.prototype.hasOwnProperty.call(RESOURCE_ICONS, value);
+}
 
 const RESOURCE_ITEM_SPRITES = new Set([
   "img_icon_item_19.png",
@@ -121,69 +135,79 @@ export function getResourceIcon(
   // 2. If target is a string identifier or key
   if (typeof target === "string") {
     const s = target.toLowerCase().trim();
+    const lookup = s.startsWith("catalog:")
+      ? s.split(":").slice(3).join(":")
+      : s;
+
+    if (isResourceKey(lookup)) return RESOURCE_ICONS[lookup];
+    if (lookup === "speedupuniversal") return RESOURCE_ICONS.spd_univ;
+    if (lookup === "speeduptraining") return RESOURCE_ICONS.spd_train;
+    if (lookup === "speeduphealing") return RESOURCE_ICONS.spd_heal;
 
     // Check direct icon filenames
-    if (s.includes("img_food")) return RESOURCE_ICONS.food;
-    if (s.includes("img_wood")) return RESOURCE_ICONS.wood;
-    if (s.includes("img_stone")) return RESOURCE_ICONS.stone;
-    if (s.includes("img_gold")) return RESOURCE_ICONS.gold;
-    if (s.includes("img_gem")) return RESOURCE_ICONS.gems;
-    if (s.includes("img_crystal")) return RESOURCE_ICONS.crystals;
+    if (lookup.includes("img_food")) return RESOURCE_ICONS.food;
+    if (lookup.includes("img_wood")) return RESOURCE_ICONS.wood;
+    if (lookup.includes("img_stone")) return RESOURCE_ICONS.stone;
+    if (lookup.includes("img_gold")) return RESOURCE_ICONS.gold;
+    if (lookup.includes("img_gem")) return RESOURCE_ICONS.gems;
+    if (lookup.includes("img_crystal")) return RESOURCE_ICONS.crystals;
 
     // Check resource keys and standard labels
     if (
-      s === "food" ||
-      s.startsWith("food") ||
-      s === "rssfood" ||
-      s.includes("thực phẩm") ||
-      s.includes("proviant")
+      lookup === "food" ||
+      lookup.startsWith("food") ||
+      lookup === "rssfood" ||
+      lookup.includes("thực phẩm") ||
+      lookup.includes("proviant")
     ) {
       return RESOURCE_ICONS.food;
     }
     if (
-      s === "wood" ||
-      s.startsWith("wood") ||
-      s === "rsswood" ||
-      s.includes("gỗ") ||
-      s.includes("holz")
+      lookup === "wood" ||
+      lookup.startsWith("wood") ||
+      lookup === "rsswood" ||
+      lookup.includes("gỗ") ||
+      lookup.includes("holz")
     ) {
       return RESOURCE_ICONS.wood;
     }
     if (
-      s === "stone" ||
-      s.startsWith("stone") ||
-      s === "rssstone" ||
-      s === "đá" ||
-      s.includes("mỏ đá") ||
-      s.includes("stein")
+      lookup === "stone" ||
+      lookup.startsWith("stone") ||
+      lookup === "rssstone" ||
+      lookup === "đá" ||
+      lookup.includes("mỏ đá") ||
+      lookup.includes("stein")
     ) {
       return RESOURCE_ICONS.stone;
     }
     if (
-      s === "gold" ||
-      s.startsWith("gold") ||
-      s === "rssgold" ||
-      s.includes("vàng")
+      lookup === "gold" ||
+      lookup.startsWith("gold") ||
+      lookup === "rssgold" ||
+      lookup.includes("vàng")
     ) {
       return RESOURCE_ICONS.gold;
     }
     if (
-      s.includes("gem") ||
-      s === "rssgems" ||
-      s.includes("đá quý") ||
-      s.includes("edelstein") ||
-      s.includes("jewel")
+      lookup.includes("gem") ||
+      lookup === "rssgems" ||
+      lookup.includes("đá quý") ||
+      lookup.includes("edelstein") ||
+      lookup.includes("jewel")
     ) {
       return RESOURCE_ICONS.gems;
     }
     if (
-      s.includes("crystal") ||
-      s === "rsscrystals" ||
-      s.includes("pha lê") ||
-      s.includes("kristall")
+      lookup.includes("crystal") ||
+      lookup === "rsscrystals" ||
+      lookup.includes("pha lê") ||
+      lookup.includes("kristall")
     ) {
       return RESOURCE_ICONS.crystals;
     }
+    if (lookup.includes("book of covenant")) return RESOURCE_ICONS.books;
+    if (lookup.includes("arrow of resistance")) return RESOURCE_ICONS.arrows;
 
     return null;
   }

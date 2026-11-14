@@ -470,53 +470,78 @@ impl RoKMailWatcher {
         let sel_acc = self.selected_account.read().unwrap_or_else(|e| e.into_inner()).clone();
         let main_uids = self.main_account_uids.read().unwrap_or_else(|e| e.into_inner()).clone();
         let ignore_non_main = self.get_ignore_non_main_reports();
-        let matches_acc = |r: &BattleRecord| {
-            let clean_rec = r.account_id.strip_prefix("player_").unwrap_or(&r.account_id).trim();
-            if ignore_non_main && !main_uids.is_empty() {
-                let is_main = !clean_rec.is_empty() && main_uids.iter().any(|u| {
-                    let clean_u = u.strip_prefix("player_").unwrap_or(u).trim();
-                    clean_u == clean_rec
-                });
-                if !is_main {
-                    return false;
-                }
-            }
-            match &sel_acc {
-                Some(acc) => {
-                    let clean_acc = acc.strip_prefix("player_").unwrap_or(acc).trim();
-                    !clean_acc.is_empty() && clean_rec == clean_acc
-                }
-                None => true,
-            }
-        };
-
-        let total_mode_count = all
-            .iter()
-            .filter(|r| mode.matches(&r.battle_type) && matches_acc(r))
-            .count();
 
         let s = *self.start_date.read().unwrap_or_else(|e| e.into_inner());
         let e = *self.end_date.read().unwrap_or_else(|e| e.into_inner());
         let d = *self.days.read().unwrap_or_else(|e| e.into_inner());
+        let is_unfiltered = s.is_none() && e.is_none() && d.is_none();
 
-        let active_vec: Vec<BattleRecord> = if s.is_none() && e.is_none() && d.is_none() {
-            all.iter()
+        let clean_sel_acc = sel_acc.as_deref().map(|acc| {
+            acc.strip_prefix("player_").unwrap_or(acc).trim().to_string()
+        });
+        let clean_main_uids: std::collections::HashSet<String> = if ignore_non_main && !main_uids.is_empty() {
+            main_uids.iter().map(|u| u.strip_prefix("player_").unwrap_or(u).trim().to_string()).collect()
+        } else {
+            std::collections::HashSet::new()
+        };
+
+        // Fast path: if no filters at all, avoid cloning BattleRecords
+        if mode == FilterMode::AllRewards
+            && clean_sel_acc.is_none()
+            && (!ignore_non_main || clean_main_uids.is_empty())
+            && is_unfiltered
+        {
+            let count = all.len();
+            let new_stats = generate_statistics(&all);
+            *self.active_records.write().unwrap_or_else(|e| e.into_inner()) = Arc::clone(&all);
+            *self.stats.write().unwrap_or_else(|e| e.into_inner()) = new_stats.clone();
+            let _ = self.ui_sender.send(WatcherUiEvent::StatsUpdated {
+                stats: new_stats,
+                active_count: count,
+            });
+            return (count, count);
+        }
+
+        let matches_acc = |r: &BattleRecord| {
+            let clean_rec = r.account_id.strip_prefix("player_").unwrap_or(&r.account_id).trim();
+            if ignore_non_main
+                && !clean_main_uids.is_empty()
+                && (clean_rec.is_empty() || !clean_main_uids.contains(clean_rec))
+            {
+                return false;
+            }
+            match &clean_sel_acc {
+                Some(acc) => !acc.is_empty() && clean_rec == acc.as_str(),
+                None => true,
+            }
+        };
+
+        let (active_arc, total_mode_count) = if is_unfiltered {
+            let active_vec: Vec<BattleRecord> = all
+                .iter()
                 .filter(|r| mode.matches(&r.battle_type) && matches_acc(r))
                 .cloned()
-                .collect()
+                .collect();
+            let cnt = active_vec.len();
+            (Arc::new(active_vec), cnt)
         } else {
-            filter_records_by_date(
+            let total_cnt = all
+                .iter()
+                .filter(|r| mode.matches(&r.battle_type) && matches_acc(r))
+                .count();
+            let active_vec = filter_records_by_date(
                 all.iter().filter(|r| mode.matches(&r.battle_type) && matches_acc(r)),
                 s,
                 e,
                 d,
-            )
+            );
+            (Arc::new(active_vec), total_cnt)
         };
 
-        let active_cnt = active_vec.len();
-        let new_stats = generate_statistics(&active_vec);
+        let active_cnt = active_arc.len();
+        let new_stats = generate_statistics(&active_arc);
 
-        *self.active_records.write().unwrap_or_else(|e| e.into_inner()) = Arc::new(active_vec);
+        *self.active_records.write().unwrap_or_else(|e| e.into_inner()) = Arc::clone(&active_arc);
         *self.stats.write().unwrap_or_else(|e| e.into_inner()) = new_stats.clone();
 
         let _ = self.ui_sender.send(WatcherUiEvent::StatsUpdated {
@@ -730,6 +755,54 @@ impl RoKMailWatcher {
                 }
             })
             .collect()
+    }
+
+    pub fn is_single_day_filter(&self) -> bool {
+        let s = *self.start_date.read().unwrap_or_else(|e| e.into_inner());
+        let e_date = *self.end_date.read().unwrap_or_else(|e| e.into_inner());
+        let d = *self.days.read().unwrap_or_else(|e| e.into_inner());
+        if d == Some(1) {
+            return true;
+        }
+        if let (Some(s_d), Some(e_d)) = (s, e_date) {
+            if s_d == e_d {
+                return true;
+            }
+        }
+        false
+    }
+
+    pub fn get_filtered_pvp_records(&self) -> Vec<BattleRecord> {
+        let all = self.get_or_load_all_records();
+        let s = *self.start_date.read().unwrap_or_else(|e| e.into_inner());
+        let e_date = *self.end_date.read().unwrap_or_else(|e| e.into_inner());
+        let d = *self.days.read().unwrap_or_else(|e| e.into_inner());
+        let selected_account = self.get_selected_account();
+        let main_uids = self.get_main_account_uids();
+        let ignore_non_main = self.get_ignore_non_main_reports();
+
+        let matches_acc = |r: &BattleRecord| -> bool {
+            if let Some(ref sel) = selected_account {
+                let clean_r = r.account_id.strip_prefix("player_").unwrap_or(&r.account_id).trim();
+                let clean_sel = sel.strip_prefix("player_").unwrap_or(sel).trim();
+                clean_r == clean_sel
+            } else if ignore_non_main && !main_uids.is_empty() {
+                let clean_r = r.account_id.strip_prefix("player_").unwrap_or(&r.account_id).trim();
+                !clean_r.is_empty() && main_uids.iter().any(|u| {
+                    let clean_u = u.strip_prefix("player_").unwrap_or(u).trim();
+                    clean_u == clean_r
+                })
+            } else {
+                true
+            }
+        };
+
+        let iter = all.iter().filter(|r| r.battle_type == "pvp" && matches_acc(r));
+        if s.is_none() && e_date.is_none() && d.is_none() {
+            iter.cloned().collect()
+        } else {
+            crate::analyzer::filter_records_by_date(iter, s, e_date, d)
+        }
     }
 
     pub fn get_active_count(&self) -> usize {

@@ -67,7 +67,7 @@ const PINNED_PRESETS: PinnedPreset[] = [
   {
     id: "arrows",
     labelEn: "Arrows",
-    labelVi: "Tên Kháng Cự",
+    labelVi: "Mũi tên chống trả",
     key: {
       CatalogItem: { itype: 2, isub: 4, canonical_name: "Arrow of Resistance" },
     },
@@ -75,19 +75,19 @@ const PINNED_PRESETS: PinnedPreset[] = [
   {
     id: "spd_univ",
     labelEn: "Univ Speedup",
-    labelVi: "Tốc Chung",
+    labelVi: "Tăng tốc Chung",
     key: "SpeedupUniversal",
   },
   {
     id: "spd_train",
     labelEn: "Train Speedup",
-    labelVi: "Tốc Lính",
+    labelVi: "Tăng tốc huấn luyện",
     key: "SpeedupTraining",
   },
   {
     id: "spd_heal",
     labelEn: "Heal Speedup",
-    labelVi: "Tốc Viện",
+    labelVi: "Tăng tốc chữa lành",
     key: "SpeedupHealing",
   },
 ];
@@ -139,6 +139,7 @@ const DEFAULT_OVERLAY_CFG: OverlayConfig = {
   fade_timeout_secs: 0,
   fade_style: "Dim",
   fade_dim_opacity: 0.25,
+  card_count: 3,
 };
 
 export const SettingsView: React.FC = () => {
@@ -1262,6 +1263,26 @@ export const SettingsView: React.FC = () => {
                   className="w-full accent-amber-500"
                 />
               </div>
+
+              <div className="space-y-1">
+                <div className="flex justify-between text-[11px] font-mono text-binance-muted">
+                  <span>{t("overlayCardCount")}</span>
+                  <span className="text-binance-yellow font-bold">
+                    {overlayCfg.card_count ?? 3} cards
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="1"
+                  max="5"
+                  step="1"
+                  value={overlayCfg.card_count ?? 3}
+                  onChange={(e) =>
+                    updateOverlay({ card_count: parseInt(e.target.value, 10) }, 100)
+                  }
+                  className="w-full accent-amber-500"
+                />
+              </div>
             </div>
 
             {/* D-Pad Position Adjustment */}
@@ -1706,19 +1727,52 @@ export const SettingsView: React.FC = () => {
 
                   {(overlayCfg.mode === "Cards" || overlayCfg.mode === "Combined") && (
                     <div className="space-y-1">
-                      <div className={`px-2 py-1.5 rounded border border-l-[3px] border-l-red-500 text-[0.88em] leading-tight ${overlayCfg.transparent_bg ? "bg-transparent border-slate-700/50" : "bg-[#060a14]/75 border-slate-700/80"}`}>
-                        <div className="flex items-center justify-between font-bold" style={{ color: overlayCfg.text_color_hex || "#F8FAFC" }}>
-                          <span>Motte of the Cursed</span>
-                          <span className="text-slate-300 text-[0.85em] font-mono">14:32</span>
+                      {Array.from({ length: Math.min(overlayCfg.card_count ?? 3, 2) }).map((_, cIdx) => (
+                        <div
+                          key={cIdx}
+                          className="relative rounded-md overflow-hidden px-3.5 py-2 pe-10 flex items-center gap-2.5 min-h-[58px]"
+                          style={{
+                            backgroundImage: "url('/hud/img_MailBarSelected.png')",
+                            backgroundSize: "100% 100%",
+                            backgroundRepeat: "no-repeat",
+                            textShadow: "none",
+                          }}
+                        >
+                          <div className="flex items-center gap-2.5 w-full min-w-0">
+                            {/* Left: NPC Target Emblem */}
+                            <div className="shrink-0 w-10 h-10 flex items-center justify-center p-0.5 overflow-hidden">
+                              <img
+                                src={cIdx === 0 ? "/npc/S10_barbarian_guardian_lod3.png" : "/npc/barbarian_fort_lod3.png"}
+                                alt="Target"
+                                className="w-full h-full object-contain filter drop-shadow-sm"
+                              />
+                            </div>
+                            {/* Right: 3-line Stack */}
+                            <div className="flex flex-col justify-between flex-1 min-w-0 leading-tight">
+                              <div className="flex items-center justify-between gap-1 min-w-0">
+                                <span className="font-bold truncate text-[0.92em] text-slate-900 tracking-tight">
+                                  {cIdx === 0 ? "Motte of the Cursed" : "Barbarian Fort Lvl 10"}
+                                </span>
+                                <span className={`text-[8.5px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border leading-none shrink-0 ${cIdx === 0 ? "bg-red-100 text-red-900 border-red-300" : "bg-amber-100 text-amber-900 border-amber-300"}`}>
+                                  {cIdx === 0 ? "Motte" : "Fort"}
+                                </span>
+                              </div>
+                              <div className="flex items-center justify-between gap-1 text-[0.88em] font-mono">
+                                <span className="text-amber-900 font-bold truncate">
+                                  +50 Gems · +2 Books
+                                </span>
+                                <span className="font-bold text-slate-800">
+                                  100% · T3
+                                </span>
+                              </div>
+                              <div className="flex items-center justify-between gap-1 text-[0.80em] font-mono text-slate-600">
+                                <span>(450, 782)</span>
+                                <span className="text-slate-500 font-medium">14:32</span>
+                              </div>
+                            </div>
+                          </div>
                         </div>
-                        <div className="flex items-center justify-between text-slate-300 font-mono text-[0.85em]">
-                          <span>(450, 782)</span>
-                          <span className="font-bold" style={{ color: overlayCfg.accent_color_hex || "#38BDF8" }}>100% · T3</span>
-                        </div>
-                        <div className="text-amber-300 font-mono font-medium text-[0.85em] truncate">
-                          +50 Gems · 60m Speedup · 5,000 Wood
-                        </div>
-                      </div>
+                      ))}
                     </div>
                   )}
                 </div>
