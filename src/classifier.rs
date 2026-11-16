@@ -242,8 +242,13 @@ pub fn classify_mail(mail: &LilithValue) -> Option<&'static str> {
     None
 }
 
+#[allow(dead_code)]
 pub fn format_barbarian_target(levels: &[u32]) -> (String, String) {
     crate::model::format_barbarian_target(levels)
+}
+
+pub fn format_barbarian_target_with_npc(levels: &[u32], npc_types: &[u32]) -> (String, String) {
+    crate::model::format_barbarian_target_with_npc(levels, npc_types)
 }
 
 pub fn extract_barbarian_battle_details(
@@ -278,6 +283,7 @@ pub fn extract_barbarian_battle_details(
     let mut items = Vec::new();
     let mut item_totals: HashMap<String, i64> = HashMap::new();
     let mut levels: Vec<u32> = Vec::new();
+    let mut npc_types: Vec<u32> = Vec::new();
     let mut pos_x: u32 = 0;
     let mut pos_y: u32 = 0;
 
@@ -298,6 +304,11 @@ pub fn extract_barbarian_battle_details(
                     if let Some(hlv) = cidt.get("HLv").and_then(|v| v.as_u32()) {
                         if hlv > 0 && hlv <= 55 {
                             levels.push(hlv);
+                        }
+                    }
+                    if let Some(nt) = cidt.get("NpcType").and_then(|v| v.as_u32()) {
+                        if nt > 0 {
+                            npc_types.push(nt);
                         }
                     }
                 }
@@ -360,7 +371,7 @@ pub fn extract_barbarian_battle_details(
         }
     }
 
-    let (motte_level, target) = format_barbarian_target(&levels);
+    let (motte_level, target) = format_barbarian_target_with_npc(&levels, &npc_types);
 
     let content_desc = target.clone();
     let (account_id, player_name) = extract_account_info(mail);
@@ -742,6 +753,7 @@ pub fn extract_pvp_battle_details(
         dead_taken,
         severely_wounded_dealt,
         severely_wounded_taken,
+        ..Default::default()
     })
 }
 
@@ -837,11 +849,16 @@ pub fn extract_motte_details(
         }
         "barbarian" => {
             if !motte_level_str.is_empty() {
-                format!("Dã Man Cấp {}", motte_level_str)
+                if let Ok(lvl) = motte_level_str.parse::<u32>() {
+                    crate::model::get_npc_name_by_level(lvl)
+                        .unwrap_or_else(|| format!("Lvl {} Barbarians", lvl))
+                } else {
+                    format!("Lvl {} Barbarians", motte_level_str)
+                }
             } else {
                 body.and_then(|b| b.get("title"))
                     .and_then(|v| v.as_str())
-                    .unwrap_or("Dã Man")
+                    .unwrap_or("Barbarians")
                     .to_string()
             }
         }
@@ -1024,7 +1041,7 @@ mod tests {
         let rec = extract_motte_details(&mail, "Persistent.Mail.95837234179264017425", &catalog, btype).expect("Should extract details");
 
         assert_eq!(rec.battle_type, "barbarian");
-        assert_eq!(rec.target, "Dã Man Cấp 50");
+        assert_eq!(rec.target, "Lvl 50 English Soldiers");
         assert_eq!(rec.target_level, "50");
         assert_eq!(rec.pos_x, 781);
         assert_eq!(rec.pos_y, 525);
@@ -1065,7 +1082,7 @@ mod tests {
 
             let catalog = LootCatalog::load_from_candidates(None);
             let rec = extract_motte_details(&mail, "Persistent.Mail.79355196177398328125", &catalog, btype).expect("Should extract chained details");
-            assert_eq!(rec.target, "Dã Man Cấp 47-52 (x27)");
+            assert_eq!(rec.target, "Lvl 47-52 English Soldiers (x27)");
             assert_eq!(rec.target_level, "47-52");
             assert!(!rec.items.is_empty());
         }
@@ -1083,7 +1100,7 @@ mod tests {
             let catalog = LootCatalog::load_from_candidates(None);
             let rec = extract_motte_details(&mail, "Persistent.Mail.95953682179264410425", &catalog, btype)
                 .expect("Should extract mixed fort barbarian battle");
-            assert_eq!(rec.target, "Dã Man Cấp 52");
+            assert_eq!(rec.target, "Lvl 52 English Soldiers");
             assert_eq!(rec.target_level, "52");
             assert_eq!(rec.pos_x, 772);
             assert_eq!(rec.pos_y, 531);

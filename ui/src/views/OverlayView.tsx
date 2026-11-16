@@ -24,8 +24,8 @@ export const OverlayView: React.FC = () => {
     });
 
     const timer = window.setInterval(() => {
-      setExtraIdleSecs((prev) => prev + 5);
-    }, 5000);
+      setExtraIdleSecs((prev) => prev + 1);
+    }, 1000);
 
     return () => {
       window.clearInterval(timer);
@@ -79,6 +79,8 @@ export const OverlayView: React.FC = () => {
     effectiveOpacity = Math.max(0.35, userOpacity * 0.92);
   }
 
+  const isDimmed = effectiveOpacity < userOpacity;
+
   const baseFontPx = Math.max(8.0, Math.min(32, config.font_size || 10.5));
   const textHex = config.text_color_hex || "#F8FAFC";
   const accentHex = config.accent_color_hex || "#38BDF8";
@@ -98,6 +100,10 @@ export const OverlayView: React.FC = () => {
         fontSize: `${baseFontPx}px`,
         color: textHex,
         textShadow: "0 1px 2px rgba(0,0,0,0.85)",
+        willChange: "opacity",
+        transition: isDimmed
+          ? "opacity 1000ms cubic-bezier(0.4, 0, 0.2, 1)"
+          : "opacity 300ms cubic-bezier(0.16, 1, 0.3, 1)",
       }}
       className={`w-full h-full select-none font-sans antialiased overflow-hidden ${
         isMiniOnly ? "px-1.5 py-0.5" : "p-1.5"

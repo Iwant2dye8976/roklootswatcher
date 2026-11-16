@@ -11,7 +11,7 @@ use notify::{Config, EventKind, RecommendedWatcher, RecursiveMode, Watcher as No
 use crate::analyzer::{filter_records_by_date, generate_statistics};
 use crate::classifier::{classify_mail, extract_motte_details};
 use crate::i18n::filter_mode_name;
-use crate::lilith_stream::decode_mail_file;
+use crate::lilith_stream::{decode_mail_bytes_with_header, decode_mail_file_with_header};
 use crate::loot_catalog::LootCatalog;
 use crate::model::{AppLanguage, BattleRecord, FilterMode, Statistics};
 use crate::vault::{read_file_shared, MailVault};
@@ -846,8 +846,6 @@ impl RoKMailWatcher {
                     AppLanguage::English => format!("Error saving vault to disk: {}", e),
                 };
                 self.log("ERROR", &err_msg);
-            } else {
-                self.auto_export();
             }
         }
     }
@@ -1141,13 +1139,16 @@ impl RoKMailWatcher {
                 .par_iter()
                 .filter_map(|fpath| {
                     let fname = fpath.file_name()?.to_string_lossy();
-                    let m = decode_mail_file(fpath).ok()?;
+                    let decoded = decode_mail_file_with_header(fpath).ok()?;
+                    let header_hex = decoded.header_hex();
+                    let m = decoded.root;
                     let box_name = m.get("box").and_then(|v| v.as_str()).unwrap_or("");
                     if box_name != "Report" && box_name != "Archive" {
                         return None;
                     }
                     let btype = classify_mail(&m)?;
-                    let rec = extract_motte_details(&m, &fname, catalog, Some(btype)).ok()?;
+                    let mut rec = extract_motte_details(&m, &fname, catalog, Some(btype)).ok()?;
+                    rec.raw_header = header_hex;
                     if ignore_non_main && !main_uids.is_empty() {
                         let clean_rec = rec.account_id.strip_prefix("player_").unwrap_or(&rec.account_id).trim();
                         let is_main = !clean_rec.is_empty() && main_uids.iter().any(|u| {
@@ -1195,8 +1196,6 @@ impl RoKMailWatcher {
 
         let (mode_cnt, active_cnt) = self.recompute_filtered_records_and_stats();
         *self.is_scanning.write().unwrap_or_else(|e| e.into_inner()) = false;
-
-        self.auto_export();
 
         trim_memory_working_set();
 
@@ -1364,10 +1363,12 @@ impl RoKMailWatcher {
             return;
         }
 
-        let m = match crate::lilith_stream::decode_mail_bytes(&file_buf) {
+        let decoded = match decode_mail_bytes_with_header(&file_buf) {
             Ok(val) => val,
             Err(_) => return,
         };
+        let header_hex = decoded.header_hex();
+        let m = decoded.root;
 
         let box_name = m.get("box").and_then(|v| v.as_str()).unwrap_or("");
         if box_name != "Report" && box_name != "Archive" {
@@ -1379,10 +1380,11 @@ impl RoKMailWatcher {
             None => return,
         };
 
-        let rec = match extract_motte_details(&m, &fname, &self.catalog, Some(btype)) {
+        let mut rec = match extract_motte_details(&m, &fname, &self.catalog, Some(btype)) {
             Ok(r) => r,
             Err(_) => return,
         };
+        rec.raw_header = header_hex;
 
         let main_uids = self.get_main_account_uids();
         let ignore_non_main = self.get_ignore_non_main_reports();
@@ -1399,11 +1401,7 @@ impl RoKMailWatcher {
             }
         }
 
-        let vault_dir = self.get_vault_binary_dir();
-        let backup_dst = vault_dir.join(&fname);
-        if !backup_dst.exists() {
-            let _ = std::fs::write(&backup_dst, &file_buf);
-        }
+        let _ = self.vault.read().unwrap_or_else(|e| e.into_inner()).backup_binary_bytes(&fname, &file_buf);
 
         let is_new = {
             let mut v = self.vault.write().unwrap_or_else(|e| e.into_inner());
@@ -1483,23 +1481,6 @@ impl RoKMailWatcher {
         });
     }
 
-    pub fn auto_export(&self) {
-        static EXPORT_MUTEX: Mutex<()> = Mutex::new(());
-        let _guard = EXPORT_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
-
-        let recs = self.get_active_records();
-        let stats = self.get_stats();
-        let out_dir = self.get_out_dir();
-        let mail_dir = self.get_mail_dir();
-
-        let _ = crate::exporters::export_json(
-            &recs,
-            &stats,
-            &out_dir.join("motte_filtered_mails.json"),
-        );
-        crate::exporters::export_individual_mails_json(&recs, &mail_dir, &out_dir);
-    }
-
     fn clone_handle(&self) -> Self {
         Self {
             mail_dir: Arc::clone(&self.mail_dir),
@@ -1551,6 +1532,7 @@ pub fn trim_memory_working_set() {}
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::lilith_stream::decode_mail_file;
 
     #[test]
     fn test_watcher_process_gathering_mail() {
@@ -1622,7 +1604,6 @@ mod tests {
 
         watcher.stop();
         assert!(!watcher.vault_dirty.load(std::sync::atomic::Ordering::SeqCst), "Dirty flag must be cleared by flush on stop");
-        assert!(temp_dir.join("motte_filtered_mails.json").exists(), "Auto export should be executed when dirty vault is flushed on stop");
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }

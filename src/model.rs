@@ -200,6 +200,114 @@ pub fn get_commander_name(id: u32) -> String {
         .unwrap_or_else(|| format!("Cmdr #{}", id))
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NpcEntry {
+    pub name: String,
+    pub sprite: String,
+}
+
+pub fn parse_npc_yaml(yaml_text: &str) -> std::collections::HashMap<u32, NpcEntry> {
+    let mut map = std::collections::HashMap::new();
+    let mut current_id: Option<u32> = None;
+    let mut current_name: Option<String> = None;
+    let mut current_sprite: Option<String> = None;
+
+    for raw_line in yaml_text.lines() {
+        let line = raw_line.trim_end_matches('\r');
+        if let Some(rest) = line.strip_prefix("  ") {
+            if !rest.starts_with(' ') {
+                let trimmed = rest.trim().trim_end_matches(':').trim_matches('\'').trim_matches('"');
+                if let Ok(id) = trimmed.parse::<u32>() {
+                    if let (Some(prev_id), Some(prev_name)) = (current_id, current_name.take()) {
+                        map.insert(
+                            prev_id,
+                            NpcEntry {
+                                name: prev_name,
+                                sprite: current_sprite.take().unwrap_or_default(),
+                            },
+                        );
+                    }
+                    current_id = Some(id);
+                    current_name = None;
+                    current_sprite = None;
+                    continue;
+                }
+            }
+        }
+
+        let trimmed_line = line.trim_start();
+        if let Some(rest) = trimmed_line.strip_prefix("name:") {
+            let val = rest.trim().trim_matches('\'').trim_matches('"');
+            if !val.is_empty() {
+                current_name = Some(val.to_string());
+            }
+        } else if let Some(rest) = trimmed_line.strip_prefix("sprite:") {
+            let val = rest.trim().trim_matches('\'').trim_matches('"');
+            if !val.is_empty() {
+                current_sprite = Some(val.to_string());
+            }
+        }
+    }
+
+    if let (Some(prev_id), Some(prev_name)) = (current_id, current_name.take()) {
+        map.insert(
+            prev_id,
+            NpcEntry {
+                name: prev_name,
+                sprite: current_sprite.take().unwrap_or_default(),
+            },
+        );
+    }
+
+    map
+}
+
+pub fn get_npc_entry(id: u32) -> Option<NpcEntry> {
+    if id == 0 {
+        return None;
+    }
+    static NPC_MAP: std::sync::OnceLock<std::collections::HashMap<u32, NpcEntry>> =
+        std::sync::OnceLock::new();
+    let map = NPC_MAP.get_or_init(|| {
+        let content = std::fs::read_to_string("npc.yaml")
+            .ok()
+            .or_else(|| {
+                std::env::current_exe()
+                    .ok()
+                    .and_then(|p| p.parent().map(|d| d.join("npc.yaml")))
+                    .and_then(|p| std::fs::read_to_string(p).ok())
+            })
+            .unwrap_or_else(|| include_str!("../npc.yaml").to_string());
+        parse_npc_yaml(&content)
+    });
+    map.get(&id).cloned()
+}
+
+pub fn get_npc_name(id: u32) -> Option<String> {
+    get_npc_entry(id).map(|e| e.name)
+}
+
+pub fn get_npc_name_by_level(lvl: u32) -> Option<String> {
+    if lvl == 0 {
+        return None;
+    }
+    // KvK Season of Conquest: Level 41-55 are English Soldiers
+    if (41..=55).contains(&lvl) {
+        let id = 150009 + (lvl - 41);
+        if let Some(name) = get_npc_name(id) {
+            return Some(name);
+        }
+    }
+    // Regular Barbarians Level 1-40
+    if (1..=40).contains(&lvl) {
+        let id = 640 + lvl;
+        if let Some(name) = get_npc_name(id) {
+            return Some(name);
+        }
+    }
+    None
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct TroopCombatStats {
     pub primary_commander_id: u32,
@@ -711,6 +819,8 @@ pub struct BattleRecord {
     pub severely_wounded_dealt: u64,
     #[serde(default, skip_serializing_if = "is_zero_u64")]
     pub severely_wounded_taken: u64,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub raw_header: String,
 }
 
 impl BattleRecord {
@@ -749,6 +859,41 @@ impl BattleRecord {
                 return format!("{} [{}]", &self.target[..idx], pair);
             }
         }
+
+        if self.battle_type == "barbarian" {
+            if self.target.starts_with("Dã Man Cấp ") || self.target.starts_with("Barbarian Level ") {
+                let lvl_part = self
+                    .target
+                    .strip_prefix("Dã Man Cấp ")
+                    .or_else(|| self.target.strip_prefix("Barbarian Level "))
+                    .unwrap_or_default();
+                let (range_str, count_part) = if let Some((l, c)) = lvl_part.split_once(' ') {
+                    (l, format!(" {}", c))
+                } else {
+                    (lvl_part, String::new())
+                };
+                if let Ok(lvl) = range_str.parse::<u32>() {
+                    if let Some(name) = get_npc_name_by_level(lvl) {
+                        return format!("{}{}", name, count_part);
+                    }
+                } else if let Some((min_s, max_s)) = range_str.split_once('-') {
+                    if let (Ok(min_l), Ok(max_l)) = (min_s.parse::<u32>(), max_s.parse::<u32>()) {
+                        let base = if min_l >= 41 { "English Soldiers" } else { "Barbarians" };
+                        return format!("Lvl {}-{} {}{}", min_l, max_l, base, count_part);
+                    }
+                }
+            } else if self.target == "Dã Man" || self.target == "Barbarian" {
+                if let Ok(lvl) = self.target_level.parse::<u32>() {
+                    if let Some(name) = get_npc_name_by_level(lvl) {
+                        return name;
+                    }
+                }
+                return "Barbarians".to_string();
+            } else if !self.target.is_empty() {
+                return self.target.clone();
+            }
+        }
+
         match lang {
             AppLanguage::Vietnamese => self.target.clone(),
             AppLanguage::English => {
@@ -2442,22 +2587,70 @@ impl AppConfig {
     }
 }
 
+#[allow(dead_code)]
 pub fn format_barbarian_target(levels: &[u32]) -> (String, String) {
+    format_barbarian_target_with_npc(levels, &[])
+}
+
+pub fn format_barbarian_target_with_npc(levels: &[u32], npc_types: &[u32]) -> (String, String) {
     if levels.is_empty() {
-        return ("".to_string(), "Dã Man".to_string());
+        if let Some(nt) = npc_types.first() {
+            if let Some(name) = get_npc_name(*nt) {
+                return ("".to_string(), name);
+            }
+        }
+        return ("".to_string(), "Barbarians".to_string());
     }
     let min_lvl = *levels.iter().min().unwrap_or(&0);
     let max_lvl = *levels.iter().max().unwrap_or(&0);
     let count = levels.len();
 
     if count == 1 {
-        (min_lvl.to_string(), format!("Dã Man Cấp {}", min_lvl))
-    } else if min_lvl == max_lvl {
-        (min_lvl.to_string(), format!("Dã Man Cấp {} (x{})", min_lvl, count))
+        let lvl = min_lvl;
+        if let Some(nt) = npc_types.first() {
+            if *nt > 0 {
+                if let Some(name) = get_npc_name(*nt) {
+                    return (lvl.to_string(), name);
+                }
+            }
+        }
+        if let Some(name) = get_npc_name_by_level(lvl) {
+            return (lvl.to_string(), name);
+        }
+        return (lvl.to_string(), format!("Lvl {} Barbarians", lvl));
+    }
+
+    let base_name = if let Some(first_nt) = npc_types.iter().find(|&&nt| nt > 0) {
+        if let Some(name) = get_npc_name(*first_nt) {
+            if name.ends_with("English Soldiers") {
+                "English Soldiers"
+            } else if name.ends_with("Barbarian Heavy Achers") {
+                "Barbarian Heavy Achers"
+            } else if name.ends_with("Barbarian Blitz Hunters") {
+                "Barbarian Blitz Hunters"
+            } else {
+                "Barbarians"
+            }
+        } else if min_lvl >= 41 {
+            "English Soldiers"
+        } else {
+            "Barbarians"
+        }
+    } else if min_lvl >= 41 {
+        "English Soldiers"
+    } else {
+        "Barbarians"
+    };
+
+    if min_lvl == max_lvl {
+        (
+            min_lvl.to_string(),
+            format!("Lvl {} {} (x{})", min_lvl, base_name, count),
+        )
     } else {
         (
             format!("{}-{}", min_lvl, max_lvl),
-            format!("Dã Man Cấp {}-{} (x{})", min_lvl, max_lvl, count),
+            format!("Lvl {}-{} {} (x{})", min_lvl, max_lvl, base_name, count),
         )
     }
 }
@@ -2465,6 +2658,27 @@ pub fn format_barbarian_target(levels: &[u32]) -> (String, String) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_npc_yaml_lookup() {
+        assert_eq!(get_npc_name(641), Some("Lvl 1 Barbarians".to_string()));
+        assert_eq!(get_npc_name(665), Some("Lvl 25 Barbarians".to_string()));
+        assert_eq!(get_npc_name(807), Some("Lvl 1 Barbarian Heavy Achers".to_string()));
+        assert_eq!(get_npc_name(901), Some("Lvl 1 Barbarian Blitz Hunters".to_string()));
+        assert_eq!(get_npc_name(150009), Some("Lvl 41 English Soldiers".to_string()));
+        assert_eq!(get_npc_name(150020), Some("Lvl 52 English Soldiers".to_string()));
+
+        assert_eq!(get_npc_name_by_level(25), Some("Lvl 25 Barbarians".to_string()));
+        assert_eq!(get_npc_name_by_level(52), Some("Lvl 52 English Soldiers".to_string()));
+
+        let (lvl, tgt) = format_barbarian_target_with_npc(&[52], &[150020]);
+        assert_eq!(lvl, "52");
+        assert_eq!(tgt, "Lvl 52 English Soldiers");
+
+        let (lvl, tgt) = format_barbarian_target_with_npc(&[47, 50, 52], &[150020]);
+        assert_eq!(lvl, "47-52");
+        assert_eq!(tgt, "Lvl 47-52 English Soldiers (x3)");
+    }
 
     #[test]
     fn test_format_num() {
@@ -3166,8 +3380,8 @@ mod tests {
         rec.battle_type = "barbarian".into();
         rec.target = "Dã Man Cấp 47-52 (x27)".into();
         rec.target_level = "47-52".into();
-        assert_eq!(rec.display_target(AppLanguage::Vietnamese), "Dã Man Cấp 47-52 (x27)");
-        assert_eq!(rec.display_target(AppLanguage::English), "Barbarian Level 47-52 (x27)");
+        assert_eq!(rec.display_target(AppLanguage::Vietnamese), "Lvl 47-52 English Soldiers (x27)");
+        assert_eq!(rec.display_target(AppLanguage::English), "Lvl 47-52 English Soldiers (x27)");
 
         rec.battle_type = "motte".into();
         rec.target = "Motte 13".into();

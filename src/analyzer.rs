@@ -382,7 +382,14 @@ pub fn parse_target_level_from_str(target_level: &str, target: &str) -> u32 {
     if parsed > 0 {
         parsed
     } else {
-        target
+        // Strip trailing count e.g. (x27) so kill count is not mistaken for a level
+        let lower = target.to_lowercase();
+        let target_clean = if let Some(idx) = lower.rfind("(x") {
+            &target[..idx]
+        } else {
+            target
+        };
+        target_clean
             .split(|c: char| !c.is_ascii_digit())
             .filter_map(|s| s.parse::<u32>().ok())
             .max()
@@ -391,6 +398,9 @@ pub fn parse_target_level_from_str(target_level: &str, target: &str) -> u32 {
 }
 
 pub fn calculate_record_ap_cost(r: &BattleRecord) -> i64 {
+    if !matches!(r.battle_type.as_str(), "motte" | "fort" | "barbarian") {
+        return 0;
+    }
     let lvl = parse_target_level_from_str(&r.target_level, &r.target);
     calculate_ap_cost_from_lvl(&r.battle_type, lvl)
 }
@@ -450,7 +460,7 @@ pub fn compute_ap_economics(active_records: &[BattleRecord], vault_records: &[Ba
     let mut target_map: HashMap<(String, u32), TargetAccumulator> = HashMap::new();
 
     for r in active_records {
-        if r.battle_type == "gathering" {
+        if !matches!(r.battle_type.as_str(), "motte" | "fort" | "barbarian") {
             continue;
         }
 
@@ -475,7 +485,10 @@ pub fn compute_ap_economics(active_records: &[BattleRecord], vault_records: &[Ba
                 "fort" => "Fort".to_string(),
                 "motte" if lvl > 0 => format!("Motte Lvl {}", lvl),
                 "motte" => "Motte".to_string(),
-                "barbarian" if lvl > 0 => format!("Barbarians Lvl {}", lvl),
+                "barbarian" if lvl > 0 => {
+                    crate::model::get_npc_name_by_level(lvl)
+                        .unwrap_or_else(|| format!("Lvl {} Barbarians", lvl))
+                }
                 "barbarian" => "Barbarians".to_string(),
                 _ => {
                     if lvl > 0 {
@@ -532,7 +545,7 @@ pub fn compute_ap_economics(active_records: &[BattleRecord], vault_records: &[Ba
     let mut day_stats = [(0i64, 0i64); 7];
 
     for r in vault_records {
-        if r.battle_type == "gathering" {
+        if !matches!(r.battle_type.as_str(), "motte" | "fort" | "barbarian") {
             continue;
         }
         if let Some(min_sec) = min_epoch_sec {
@@ -1581,6 +1594,141 @@ mod tests {
     }
 
     #[test]
+    fn test_ap_economics_strictly_ignores_pvp_and_reward_other() {
+        use crate::model::ItemDrop;
+
+        let pvp_record = BattleRecord {
+            filename: "pvp_mail".into(),
+            mail_id: "pvp_1".into(),
+            battle_type: "pvp".into(),
+            time_raw: 1792720000,
+            time_utc: "".into(),
+            time_vn: "2026-10-28 10:00:00".into(),
+            items: vec![
+                ItemDrop {
+                    itype: 2,
+                    sub_type: 36, // 60 min speedup
+                    value: 10,
+                    pic: "".into(),
+                    name_vi: "Tăng tốc 60 phút".into(),
+                    name_en: "60m Speedup".into(),
+                    category: "Đa Năng".into(),
+                    sprites: vec![],
+                },
+            ],
+            ..Default::default()
+        };
+
+        let reward_record = BattleRecord {
+            filename: "reward_mail".into(),
+            mail_id: "reward_1".into(),
+            battle_type: "reward_other".into(),
+            time_raw: 1792720000,
+            time_utc: "".into(),
+            time_vn: "2026-10-28 10:00:00".into(),
+            items: vec![
+                ItemDrop {
+                    itype: 2,
+                    sub_type: 36,
+                    value: 50, // 3000 min speedup
+                    pic: "".into(),
+                    name_vi: "Tăng tốc 60 phút".into(),
+                    name_en: "60m Speedup".into(),
+                    category: "Đa Năng".into(),
+                    sprites: vec![],
+                },
+                ItemDrop {
+                    itype: 2,
+                    sub_type: 30, // 500 gems
+                    value: 10,
+                    pic: "".into(),
+                    name_vi: "500 Đá quý".into(),
+                    name_en: "500 Gems".into(),
+                    category: "Đá Quý".into(),
+                    sprites: vec![],
+                },
+            ],
+            ..Default::default()
+        };
+
+        let econ = compute_ap_economics(&[pvp_record.clone(), reward_record.clone()], &[pvp_record, reward_record]);
+        assert_eq!(econ.total_ap_consumed, 0);
+        assert_eq!(econ.speedup_mins_per_1k_ap, 0.0);
+        assert_eq!(econ.gems_per_1k_ap, 0.0);
+        assert_eq!(econ.target_benchmarks.len(), 0);
+        for day in &econ.daily_timeline {
+            assert_eq!(day.speedup_hours, 0.0);
+            assert_eq!(day.ap_consumed, 0);
+        }
+    }
+
+    #[test]
+    fn test_ap_economics_chained_barbarians_ap_and_yield() {
+        use crate::model::ItemDrop;
+
+        // 27 chained barbarian kills of level 52 English Soldiers (in-game chaining mechanic: 1 march AP cost = 80 AP)
+        let chained_record = BattleRecord {
+            filename: "chained_mail".into(),
+            mail_id: "chained_1".into(),
+            battle_type: "barbarian".into(),
+            target: "Lvl 52 English Soldiers (x27)".into(),
+            target_level: "52".into(),
+            time_raw: 1792720000,
+            time_utc: "".into(),
+            time_vn: "2026-10-28 10:00:00".into(),
+            items: vec![
+                ItemDrop {
+                    itype: 2,
+                    sub_type: 58, // 5 min speedup
+                    value: 108,   // 540 minutes total speedup (~20 mins per kill)
+                    pic: "".into(),
+                    name_vi: "Tăng tốc 5 phút".into(),
+                    name_en: "5m Speedup".into(),
+                    category: "Đa Năng".into(),
+                    sprites: vec![],
+                },
+                ItemDrop {
+                    itype: 2,
+                    sub_type: 26, // 10 gems
+                    value: 27,    // 270 gems total
+                    pic: "".into(),
+                    name_vi: "10 Đá quý".into(),
+                    name_en: "10 Gems".into(),
+                    category: "Đá Quý".into(),
+                    sprites: vec![],
+                },
+            ],
+            ..Default::default()
+        };
+
+        let econ = compute_ap_economics(&[chained_record.clone()], &[chained_record]);
+
+        // Chaining consumes only initial march AP (80 AP for level 52)
+        assert_eq!(econ.total_ap_consumed, 80);
+        // 540 min speedup / (80 / 1000) = 6750 min per 1k AP.
+        assert!((econ.speedup_mins_per_1k_ap - 6750.0).abs() < 0.01);
+        // 270 gems / (80 / 1000) = 3375 gems per 1k AP.
+        assert!((econ.gems_per_1k_ap - 3375.0).abs() < 0.01);
+
+        assert_eq!(econ.target_benchmarks.len(), 1);
+        let bm = &econ.target_benchmarks[0];
+        assert_eq!(bm.battle_count, 1);
+        assert_eq!(bm.unit_ap_cost, 80);
+        assert!((bm.avg_speedup_mins - 540.0).abs() < 0.01);
+        assert!((bm.avg_gems - 270.0).abs() < 0.01);
+        assert!((bm.speedup_mins_per_1k_ap - 6750.0).abs() < 0.01);
+        assert_eq!(bm.tier_badge, "TIER S+");
+    }
+
+    #[test]
+    fn test_parse_target_level_ignores_trailing_run_count() {
+        // When target_level is empty, (x50) must not be mistaken for level 50
+        assert_eq!(parse_target_level_from_str("", "Lvl 25 Barbarians (x50)"), 25);
+        assert_eq!(parse_target_level_from_str("", "Lvl 52 English Soldiers (x27)"), 52);
+        assert_eq!(parse_target_level_from_str("47-50", "Lvl 47-50 English Soldiers (x3)"), 50);
+    }
+
+    #[test]
     fn test_ap_economics_timeline_today_label() {
         let econ = compute_ap_economics(&[], &[]);
         assert_eq!(econ.daily_timeline.len(), 7);
@@ -1621,7 +1769,7 @@ mod tests {
         assert!(econ.target_benchmarks.iter().any(|b| b.target_name == "Motte Lvl 10" && b.level == 10 && b.unit_ap_cost == 150));
         assert!(econ.target_benchmarks.iter().any(|b| b.target_name == "Motte Lvl 15" && b.level == 15 && b.unit_ap_cost == 300));
         assert!(econ.target_benchmarks.iter().any(|b| b.target_name == "Fort Lvl 9" && b.level == 9 && b.unit_ap_cost == 150));
-        assert!(econ.target_benchmarks.iter().any(|b| b.target_name == "Barbarians Lvl 50" && b.level == 50 && b.unit_ap_cost == 80));
+        assert!(econ.target_benchmarks.iter().any(|b| b.target_name == "Lvl 50 English Soldiers" && b.level == 50 && b.unit_ap_cost == 80));
     }
 
     #[test]

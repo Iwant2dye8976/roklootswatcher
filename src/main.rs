@@ -23,8 +23,8 @@ use chrono::NaiveDate;
 
 use crate::analyzer::{filter_records_by_date, generate_statistics, parse_date_str};
 use crate::classifier::{classify_mail, extract_motte_details};
-use crate::exporters::{export_individual_mails_json, export_json};
-use crate::lilith_stream::decode_mail_file;
+use crate::exporters::export_json;
+use crate::lilith_stream::decode_mail_file_with_header;
 use crate::loot_catalog::LootCatalog;
 use crate::model::{format_num, get_item_converted_display, AppLanguage, FilterMode, SpeedupUnit};
 pub use crate::watcher::{RoKMailWatcher, Watcher};
@@ -267,7 +267,9 @@ fn run_cli_mode(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                 if vault.contains_file_or_id(&fname) {
                     return None;
                 }
-                let m = decode_mail_file(p).ok()?;
+                let decoded = decode_mail_file_with_header(p).ok()?;
+                let header_hex = decoded.header_hex();
+                let m = decoded.root;
                 let box_name = m.get("box").and_then(|v| v.as_str()).unwrap_or("");
                 if box_name != "Report" && box_name != "Archive" {
                     return None;
@@ -277,7 +279,9 @@ fn run_cli_mode(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                 if !backup_target.exists() && p.starts_with(&mail_dir) {
                     let _ = std::fs::copy(p, &backup_target);
                 }
-                extract_motte_details(&m, &fname, catalog_ref, Some(btype)).ok()
+                let mut rec = extract_motte_details(&m, &fname, catalog_ref, Some(btype)).ok()?;
+                rec.raw_header = header_hex;
+                Some(rec)
             })
             .collect();
         scanned_records.extend(chunk_records);
@@ -329,7 +333,6 @@ fn run_cli_mode(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     if export_json_flag {
         let json_path = out_dir.join("motte_filtered_mails.json");
         export_json(&active_records, &stats, &json_path)?;
-        export_individual_mails_json(&active_records, &mail_dir, &out_dir);
     }
 
     println!("\n{}", "=".repeat(88));

@@ -78,24 +78,6 @@ pub fn get_record_dedup_key(r: &BattleRecord) -> String {
     }
 }
 
-pub fn json_as_i64(v: Option<&serde_json::Value>) -> Option<i64> {
-    let val = v?;
-    if let Some(i) = val.as_i64() {
-        Some(i)
-    } else if let Some(u) = val.as_u64() {
-        Some(u as i64)
-    } else if let Some(f) = val.as_f64() {
-        Some(f.round() as i64)
-    } else if let Some(s) = val.as_str() {
-        s.trim().parse::<f64>().ok().map(|f| f.round() as i64)
-    } else {
-        None
-    }
-}
-
-pub fn json_as_u32(v: Option<&serde_json::Value>) -> Option<u32> {
-    json_as_i64(v).and_then(|i| if (0..=u32::MAX as i64).contains(&i) { Some(i as u32) } else { None })
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VaultStorageData {
@@ -170,6 +152,7 @@ fn row_to_battle_record(row: &rusqlite::Row) -> rusqlite::Result<BattleRecord> {
     let dead_taken: u64 = row.get("dead_taken").unwrap_or_default();
     let severely_wounded_dealt: u64 = row.get("severely_wounded_dealt").unwrap_or_default();
     let severely_wounded_taken: u64 = row.get("severely_wounded_taken").unwrap_or_default();
+    let raw_header: String = row.get("raw_header").unwrap_or_default();
 
     Ok(BattleRecord {
         filename,
@@ -210,6 +193,7 @@ fn row_to_battle_record(row: &rusqlite::Row) -> rusqlite::Result<BattleRecord> {
         dead_taken,
         severely_wounded_dealt,
         severely_wounded_taken,
+        raw_header,
     })
 }
 
@@ -299,7 +283,6 @@ impl MailVault {
             }
         }
 
-        self.restore_from_filtered_mails_json();
         self.sanitize_records();
     }
 
@@ -411,7 +394,7 @@ impl MailVault {
         let _ = conn.execute("DELETE FROM ignored_mail_files", []);
     }
 
-    pub fn backfill_missing_account_ids(&mut self, out_dir: &Path) -> usize {
+    pub fn backfill_missing_account_ids(&mut self, _out_dir: &Path) -> usize {
         let empty_records: Vec<(String, String, String)> = {
             let conn = self.conn();
             let mut stmt = match conn.prepare(
@@ -452,19 +435,6 @@ impl MailVault {
             }
         }
 
-        let json_dir = out_dir.join("filtered_mails_json");
-        let mut json_map: HashMap<String, PathBuf> = HashMap::new();
-        if let Ok(entries) = fs::read_dir(&json_dir) {
-            for entry in entries.flatten() {
-                let p = entry.path();
-                if p.is_file() {
-                    if let Some(name) = p.file_name().and_then(|n| n.to_str()) {
-                        json_map.entry(name.to_string()).or_insert(p);
-                    }
-                }
-            }
-        }
-
         let mut updates: Vec<(String, String)> = Vec::new();
 
         for (dedup_key, filename, mail_id) in empty_records {
@@ -481,29 +451,6 @@ impl MailVault {
                         if let Some(uid) = extract_receiver_from_raw_bytes(&bytes) {
                             found_account = Some(uid);
                             break;
-                        }
-                    }
-                }
-            }
-
-            if found_account.is_none() {
-                let mut json_keys = vec![format!("{}.json", filename)];
-                if !mail_id.is_empty() {
-                    json_keys.push(format!("Persistent.Mail.{}.json", mail_id));
-                }
-
-                for key in json_keys {
-                    if let Some(cand) = json_map.get(&key) {
-                        if let Ok(content) = fs::read_to_string(cand) {
-                            if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
-                                if let Some(rec_str) = val.get("receiver").and_then(|r| r.as_str()) {
-                                    let clean = rec_str.strip_prefix("player_").unwrap_or(rec_str).trim();
-                                    if !clean.is_empty() {
-                                        found_account = Some(clean.to_string());
-                                        break;
-                                    }
-                                }
-                            }
                         }
                     }
                 }
@@ -615,24 +562,16 @@ impl MailVault {
 
         // 3. Remove raw binary files from mail_vault
         for fname in &files_to_delete {
+            if fname.contains('/') || fname.contains('\\') || fname.contains("..") {
+                continue;
+            }
             let p = self.binary_dir.join(fname);
             if p.is_file() {
                 let _ = fs::remove_file(p);
             }
         }
 
-        // 4. Remove exported JSON files from filtered_mails_json so they never restore
-        if let Some(parent) = self.db_path.parent() {
-            let json_dir = parent.join("filtered_mails_json");
-            for fname in &files_to_delete {
-                let p = json_dir.join(format!("{}.json", fname));
-                if p.is_file() {
-                    let _ = fs::remove_file(p);
-                }
-            }
-        }
-
-        // 5. Force WAL checkpoint to flush to disk
+        // 4. Force WAL checkpoint to flush to disk
         let _ = conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
 
         (deleted, keys_to_delete)
@@ -710,6 +649,10 @@ impl MailVault {
                 existing.player_name = rec.player_name;
                 modified = true;
             }
+            if !rec.raw_header.is_empty() && existing.raw_header.is_empty() {
+                existing.raw_header = rec.raw_header;
+                modified = true;
+            }
 
             if modified {
                 let items_json = serde_json::to_string(&existing.items).unwrap_or_else(|_| "[]".to_string());
@@ -730,8 +673,9 @@ impl MailVault {
                         item_totals_json = ?11,
                         account_id = ?12,
                         player_name = ?13,
+                        raw_header = ?14,
                         synced_at = NULL
-                    WHERE dedup_key = ?14"
+                    WHERE dedup_key = ?15"
                 ) {
                     Ok(s) => s,
                     Err(e) => {
@@ -754,6 +698,7 @@ impl MailVault {
                     item_totals_json,
                     existing.account_id,
                     existing.player_name,
+                    existing.raw_header,
                     dedup_key,
                 ]) {
                     eprintln!("[!] Lỗi execute update for upsert: {}", e);
@@ -782,8 +727,9 @@ impl MailVault {
                     target_primary_is_expertised, target_secondary_is_expertised,
                     target_player_name,
                     kp_gained, kp_lost, dead_dealt, dead_taken,
-                    severely_wounded_dealt, severely_wounded_taken
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, NULL, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39)"
+                    severely_wounded_dealt, severely_wounded_taken,
+                    raw_header
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, NULL, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40)"
             ) {
                 Ok(s) => s,
                 Err(e) => {
@@ -832,6 +778,7 @@ impl MailVault {
                 rec.dead_taken,
                 rec.severely_wounded_dealt,
                 rec.severely_wounded_taken,
+                rec.raw_header,
             ]) {
                 Ok(_) => true,
                 Err(e) => {
@@ -1287,6 +1234,25 @@ impl MailVault {
         Ok(dst_path)
     }
 
+    pub fn backup_binary_bytes(&self, filename: &str, bytes: &[u8]) -> Result<PathBuf, String> {
+        if !filename.starts_with("Persistent.Mail.") {
+            return Err("Không phải file Persistent.Mail".into());
+        }
+        if filename.contains('/') || filename.contains('\\') || filename.contains("..") {
+            return Err("Tên file chứa ký tự đường dẫn không hợp lệ".into());
+        }
+        if bytes.is_empty() {
+            return Err("File rỗng (0 bytes)".into());
+        }
+        if !self.binary_dir.exists() {
+            let _ = fs::create_dir_all(&self.binary_dir);
+        }
+        let dst_path = self.binary_dir.join(filename);
+        fs::write(&dst_path, bytes)
+            .map_err(|e| format!("Lỗi ghi file sao lưu {}: {}", dst_path.display(), e))?;
+        Ok(dst_path)
+    }
+
     pub fn clean_binary_vault(&self) -> Result<(usize, u64), String> {
         if !self.binary_dir.exists() {
             return Ok((0, 0));
@@ -1310,275 +1276,6 @@ impl MailVault {
         }
 
         Ok((deleted_count, bytes_freed))
-    }
-
-    fn restore_from_filtered_mails_json(&mut self) -> usize {
-        let parent = match self.db_path.parent() {
-            Some(p) => p,
-            None => return 0,
-        };
-        let json_dir = parent.join("filtered_mails_json");
-        if !json_dir.is_dir() {
-            return 0;
-        }
-
-        let mut restored = 0;
-        if let Ok(entries) = fs::read_dir(&json_dir) {
-            for entry in entries.flatten() {
-                let is_file = entry.file_type().map(|ft| ft.is_file()).unwrap_or(false);
-                if !is_file {
-                    continue;
-                }
-
-                let fname_os = entry.file_name();
-                let fname_str = fname_os.to_string_lossy();
-                let stem = match fname_str.strip_suffix(".json") {
-                    Some(s) => s,
-                    None => continue,
-                };
-
-                if self.contains_file_or_id(stem) {
-                    continue;
-                }
-
-                let p = entry.path();
-                if let Ok(file) = fs::File::open(&p) {
-                    let reader = std::io::BufReader::new(file);
-                    if let Ok(val) = serde_json::from_reader::<_, serde_json::Value>(reader) {
-                        if let Some(box_val) = val.get("box").and_then(|v| v.as_str()) {
-                            if box_val == "Report" || box_val == "Archive" {
-                                let fname_saved = stem.to_string();
-                                if let Some(rec) = Self::parse_battle_record_from_exported_json(&val, &fname_saved) {
-                                    if self.upsert(rec) {
-                                        restored += 1;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        if restored > 0 {
-            let _ = self.save_to_disk();
-        }
-        restored
-    }
-
-    fn parse_battle_record_from_exported_json(val: &serde_json::Value, fname: &str) -> Option<BattleRecord> {
-        let body = val.get("body")?;
-        let sub_t = json_as_i64(body.get("subType")).unwrap_or(0);
-        let sub_p = json_as_i64(body.get("subParam")).unwrap_or(0);
-
-        let is_battle = val.get("type").and_then(|v| v.as_str()) == Some("Battle")
-            || body.get("content").and_then(|c| c.get("Attacks")).is_some();
-
-        let time_raw = json_as_i64(val.get("sendTime"))
-            .or_else(|| json_as_i64(body.get("time")))
-            .or_else(|| json_as_i64(val.get("time")))
-            .unwrap_or(0);
-
-        let mail_id = val.get("id")
-            .and_then(|v| v.as_str().map(|s| s.to_string()).or_else(|| json_as_i64(Some(v)).map(|n| n.to_string())))
-            .unwrap_or_default();
-
-        let mut damage_pct = 0;
-        let mut plunder_tier = 0;
-        let mut time_vn = String::new();
-
-        if let Some(meta) = val.get("_stats_metadata") {
-            damage_pct = json_as_i64(meta.get("damage_pct")).unwrap_or(0) as i32;
-            plunder_tier = json_as_i64(meta.get("plunder_tier")).unwrap_or(0) as i32;
-            time_vn = meta.get("time_vn").and_then(|v| v.as_str()).unwrap_or("").to_string();
-        }
-
-        let account_id = val.get("account_id")
-            .and_then(|v| v.as_str().map(|s| s.to_string()))
-            .or_else(|| {
-                val.get("receiver")
-                    .and_then(|r| r.as_str())
-                    .map(|r| r.strip_prefix("player_").unwrap_or(r).trim().to_string())
-            })
-            .unwrap_or_default();
-        let player_name = val.get("player_name")
-            .and_then(|v| v.as_str().map(|s| s.to_string()))
-            .unwrap_or_default();
-
-        if is_battle {
-            let attacks = body.get("content").and_then(|c| c.get("Attacks")).and_then(|a| a.as_object());
-            let mut items = Vec::new();
-            let mut item_totals = HashMap::new();
-            let mut levels = Vec::new();
-            let mut pos_x = 0;
-            let mut pos_y = 0;
-
-            if let Some(att_map) = attacks {
-                for (_k, atk) in att_map {
-                    let cidt = atk.get("CIdt");
-                    let is_fort = cidt
-                        .and_then(|c| c.get("IsFort"))
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(false);
-                    let npcbtype = cidt
-                        .and_then(|c| c.get("NpcBType"))
-                        .and_then(|v| v.as_f64())
-                        .unwrap_or(0.0) as i64;
-
-                    if !is_fort && npcbtype == 1 {
-                        if let Some(cidt) = cidt {
-                            if let Some(hlv) = json_as_u32(cidt.get("HLv")) {
-                                if hlv > 0 && hlv <= 55 {
-                                    levels.push(hlv);
-                                }
-                            }
-                        }
-                    }
-
-                    let is_valid_target = !is_fort && (npcbtype == 1 || atk.get("NpcKillLoot").is_some());
-                    if is_valid_target || (pos_x == 0 && pos_y == 0) {
-                        if let Some(cidt) = cidt {
-                            if let Some(cpos) = cidt.get("CastlePos") {
-                                let x = cpos.get("X").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                                let y = cpos.get("Y").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                                if x > 0.0 && y > 0.0 {
-                                    pos_x = (x / 6.0).round() as i32;
-                                    pos_y = (y / 6.0).round() as i32;
-                                }
-                            }
-                        }
-
-                        if let Some(pos) = atk.get("Pos") {
-                            let x = pos.get("X").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                            let y = pos.get("Y").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                            if x > 0.0 && y > 0.0 {
-                                pos_x = (x / 6.0).round() as i32;
-                                pos_y = (y / 6.0).round() as i32;
-                            }
-                        }
-                    }
-
-                    if let Some(loots_map) = atk.get("NpcKillLoot").and_then(|l| l.as_object()) {
-                        for (_loot_id, item_val) in loots_map {
-                            let itype = json_as_u32(item_val.get("Type")).unwrap_or(0);
-                            let isub = json_as_u32(item_val.get("SubType")).unwrap_or(0);
-                            let val = json_as_i64(item_val.get("Value")).unwrap_or(0);
-                            let pic = item_val.get("PIC").and_then(|v| v.as_str()).unwrap_or("").to_string();
-
-                            let name = format!("Item_{}_{}", itype, isub);
-                            *item_totals.entry(name.clone()).or_insert(0) += val;
-                            items.push(crate::model::ItemDrop {
-                                itype,
-                                sub_type: isub,
-                                value: val,
-                                pic,
-                                name_vi: name.clone(),
-                                name_en: name,
-                                category: "Khác".into(),
-                                sprites: vec![],
-                            });
-                        }
-                    }
-                }
-            }
-
-            let (target_level, target) = crate::model::format_barbarian_target(&levels);
-
-            let content = target.clone();
-
-            return Some(BattleRecord {
-                filename: fname.to_string(),
-                mail_id,
-                battle_type: "barbarian".to_string(),
-                time_raw,
-                time_utc: "".into(),
-                time_vn,
-                target,
-                target_level,
-                talent_add: 0,
-                pos_x,
-                pos_y,
-                damage_pct: if damage_pct > 0 { damage_pct } else { 100 },
-                plunder_tier: 0,
-                items,
-                item_totals,
-                content,
-                account_id: account_id.clone(),
-                player_name: player_name.clone(),
-                ..Default::default()
-            });
-        }
-
-        let target = body.get("targetName").and_then(|v| v.as_str()).unwrap_or("").to_string();
-        let content = body.get("content").and_then(|v| v.as_str()).unwrap_or("").to_string();
-
-        let mut battle_type = if (sub_t == 11 && sub_p == 4)
-            || target.to_lowercase().contains("motte")
-            || content.to_lowercase().contains("motte")
-        {
-            "motte".to_string()
-        } else if (sub_t == 11 && sub_p == 1)
-            || target.to_lowercase().contains("fort")
-            || target.to_lowercase().starts_with("level")
-        {
-            "fort".to_string()
-        } else {
-            "other".to_string()
-        };
-
-        if let Some(meta_bt) = val.get("_stats_metadata").and_then(|m| m.get("battle_type")).and_then(|v| v.as_str()) {
-            if !meta_bt.is_empty() && meta_bt != "other" {
-                battle_type = meta_bt.to_string();
-            }
-        }
-
-        let mail_id = val.get("id")
-            .and_then(|v| v.as_str().map(|s| s.to_string()).or_else(|| json_as_i64(Some(v)).map(|n| n.to_string())))
-            .unwrap_or_default();
-
-        let mut item_totals = HashMap::new();
-        let items = Vec::new();
-
-        if let Some(attach) = val.get("attachments") {
-            if let Some(arr) = attach.as_array() {
-                for it in arr {
-                    let name = it.get("name_vi").and_then(|v| v.as_str()).unwrap_or("");
-                    let qty = json_as_i64(it.get("value")).unwrap_or(0);
-                    if !name.is_empty() && qty > 0 {
-                        *item_totals.entry(name.to_string()).or_insert(0) += qty;
-                    }
-                }
-            } else if let Some(map) = attach.as_object() {
-                for (_k, it) in map {
-                    let name = it.get("name_vi").and_then(|v| v.as_str()).unwrap_or("");
-                    let qty = json_as_i64(it.get("value")).unwrap_or(0);
-                    if !name.is_empty() && qty > 0 {
-                        *item_totals.entry(name.to_string()).or_insert(0) += qty;
-                    }
-                }
-            }
-        }
-
-        Some(BattleRecord {
-            filename: fname.to_string(),
-            mail_id,
-            battle_type,
-            time_raw,
-            time_utc: "".into(),
-            time_vn,
-            target,
-            target_level: "".into(),
-            talent_add: 0,
-            pos_x: 0,
-            pos_y: 0,
-            damage_pct,
-            plunder_tier,
-            items,
-            item_totals,
-            content,
-            account_id,
-            player_name,
-            ..Default::default()
-        })
     }
 }
 
@@ -1771,80 +1468,6 @@ mod tests {
                 }
             }
         }
-    }
-
-    #[test]
-    fn test_restore_from_filtered_mails_json() {
-        let temp_dir = std::env::temp_dir().join(format!("rok_test_restore_{}", std::process::id()));
-        let _ = fs::remove_dir_all(&temp_dir);
-        let json_dir = temp_dir.join("filtered_mails_json");
-        let _ = fs::create_dir_all(&json_dir);
-
-        let mock_json = r#"{
-            "box": "Report",
-            "id": "777888",
-            "sendTime": 17858542764,
-            "body": {
-                "subType": 11,
-                "subParam": 4,
-                "targetName": "Motte 15",
-                "content": "Tiêu diệt thành công Motte cấp 15"
-            },
-            "_stats_metadata": {
-                "damage_pct": 55,
-                "plunder_tier": 6,
-                "time_vn": "2026-10-22 09:30:00"
-            }
-        }"#;
-
-        let sample_file = json_dir.join("Persistent.Mail.777888.json");
-        fs::write(&sample_file, mock_json).unwrap();
-
-        let vault = MailVault::new(&temp_dir);
-        assert_eq!(vault.total_count(), 1);
-        let rec = &vault.get_records()[0];
-        assert_eq!(rec.mail_id, "777888");
-        assert_eq!(rec.battle_type, "motte");
-        assert_eq!(rec.damage_pct, 55);
-        assert_eq!(rec.plunder_tier, 6);
-
-        let _ = fs::remove_dir_all(&temp_dir);
-    }
-
-    #[test]
-    fn test_restore_from_filtered_mails_json_with_archive_box() {
-        let temp_dir = std::env::temp_dir().join(format!("rok_test_restore_archive_{}", std::process::id()));
-        let _ = fs::remove_dir_all(&temp_dir);
-        let json_dir = temp_dir.join("filtered_mails_json");
-        let _ = fs::create_dir_all(&json_dir);
-
-        let mock_json = r#"{
-            "box": "Archive",
-            "id": "888999",
-            "sendTime": 17858542764,
-            "body": {
-                "subType": 11,
-                "subParam": 4,
-                "targetName": "Motte 20",
-                "content": "Tiêu diệt thành công Motte cấp 20"
-            },
-            "_stats_metadata": {
-                "damage_pct": 80,
-                "plunder_tier": 6,
-                "time_vn": "2026-10-22 11:30:00"
-            }
-        }"#;
-
-        let sample_file = json_dir.join("Persistent.Mail.888999.json");
-        fs::write(&sample_file, mock_json).unwrap();
-
-        let vault = MailVault::new(&temp_dir);
-        assert_eq!(vault.total_count(), 1, "Thư trong hòm Archive phải được khôi phục vào Vault");
-        let rec = &vault.get_records()[0];
-        assert_eq!(rec.mail_id, "888999");
-        assert_eq!(rec.battle_type, "motte");
-
-        let _ = fs::remove_dir_all(&temp_dir);
     }
 
     #[test]
@@ -2500,6 +2123,24 @@ mod tests {
         assert_eq!(r.dead_taken, 200);
         assert_eq!(r.severely_wounded_dealt, 15000);
         assert_eq!(r.severely_wounded_taken, 5000);
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_backup_binary_bytes_path_traversal_rejected() {
+        let temp_dir = std::env::temp_dir().join(format!("rok_test_traversal_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&temp_dir);
+        let _ = fs::create_dir_all(&temp_dir);
+        let vault = MailVault::new(&temp_dir);
+
+        let data = vec![0xFF, 0x01, 0x02];
+        assert!(vault.backup_binary_bytes("Persistent.Mail.123", &data).is_ok());
+        assert!(vault.backup_binary_bytes("../Persistent.Mail.123", &data).is_err());
+        assert!(vault.backup_binary_bytes("Persistent.Mail.123/../../hack", &data).is_err());
+        assert!(vault.backup_binary_bytes("Persistent.Mail.123\\..\\hack", &data).is_err());
+        assert!(vault.backup_binary_bytes("NotMail.123", &data).is_err());
+        assert!(vault.backup_binary_bytes("Persistent.Mail.123", &[]).is_err());
 
         let _ = fs::remove_dir_all(&temp_dir);
     }

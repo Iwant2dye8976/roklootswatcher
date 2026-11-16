@@ -2,7 +2,6 @@ use std::fs;
 use std::path::Path;
 use serde_json::json;
 
-use crate::lilith_stream::decode_mail_file;
 use crate::model::{AppLanguage, BattleRecord, Statistics};
 
 fn escape_csv_field(val: &str) -> String {
@@ -67,62 +66,6 @@ pub fn export_json(
     fs::rename(&tmp_path, out_path)?;
     println!("[+] Đã xuất file JSON: {}", out_path.display());
     Ok(())
-}
-
-pub fn export_individual_mails_json(
-    records: &[BattleRecord],
-    mail_dir: &Path,
-    out_dir: &Path,
-) {
-    let mails_json_dir = out_dir.join("filtered_mails_json");
-    if let Err(e) = fs::create_dir_all(&mails_json_dir) {
-        eprintln!("[-] Không thể tạo thư mục {}: {}", mails_json_dir.display(), e);
-        return;
-    }
-
-    let binary_vault_dir = out_dir.join("mail_vault");
-
-    for r in records {
-        // Confine writes to filtered_mails_json and reads to mail directories
-        let safe_fname = match Path::new(&r.filename).file_name().and_then(|n| n.to_str()) {
-            Some(name) if !name.is_empty() && name == r.filename && !name.contains(['/', '\\', ':']) => name,
-            _ => continue,
-        };
-        let out_file = mails_json_dir.join(format!("{}.json", safe_fname));
-        if out_file.is_file() {
-            continue;
-        }
-
-        let mut src_path = mail_dir.join(safe_fname);
-        if !src_path.is_file() {
-            src_path = binary_vault_dir.join(safe_fname);
-        }
-
-        if src_path.is_file() {
-            if let Ok(mut m_full) = decode_mail_file(&src_path) {
-                let box_name = m_full.get("box").and_then(|v| v.as_str()).unwrap_or("");
-                if box_name != "Report" && box_name != "Archive" {
-                    continue;
-                }
-
-                if let crate::lilith_stream::LilithValue::Table(ref mut map) = m_full {
-                    let mut meta = indexmap::IndexMap::new();
-                    meta.insert("damage_pct".into(), crate::lilith_stream::LilithValue::Number(r.damage_pct as f64));
-                    meta.insert("plunder_tier".into(), crate::lilith_stream::LilithValue::Number(r.plunder_tier as f64));
-                    meta.insert("time_vn".into(), crate::lilith_stream::LilithValue::String(r.time_vn.clone()));
-                    map.insert("_stats_metadata".into(), crate::lilith_stream::LilithValue::Table(meta));
-
-                    if let Ok(s) = serde_json::to_string_pretty(&m_full) {
-                        let _ = fs::write(&out_file, s);
-                    }
-                }
-            }
-        } else {
-            if let Ok(s) = serde_json::to_string_pretty(r) {
-                let _ = fs::write(&out_file, s);
-            }
-        }
-    }
 }
 
 #[cfg(test)]

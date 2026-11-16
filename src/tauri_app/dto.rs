@@ -125,6 +125,8 @@ pub struct BattleRecordDto {
     pub dead_taken: Option<u64>,
     pub severely_wounded_dealt: Option<u64>,
     pub severely_wounded_taken: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raw_header: Option<String>,
 }
 
 impl BattleRecordDto {
@@ -245,6 +247,7 @@ impl BattleRecordDto {
             dead_taken: (r.dead_taken > 0).then_some(r.dead_taken),
             severely_wounded_dealt: (r.severely_wounded_dealt > 0).then_some(r.severely_wounded_dealt),
             severely_wounded_taken: (r.severely_wounded_taken > 0).then_some(r.severely_wounded_taken),
+            raw_header: if r.raw_header.is_empty() { None } else { Some(r.raw_header.clone()) },
         }
     }
 }

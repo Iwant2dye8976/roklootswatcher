@@ -1,4 +1,364 @@
 NpcType:
+  '641':
+    name: Lvl 1 Barbarians
+    sprite: ui\public\npc\barbarian_lod3.png
+  '642':
+    name: Lvl 2 Barbarians
+    sprite: ui\public\npc\barbarian_lod3.png
+  '643':
+    name: Lvl 3 Barbarians
+    sprite: ui\public\npc\barbarian_lod3.png
+  '644':
+    name: Lvl 4 Barbarians
+    sprite: ui\public\npc\barbarian_lod3.png
+  '645':
+    name: Lvl 5 Barbarians
+    sprite: ui\public\npc\barbarian_lod3.png
+  '646':
+    name: Lvl 6 Barbarians
+    sprite: ui\public\npc\barbarian_lod3.png
+  '647':
+    name: Lvl 7 Barbarians
+    sprite: ui\public\npc\barbarian_lod3.png
+  '648':
+    name: Lvl 8 Barbarians
+    sprite: ui\public\npc\barbarian_lod3.png
+  '649':
+    name: Lvl 9 Barbarians
+    sprite: ui\public\npc\barbarian_lod3.png
+  '650':
+    name: Lvl 10 Barbarians
+    sprite: ui\public\npc\barbarian_lod3.png
+  '651':
+    name: Lvl 11 Barbarians
+    sprite: ui\public\npc\barbarian_lod3.png
+  '652':
+    name: Lvl 12 Barbarians
+    sprite: ui\public\npc\barbarian_lod3.png
+  '653':
+    name: Lvl 13 Barbarians
+    sprite: ui\public\npc\barbarian_lod3.png
+  '654':
+    name: Lvl 14 Barbarians
+    sprite: ui\public\npc\barbarian_lod3.png
+  '655':
+    name: Lvl 15 Barbarians
+    sprite: ui\public\npc\barbarian_lod3.png
+  '656':
+    name: Lvl 16 Barbarians
+    sprite: ui\public\npc\barbarian_lod3.png
+  '657':
+    name: Lvl 17 Barbarians
+    sprite: ui\public\npc\barbarian_lod3.png
+  '658':
+    name: Lvl 18 Barbarians
+    sprite: ui\public\npc\barbarian_lod3.png
+  '659':
+    name: Lvl 19 Barbarians
+    sprite: ui\public\npc\barbarian_lod3.png
+  '660':
+    name: Lvl 20 Barbarians
+    sprite: ui\public\npc\barbarian_lod3.png
+  '661':
+    name: Lvl 21 Barbarians
+    sprite: ui\public\npc\barbarian_lod3.png
+  '662':
+    name: Lvl 22 Barbarians
+    sprite: ui\public\npc\barbarian_lod3.png
+  '663':
+    name: Lvl 23 Barbarians
+    sprite: ui\public\npc\barbarian_lod3.png
+  '664':
+    name: Lvl 24 Barbarians
+    sprite: ui\public\npc\barbarian_lod3.png
+  '665':
+    name: Lvl 25 Barbarians
+    sprite: ui\public\npc\barbarian_lod3.png
+  '666':
+    name: Lvl 26 Barbarians
+    sprite: ui\public\npc\barbarian_lod3.png
+  '667':
+    name: Lvl 27 Barbarians
+    sprite: ui\public\npc\barbarian_lod3.png
+  '668':
+    name: Lvl 28 Barbarians
+    sprite: ui\public\npc\barbarian_lod3.png
+  '669':
+    name: Lvl 29 Barbarians
+    sprite: ui\public\npc\barbarian_lod3.png
+  '670':
+    name: Lvl 30 Barbarians
+    sprite: ui\public\npc\barbarian_lod3.png
+  '671':
+    name: Lvl 31 Barbarians
+    sprite: ui\public\npc\barbarian_lod3.png
+  '672':
+    name: Lvl 32 Barbarians
+    sprite: ui\public\npc\barbarian_lod3.png
+  '673':
+    name: Lvl 33 Barbarians
+    sprite: ui\public\npc\barbarian_lod3.png
+  '674':
+    name: Lvl 34 Barbarians
+    sprite: ui\public\npc\barbarian_lod3.png
+  '675':
+    name: Lvl 35 Barbarians
+    sprite: ui\public\npc\barbarian_lod3.png
+  '676':
+    name: Lvl 36 Barbarians
+    sprite: ui\public\npc\barbarian_lod3.png
+  '677':
+    name: Lvl 37 Barbarians
+    sprite: ui\public\npc\barbarian_lod3.png
+  '678':
+    name: Lvl 38 Barbarians
+    sprite: ui\public\npc\barbarian_lod3.png
+  '679':
+    name: Lvl 39 Barbarians
+    sprite: ui\public\npc\barbarian_lod3.png
+  '680':
+    name: Lvl 40 Barbarians
+    sprite: ui\public\npc\barbarian_lod3.png
+  '807':
+    name: Lvl 1 Barbarian Heavy Achers
+    sprite: ui\public\npc\barbarian_lod3.png
+  '808':
+    name: Lvl 2 Barbarian Heavy Achers
+    sprite: ui\public\npc\barbarian_lod3.png
+  '809':
+    name: Lvl 3 Barbarian Heavy Achers
+    sprite: ui\public\npc\barbarian_lod3.png
+  '810':
+    name: Lvl 4 Barbarian Heavy Achers
+    sprite: ui\public\npc\barbarian_lod3.png
+  '811':
+    name: Lvl 5 Barbarian Heavy Achers
+    sprite: ui\public\npc\barbarian_lod3.png
+  '812':
+    name: Lvl 6 Barbarian Heavy Achers
+    sprite: ui\public\npc\barbarian_lod3.png
+  '813':
+    name: Lvl 7 Barbarian Heavy Achers
+    sprite: ui\public\npc\barbarian_lod3.png
+  '814':
+    name: Lvl 8 Barbarian Heavy Achers
+    sprite: ui\public\npc\barbarian_lod3.png
+  '815':
+    name: Lvl 9 Barbarian Heavy Achers
+    sprite: ui\public\npc\barbarian_lod3.png
+  '816':
+    name: Lvl 10 Barbarian Heavy Achers
+    sprite: ui\public\npc\barbarian_lod3.png
+  '817':
+    name: Lvl 11 Barbarian Heavy Achers
+    sprite: ui\public\npc\barbarian_lod3.png
+  '818':
+    name: Lvl 12 Barbarian Heavy Achers
+    sprite: ui\public\npc\barbarian_lod3.png
+  '819':
+    name: Lvl 13 Barbarian Heavy Achers
+    sprite: ui\public\npc\barbarian_lod3.png
+  '820':
+    name: Lvl 14 Barbarian Heavy Achers
+    sprite: ui\public\npc\barbarian_lod3.png
+  '821':
+    name: Lvl 15 Barbarian Heavy Achers
+    sprite: ui\public\npc\barbarian_lod3.png
+  '822':
+    name: Lvl 16 Barbarian Heavy Achers
+    sprite: ui\public\npc\barbarian_lod3.png
+  '823':
+    name: Lvl 17 Barbarian Heavy Achers
+    sprite: ui\public\npc\barbarian_lod3.png
+  '824':
+    name: Lvl 18 Barbarian Heavy Achers
+    sprite: ui\public\npc\barbarian_lod3.png
+  '825':
+    name: Lvl 19 Barbarian Heavy Achers
+    sprite: ui\public\npc\barbarian_lod3.png
+  '826':
+    name: Lvl 20 Barbarian Heavy Achers
+    sprite: ui\public\npc\barbarian_lod3.png
+  '827':
+    name: Lvl 21 Barbarian Heavy Achers
+    sprite: ui\public\npc\barbarian_lod3.png
+  '828':
+    name: Lvl 22 Barbarian Heavy Achers
+    sprite: ui\public\npc\barbarian_lod3.png
+  '829':
+    name: Lvl 23 Barbarian Heavy Achers
+    sprite: ui\public\npc\barbarian_lod3.png
+  '830':
+    name: Lvl 24 Barbarian Heavy Achers
+    sprite: ui\public\npc\barbarian_lod3.png
+  '831':
+    name: Lvl 25 Barbarian Heavy Achers
+    sprite: ui\public\npc\barbarian_lod3.png
+  '832':
+    name: Lvl 26 Barbarian Heavy Achers
+    sprite: ui\public\npc\barbarian_lod3.png
+  '833':
+    name: Lvl 27 Barbarian Heavy Achers
+    sprite: ui\public\npc\barbarian_lod3.png
+  '834':
+    name: Lvl 28 Barbarian Heavy Achers
+    sprite: ui\public\npc\barbarian_lod3.png
+  '835':
+    name: Lvl 29 Barbarian Heavy Achers
+    sprite: ui\public\npc\barbarian_lod3.png
+  '836':
+    name: Lvl 30 Barbarian Heavy Achers
+    sprite: ui\public\npc\barbarian_lod3.png
+  '837':
+    name: Lvl 31 Barbarian Heavy Achers
+    sprite: ui\public\npc\barbarian_lod3.png
+  '838':
+    name: Lvl 32 Barbarian Heavy Achers
+    sprite: ui\public\npc\barbarian_lod3.png
+  '839':
+    name: Lvl 33 Barbarian Heavy Achers
+    sprite: ui\public\npc\barbarian_lod3.png
+  '840':
+    name: Lvl 34 Barbarian Heavy Achers
+    sprite: ui\public\npc\barbarian_lod3.png
+  '841':
+    name: Lvl 35 Barbarian Heavy Achers
+    sprite: ui\public\npc\barbarian_lod3.png
+  '842':
+    name: Lvl 36 Barbarian Heavy Achers
+    sprite: ui\public\npc\barbarian_lod3.png
+  '843':
+    name: Lvl 37 Barbarian Heavy Achers
+    sprite: ui\public\npc\barbarian_lod3.png
+  '844':
+    name: Lvl 38 Barbarian Heavy Achers
+    sprite: ui\public\npc\barbarian_lod3.png
+  '845':
+    name: Lvl 39 Barbarian Heavy Achers
+    sprite: ui\public\npc\barbarian_lod3.png
+  '846':
+    name: Lvl 40 Barbarian Heavy Achers
+    sprite: ui\public\npc\barbarian_lod3.png
+  '901':
+    name: Lvl 1 Barbarian Blitz Hunters
+    sprite: ui\public\npc\barbarian_lod3.png
+  '902':
+    name: Lvl 2 Barbarian Blitz Hunters
+    sprite: ui\public\npc\barbarian_lod3.png
+  '903':
+    name: Lvl 3 Barbarian Blitz Hunters
+    sprite: ui\public\npc\barbarian_lod3.png
+  '904':
+    name: Lvl 4 Barbarian Blitz Hunters
+    sprite: ui\public\npc\barbarian_lod3.png
+  '905':
+    name: Lvl 5 Barbarian Blitz Hunters
+    sprite: ui\public\npc\barbarian_lod3.png
+  '906':
+    name: Lvl 6 Barbarian Blitz Hunters
+    sprite: ui\public\npc\barbarian_lod3.png
+  '907':
+    name: Lvl 7 Barbarian Blitz Hunters
+    sprite: ui\public\npc\barbarian_lod3.png
+  '908':
+    name: Lvl 8 Barbarian Blitz Hunters
+    sprite: ui\public\npc\barbarian_lod3.png
+  '909':
+    name: Lvl 9 Barbarian Blitz Hunters
+    sprite: ui\public\npc\barbarian_lod3.png
+  '910':
+    name: Lvl 10 Barbarian Blitz Hunters
+    sprite: ui\public\npc\barbarian_lod3.png
+  '911':
+    name: Lvl 11 Barbarian Blitz Hunters
+    sprite: ui\public\npc\barbarian_lod3.png
+  '912':
+    name: Lvl 12 Barbarian Blitz Hunters
+    sprite: ui\public\npc\barbarian_lod3.png
+  '913':
+    name: Lvl 13 Barbarian Blitz Hunters
+    sprite: ui\public\npc\barbarian_lod3.png
+  '914':
+    name: Lvl 14 Barbarian Blitz Hunters
+    sprite: ui\public\npc\barbarian_lod3.png
+  '915':
+    name: Lvl 15 Barbarian Blitz Hunters
+    sprite: ui\public\npc\barbarian_lod3.png
+  '916':
+    name: Lvl 16 Barbarian Blitz Hunters
+    sprite: ui\public\npc\barbarian_lod3.png
+  '917':
+    name: Lvl 17 Barbarian Blitz Hunters
+    sprite: ui\public\npc\barbarian_lod3.png
+  '918':
+    name: Lvl 18 Barbarian Blitz Hunters
+    sprite: ui\public\npc\barbarian_lod3.png
+  '919':
+    name: Lvl 19 Barbarian Blitz Hunters
+    sprite: ui\public\npc\barbarian_lod3.png
+  '920':
+    name: Lvl 20 Barbarian Blitz Hunters
+    sprite: ui\public\npc\barbarian_lod3.png
+  '921':
+    name: Lvl 21 Barbarian Blitz Hunters
+    sprite: ui\public\npc\barbarian_lod3.png
+  '922':
+    name: Lvl 22 Barbarian Blitz Hunters
+    sprite: ui\public\npc\barbarian_lod3.png
+  '923':
+    name: Lvl 23 Barbarian Blitz Hunters
+    sprite: ui\public\npc\barbarian_lod3.png
+  '924':
+    name: Lvl 24 Barbarian Blitz Hunters
+    sprite: ui\public\npc\barbarian_lod3.png
+  '925':
+    name: Lvl 25 Barbarian Blitz Hunters
+    sprite: ui\public\npc\barbarian_lod3.png
+  '926':
+    name: Lvl 26 Barbarian Blitz Hunters
+    sprite: ui\public\npc\barbarian_lod3.png
+  '927':
+    name: Lvl 27 Barbarian Blitz Hunters
+    sprite: ui\public\npc\barbarian_lod3.png
+  '928':
+    name: Lvl 28 Barbarian Blitz Hunters
+    sprite: ui\public\npc\barbarian_lod3.png
+  '929':
+    name: Lvl 29 Barbarian Blitz Hunters
+    sprite: ui\public\npc\barbarian_lod3.png
+  '930':
+    name: Lvl 30 Barbarian Blitz Hunters
+    sprite: ui\public\npc\barbarian_lod3.png
+  '931':
+    name: Lvl 31 Barbarian Blitz Hunters
+    sprite: ui\public\npc\barbarian_lod3.png
+  '932':
+    name: Lvl 32 Barbarian Blitz Hunters
+    sprite: ui\public\npc\barbarian_lod3.png
+  '933':
+    name: Lvl 33 Barbarian Blitz Hunters
+    sprite: ui\public\npc\barbarian_lod3.png
+  '934':
+    name: Lvl 34 Barbarian Blitz Hunters
+    sprite: ui\public\npc\barbarian_lod3.png
+  '935':
+    name: Lvl 35 Barbarian Blitz Hunters
+    sprite: ui\public\npc\barbarian_lod3.png
+  '936':
+    name: Lvl 36 Barbarian Blitz Hunters
+    sprite: ui\public\npc\barbarian_lod3.png
+  '937':
+    name: Lvl 37 Barbarian Blitz Hunters
+    sprite: ui\public\npc\barbarian_lod3.png
+  '938':
+    name: Lvl 38 Barbarian Blitz Hunters
+    sprite: ui\public\npc\barbarian_lod3.png
+  '939':
+    name: Lvl 39 Barbarian Blitz Hunters
+    sprite: ui\public\npc\barbarian_lod3.png
+  '940':
+    name: Lvl 40 Barbarian Blitz Hunters
+    sprite: ui\public\npc\barbarian_lod3.png
   '150009':
     name: Lvl 41 English Soldiers
     sprite: ui\public\npc\S10_barbarian_lod3.png

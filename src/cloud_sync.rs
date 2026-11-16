@@ -224,6 +224,11 @@ pub fn start_google_login(
     anon_key: &str,
     cancel_signal: Option<&std::sync::atomic::AtomicBool>,
 ) -> Result<CloudAuthResult, String> {
+    let trimmed_url = supabase_url.trim();
+    if !trimmed_url.starts_with("https://") && !trimmed_url.starts_with("http://") {
+        return Err("Supabase URL must use http or https scheme".to_string());
+    }
+
     if let Some(cancel) = cancel_signal {
         if cancel.load(std::sync::atomic::Ordering::SeqCst) {
             return Err("Đã hủy đăng nhập Google".to_string());
@@ -1480,6 +1485,17 @@ mod tests {
         let res = start_google_login("https://example.supabase.co", "anon_key", Some(&cancel));
         assert!(res.is_err());
         assert!(res.unwrap_err().contains("Đã hủy đăng nhập"));
+    }
+
+    #[test]
+    fn test_start_google_login_rejects_unsafe_scheme() {
+        let res = start_google_login("javascript:alert(1)", "anon_key", None);
+        assert!(res.is_err());
+        assert!(res.unwrap_err().contains("http or https scheme"));
+
+        let res2 = start_google_login("file:///C:/evil.exe", "anon_key", None);
+        assert!(res2.is_err());
+        assert!(res2.unwrap_err().contains("http or https scheme"));
     }
 
     #[test]

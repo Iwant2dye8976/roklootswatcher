@@ -1742,7 +1742,7 @@ export const SettingsView: React.FC = () => {
                             {/* Left: NPC Target Emblem */}
                             <div className="shrink-0 w-10 h-10 flex items-center justify-center p-0.5 overflow-hidden">
                               <img
-                                src={cIdx === 0 ? "/npc/S10_barbarian_guardian_lod3.png" : "/npc/barbarian_fort_lod3.png"}
+                                src={cIdx === 0 ? "/npc/S10_barbarian_lod3.png" : "/npc/barbarian_fort_lod3.png"}
                                 alt="Target"
                                 className="w-full h-full object-contain filter drop-shadow-sm"
                               />
@@ -1751,10 +1751,10 @@ export const SettingsView: React.FC = () => {
                             <div className="flex flex-col justify-between flex-1 min-w-0 leading-tight">
                               <div className="flex items-center justify-between gap-1 min-w-0">
                                 <span className="font-bold truncate text-[0.92em] text-slate-900 tracking-tight">
-                                  {cIdx === 0 ? "Motte of the Cursed" : "Barbarian Fort Lvl 10"}
+                                  {cIdx === 0 ? "Lvl 52 English Soldiers" : "Barbarian Fort Lvl 10"}
                                 </span>
-                                <span className={`text-[8.5px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border leading-none shrink-0 ${cIdx === 0 ? "bg-red-100 text-red-900 border-red-300" : "bg-amber-100 text-amber-900 border-amber-300"}`}>
-                                  {cIdx === 0 ? "Motte" : "Fort"}
+                                <span className={`text-[8.5px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border leading-none shrink-0 ${cIdx === 0 ? "bg-sky-100 text-sky-900 border-sky-300" : "bg-amber-100 text-amber-900 border-amber-300"}`}>
+                                  {cIdx === 0 ? "Barb" : "Fort"}
                                 </span>
                               </div>
                               <div className="flex items-center justify-between gap-1 text-[0.88em] font-mono">

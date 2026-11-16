@@ -10,6 +10,7 @@ pub enum LilithValue {
     U8(u8),
     Number(f64),
     String(String),
+    RawBytes(Vec<u8>),
     Table(IndexMap<String, LilithValue>),
 }
 
@@ -29,8 +30,21 @@ impl LilithValue {
     pub fn as_str(&self) -> Option<&str> {
         match self {
             LilithValue::String(s) => Some(s.as_str()),
+            LilithValue::RawBytes(b) => std::str::from_utf8(b).ok(),
             _ => None,
         }
+    }
+
+    pub fn as_bytes(&self) -> Option<&[u8]> {
+        match self {
+            LilithValue::String(s) => Some(s.as_bytes()),
+            LilithValue::RawBytes(b) => Some(b.as_slice()),
+            _ => None,
+        }
+    }
+
+    pub fn is_raw_bytes(&self) -> bool {
+        matches!(self, LilithValue::RawBytes(_))
     }
 
     pub fn as_f64(&self) -> Option<f64> {
@@ -86,6 +100,7 @@ impl LilithValue {
     pub fn to_key_string(&self) -> String {
         match self {
             LilithValue::String(s) => s.clone(),
+            LilithValue::RawBytes(b) => String::from_utf8_lossy(b).into_owned(),
             LilithValue::Number(n) => {
                 if n.fract() == 0.0 {
                     format!("{}", *n as i64)
@@ -164,10 +179,10 @@ fn parse_stream_internal(data: &[u8], pos: &mut usize, depth: usize) -> Result<L
             let slice = &data[*pos..*pos + str_len];
             *pos += str_len;
             let val = match std::str::from_utf8(slice) {
-                Ok(s) => s.to_string(),
-                Err(_) => String::from_utf8_lossy(slice).into_owned(),
+                Ok(s) => LilithValue::String(s.to_string()),
+                Err(_) => LilithValue::RawBytes(slice.to_vec()),
             };
-            Ok(LilithValue::String(val))
+            Ok(val)
         }
         0x05 => {
             let mut table = IndexMap::new();
@@ -195,18 +210,72 @@ fn parse_stream_internal(data: &[u8], pos: &mut usize, depth: usize) -> Result<L
     }
 }
 
-pub fn decode_mail_bytes(data: &[u8]) -> Result<LilithValue, String> {
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DecodedMail {
+    pub header_bytes: [u8; 8],
+    pub root: LilithValue,
+}
+
+#[allow(dead_code)]
+impl DecodedMail {
+    pub fn header_hex(&self) -> String {
+        self.header_bytes
+            .iter()
+            .map(|b| format!("{:02X}", b))
+            .collect::<Vec<_>>()
+            .join("-")
+    }
+
+    pub fn header_u64_le(&self) -> u64 {
+        u64::from_le_bytes(self.header_bytes)
+    }
+
+    pub fn header_u64_be(&self) -> u64 {
+        u64::from_be_bytes(self.header_bytes)
+    }
+
+    pub fn get(&self, key: &str) -> Option<&LilithValue> {
+        self.root.get(key)
+    }
+
+    pub fn as_table(&self) -> Option<&IndexMap<String, LilithValue>> {
+        self.root.as_table()
+    }
+}
+
+pub fn extract_mail_header(data: &[u8]) -> Result<[u8; 8], String> {
     if data.len() < 10 || data[0] != 0xFF || data[9] != 0x05 {
         return Err("Invalid RoK mail binary header".into());
     }
-    let mut pos = 9;
-    parse_stream(data, &mut pos)
+    let mut header = [0u8; 8];
+    header.copy_from_slice(&data[1..9]);
+    Ok(header)
 }
 
-pub fn decode_mail_file<P: AsRef<Path>>(filepath: P) -> Result<LilithValue, String> {
+pub fn decode_mail_bytes_with_header(data: &[u8]) -> Result<DecodedMail, String> {
+    let header = extract_mail_header(data)?;
+    let mut pos = 9;
+    let root = parse_stream(data, &mut pos)?;
+    Ok(DecodedMail {
+        header_bytes: header,
+        root,
+    })
+}
+
+#[allow(dead_code)]
+pub fn decode_mail_bytes(data: &[u8]) -> Result<LilithValue, String> {
+    decode_mail_bytes_with_header(data).map(|d| d.root)
+}
+
+pub fn decode_mail_file_with_header<P: AsRef<Path>>(filepath: P) -> Result<DecodedMail, String> {
     let path = filepath.as_ref();
     let buf = crate::vault::read_file_shared(path).map_err(|e| e.to_string())?;
-    decode_mail_bytes(&buf)
+    decode_mail_bytes_with_header(&buf)
+}
+
+#[allow(dead_code)]
+pub fn decode_mail_file<P: AsRef<Path>>(filepath: P) -> Result<LilithValue, String> {
+    decode_mail_file_with_header(filepath).map(|d| d.root)
 }
 
 #[cfg(test)]
@@ -293,5 +362,41 @@ mod tests {
         let result = decode_mail_bytes(&malformed);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Exceeded maximum recursion depth"));
+    }
+
+    #[test]
+    fn test_decode_mail_with_header_preservation() {
+        let mut valid = vec![0u8; 10];
+        valid[0] = 0xFF;
+        valid[1..9].copy_from_slice(&[0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC, 0xDE, 0xF0]);
+        valid[9] = 0x05;
+        valid.push(0xFF);
+
+        let decoded = decode_mail_bytes_with_header(&valid).expect("Should decode successfully");
+        assert_eq!(
+            decoded.header_bytes,
+            [0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC, 0xDE, 0xF0]
+        );
+        assert_eq!(
+            decoded.header_hex(),
+            "12-34-56-78-9A-BC-DE-F0"
+        );
+        assert_eq!(decoded.header_u64_be(), 0x123456789ABCDEF0);
+        assert!(decoded.as_table().unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_lossless_raw_bytes_for_invalid_utf8() {
+        let mut data = vec![0x04]; // String tag
+        let raw_invalid_utf8 = vec![0xFF, 0xFE, 0xFD, 0x80];
+        data.extend_from_slice(&(raw_invalid_utf8.len() as u32).to_le_bytes());
+        data.extend_from_slice(&raw_invalid_utf8);
+
+        let mut pos = 0;
+        let val = parse_stream(&data, &mut pos).expect("Should parse");
+        assert!(val.is_raw_bytes());
+        assert_eq!(val.as_bytes().unwrap(), raw_invalid_utf8.as_slice());
+        assert!(val.as_str().is_none());
+        assert!(!val.to_key_string().is_empty());
     }
 }

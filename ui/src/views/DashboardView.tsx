@@ -1322,8 +1322,11 @@ export const DashboardView: React.FC = () => {
             <div className="grid grid-cols-3 gap-2 pt-2.5 text-center text-[10px] font-mono text-binance-muted">
               <div>
                 <span>{t("apSpeedupYield")}:</span>{" "}
-                <span className="text-binance-green font-bold">
-                  {((ap.speedup_mins_per_1k_ap || 0) / 60).toFixed(1)}h
+                <span
+                  className="text-binance-green font-bold"
+                  title={`${(ap.speedup_mins_per_1k_ap || 0).toFixed(0)}m / 1k AP`}
+                >
+                  {((ap.speedup_mins_per_1k_ap || 0) / 60).toFixed(1)}h ({(ap.speedup_mins_per_1k_ap || 0).toFixed(0)}m)
                 </span>
               </div>
               <div>
