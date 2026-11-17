@@ -153,6 +153,8 @@ fn row_to_battle_record(row: &rusqlite::Row) -> rusqlite::Result<BattleRecord> {
     let severely_wounded_dealt: u64 = row.get("severely_wounded_dealt").unwrap_or_default();
     let severely_wounded_taken: u64 = row.get("severely_wounded_taken").unwrap_or_default();
     let raw_header: String = row.get("raw_header").unwrap_or_default();
+    let pvp_troop_key: String = row.get("pvp_troop_key").unwrap_or_default();
+    let is_death: bool = row.get("is_death").map(|v: i32| v != 0).unwrap_or(false);
 
     Ok(BattleRecord {
         filename,
@@ -194,6 +196,8 @@ fn row_to_battle_record(row: &rusqlite::Row) -> rusqlite::Result<BattleRecord> {
         severely_wounded_dealt,
         severely_wounded_taken,
         raw_header,
+        pvp_troop_key,
+        is_death,
     })
 }
 
@@ -653,6 +657,11 @@ impl MailVault {
                 existing.raw_header = rec.raw_header;
                 modified = true;
             }
+            if !rec.pvp_troop_key.is_empty() && existing.pvp_troop_key.is_empty() {
+                existing.pvp_troop_key = rec.pvp_troop_key;
+                existing.is_death = rec.is_death;
+                modified = true;
+            }
 
             if modified {
                 let items_json = serde_json::to_string(&existing.items).unwrap_or_else(|_| "[]".to_string());
@@ -674,8 +683,10 @@ impl MailVault {
                         account_id = ?12,
                         player_name = ?13,
                         raw_header = ?14,
+                        pvp_troop_key = ?15,
+                        is_death = ?16,
                         synced_at = NULL
-                    WHERE dedup_key = ?15"
+                    WHERE dedup_key = ?17"
                 ) {
                     Ok(s) => s,
                     Err(e) => {
@@ -699,6 +710,8 @@ impl MailVault {
                     existing.account_id,
                     existing.player_name,
                     existing.raw_header,
+                    existing.pvp_troop_key,
+                    existing.is_death as i32,
                     dedup_key,
                 ]) {
                     eprintln!("[!] Lỗi execute update for upsert: {}", e);
@@ -728,8 +741,8 @@ impl MailVault {
                     target_player_name,
                     kp_gained, kp_lost, dead_dealt, dead_taken,
                     severely_wounded_dealt, severely_wounded_taken,
-                    raw_header
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, NULL, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40)"
+                    raw_header, pvp_troop_key, is_death
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, NULL, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42)"
             ) {
                 Ok(s) => s,
                 Err(e) => {
@@ -779,6 +792,8 @@ impl MailVault {
                 rec.severely_wounded_dealt,
                 rec.severely_wounded_taken,
                 rec.raw_header,
+                rec.pvp_troop_key,
+                rec.is_death as i32,
             ]) {
                 Ok(_) => true,
                 Err(e) => {

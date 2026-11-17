@@ -587,6 +587,15 @@ pub fn extract_pvp_battle_details(
     // let sc = content.get("SelfChar");
 
     let mut is_garrison = lilith_bool_or_truthy(content.get("IsRally"));
+    if !is_garrison {
+        if let Some(sc) = content.get("SelfChar") {
+            let shid = sc.get("ShId").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            let ct = sc.get("CT").and_then(|v| v.as_f64()).unwrap_or(1.0);
+            if shid > 0.0 || (ct > 1.0 && (ct == 4.0 || ct == 5.0)) {
+                is_garrison = true;
+            }
+        }
+    }
 
     let mut kp_gained = 0.0;
     let mut kp_lost = 0.0;
@@ -605,12 +614,6 @@ pub fn extract_pvp_battle_details(
     if let Some(attacks) = content.get("Attacks").and_then(|a| a.as_table()) {
         for (_atk_id, atk) in attacks {
             let cidt = atk.get("CIdt");
-            if let Some(c) = cidt {
-                if lilith_bool_or_truthy(c.get("IsRally")) {
-                    is_garrison = true;
-                }
-            }
-
             let pid = cidt
                 .and_then(|c| c.get("PId"))
                 .and_then(|v| v.as_f64())
@@ -714,6 +717,32 @@ pub fn extract_pvp_battle_details(
         "PvP".to_string()
     };
 
+    let ctk = self_char
+        .and_then(|sc| sc.get("CTK"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default();
+
+    let sov_cnt = content
+        .get("SOv")
+        .and_then(|sov| sov.get("Cnt"))
+        .and_then(|v| v.as_f64());
+
+    let samples_cnt = content
+        .get("Samples")
+        .and_then(|s| s.as_table())
+        .and_then(|t| t.values().last())
+        .and_then(|last| last.get("Cnt"))
+        .and_then(|v| v.as_f64());
+
+    let is_death = sov_cnt == Some(0.0) || samples_cnt == Some(0.0);
+
+    let pvp_troop_key = if !ctk.is_empty() {
+        ctk
+    } else {
+        format!("pvp_{}_{}", mail_id, raw_time)
+    };
+
     Ok(BattleRecord {
         filename: filename.to_string(),
         mail_id,
@@ -753,6 +782,8 @@ pub fn extract_pvp_battle_details(
         dead_taken,
         severely_wounded_dealt,
         severely_wounded_taken,
+        pvp_troop_key,
+        is_death,
         ..Default::default()
     })
 }
@@ -1352,7 +1383,7 @@ mod tests {
 
         let mut content_field = IndexMap::new();
         content_field.insert("SelfChar".to_string(), LilithValue::Table(self_char_field));
-        content_field.insert("Attacks".to_string(), LilithValue::Table(attacks_field));
+        content_field.insert("Attacks".to_string(), LilithValue::Table(attacks_field.clone()));
 
         let mut body_field = IndexMap::new();
         body_field.insert("content".to_string(), LilithValue::Table(content_field));
@@ -1365,6 +1396,56 @@ mod tests {
         let rec_field = extract_pvp_battle_details(&LilithValue::Table(mail_field), "Persistent.Mail.field_01")
             .expect("Must parse field report");
         assert_eq!(rec_field.pvp_combat_type, "open-field");
+
+        // 4. Structure garrison defense report via SelfChar ShId/CT
+        let mut self_char_struct = IndexMap::new();
+        self_char_struct.insert("PName".to_string(), LilithValue::String("Defender".to_string()));
+        self_char_struct.insert("HId".to_string(), LilithValue::Number(3.0));
+        self_char_struct.insert("ShId".to_string(), LilithValue::Number(112.0));
+        self_char_struct.insert("CT".to_string(), LilithValue::Number(4.0));
+
+        let mut content_struct = IndexMap::new();
+        content_struct.insert("SelfChar".to_string(), LilithValue::Table(self_char_struct));
+        content_struct.insert("Attacks".to_string(), LilithValue::Table(attacks_field));
+
+        let mut body_struct = IndexMap::new();
+        body_struct.insert("content".to_string(), LilithValue::Table(content_struct));
+
+        let mut mail_struct = IndexMap::new();
+        mail_struct.insert("type".to_string(), LilithValue::String("Battle".to_string()));
+        mail_struct.insert("id".to_string(), LilithValue::String("struct_01".to_string()));
+        mail_struct.insert("body".to_string(), LilithValue::Table(body_struct));
+
+        let rec_struct = extract_pvp_battle_details(&LilithValue::Table(mail_struct), "Persistent.Mail.struct_01")
+            .expect("Must parse structure garrison report");
+        assert_eq!(rec_struct.pvp_combat_type, "garrison");
+    }
+
+    #[test]
+    fn test_classify_field_battles_persistent_mail_29039955179474478925() {
+        use crate::lilith_stream::parse_stream;
+        use std::path::Path;
+
+        let mail_files = [
+            ("mail_vault/Persistent.Mail.29039955179474478925", false),
+            ("mail_vault/Persistent.Mail.29041473179474483025", true),
+            ("mail_vault/Persistent.Mail.29042171179474485025", true),
+        ];
+
+        for (file_path, expected_death) in mail_files {
+            let path = Path::new(file_path);
+            if !path.exists() {
+                continue;
+            }
+            let data = std::fs::read(path).expect("Failed to read mail file");
+            let mut pos = 9;
+            let root = parse_stream(&data, &mut pos).expect("Failed to parse mail stream");
+            let rec = extract_pvp_battle_details(&root, file_path).expect("Must parse pvp details");
+            assert_eq!(rec.battle_type, "pvp");
+            assert_eq!(rec.pvp_combat_type, "open-field", "File {} must be open-field", file_path);
+            assert!(!rec.pvp_troop_key.is_empty(), "File {} must have pvp_troop_key", file_path);
+            assert_eq!(rec.is_death, expected_death, "File {} death flag mismatch", file_path);
+        }
     }
 
     #[test]

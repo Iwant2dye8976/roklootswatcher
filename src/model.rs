@@ -325,6 +325,14 @@ pub struct TroopCombatStats {
     pub severely_wounded_dealt: u64,
     pub severely_wounded_taken: u64,
     pub battle_count: usize,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub session_key: String,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub is_death: bool,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub last_time_raw: i64,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub last_time_vn: String,
 }
 
 fn default_combat_type() -> String {
@@ -821,6 +829,10 @@ pub struct BattleRecord {
     pub severely_wounded_taken: u64,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub raw_header: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub pvp_troop_key: String,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub is_death: bool,
 }
 
 impl BattleRecord {

@@ -34,6 +34,7 @@ import {
   PinnedItemKey,
 } from "../types";
 import { ResourceIcon } from "../components/ResourceIcon";
+import { CommanderCardPair } from "../components/CommanderCardPair";
 import * as api from "../api/tauri";
 
 interface PinnedPreset {
@@ -142,6 +143,129 @@ const DEFAULT_OVERLAY_CFG: OverlayConfig = {
   card_count: 3,
 };
 
+interface MockPvpSession {
+  troop_id: string;
+  primary_commander_id: number;
+  primary_commander_name: string;
+  primary_is_expertised: boolean;
+  secondary_commander_id: number;
+  secondary_commander_name: string;
+  secondary_is_expertised: boolean;
+  display_pair_name: string;
+  combat_type: "open-field" | "rally" | "garrison";
+  kills_dealt: number;
+  trade_ratio_pct: number;
+  battle_count: number;
+  last_time_vn: string;
+  is_death: boolean;
+}
+
+const MOCK_PVP_PREVIEW_SESSIONS: MockPvpSession[] = [
+  {
+    troop_id: "preview_pvp_1",
+    primary_commander_id: 140,
+    primary_commander_name: "Scipio Africanus",
+    primary_is_expertised: true,
+    secondary_commander_id: 185,
+    secondary_commander_name: "Liu Che",
+    secondary_is_expertised: true,
+    display_pair_name: "Scipio (P) / Liu Che",
+    combat_type: "open-field",
+    kills_dealt: 118240,
+    trade_ratio_pct: 154,
+    battle_count: 3,
+    last_time_vn: "2026-11-17 19:14:02",
+    is_death: true,
+  },
+  {
+    troop_id: "preview_pvp_2",
+    primary_commander_id: 138,
+    primary_commander_name: "Alexander Nevsky",
+    primary_is_expertised: true,
+    secondary_commander_id: 148,
+    secondary_commander_name: "Joan of Arc",
+    secondary_is_expertised: true,
+    display_pair_name: "Nevsky / Joan (P)",
+    combat_type: "rally",
+    kills_dealt: 48500,
+    trade_ratio_pct: 122,
+    battle_count: 2,
+    last_time_vn: "2026-11-17 19:08:45",
+    is_death: false,
+  },
+  {
+    troop_id: "preview_pvp_3",
+    primary_commander_id: 179,
+    primary_commander_name: "Zhuge Liang",
+    primary_is_expertised: true,
+    secondary_commander_id: 3,
+    secondary_commander_name: "Sun Tzu",
+    secondary_is_expertised: true,
+    display_pair_name: "Zhuge Liang / Sun Tzu",
+    combat_type: "open-field",
+    kills_dealt: 14800,
+    trade_ratio_pct: 84,
+    battle_count: 1,
+    last_time_vn: "2026-11-17 18:55:10",
+    is_death: false,
+  },
+];
+
+const MOCK_PVE_PREVIEW_CARDS = [
+  {
+    icon: "/npc/S10_barbarian_lod3.png",
+    name: "Lvl 52 English Soldiers",
+    tag: "Barb",
+    tagClass: "bg-sky-100 text-sky-900 border-sky-300",
+    rewards: "+50 Gems · +2 Books",
+    pct: "100% · T3",
+    coord: "(450, 782)",
+    time: "14:32",
+  },
+  {
+    icon: "/npc/barbarian_fort_lod3.png",
+    name: "Barbarian Fort Lvl 10",
+    tag: "Fort",
+    tagClass: "bg-amber-100 text-amber-900 border-amber-300",
+    rewards: "+1.2M Food · +4 Books",
+    pct: "100% · Fort",
+    coord: "(612, 340)",
+    time: "14:28",
+  },
+  {
+    icon: "/npc/S10_barbarian_guardian_lod3.png",
+    name: "Sanctum Guardian Lvl 5",
+    tag: "Guardian",
+    tagClass: "bg-emerald-100 text-emerald-900 border-emerald-300",
+    rewards: "+12,000 XP · +1 Rune",
+    pct: "100% · Holy",
+    coord: "(589, 412)",
+    time: "14:20",
+  },
+];
+
+function formatCompactCount(val: number): string {
+  if (val >= 1_000_000) {
+    return `${(val / 1_000_000).toFixed(2)}M`;
+  }
+  if (val >= 1_000) {
+    return `${(val / 1_000).toFixed(1)}K`;
+  }
+  return Math.round(val).toLocaleString();
+}
+
+function getPvpBadgeSrc(kills: number): string {
+  if (kills >= 100_000) return "/hud/badges/pvp_badge_gold_100k.png";
+  if (kills >= 35_000) return "/hud/badges/pvp_badge_gold_35k.png";
+  return "/hud/badges/pvp_badge_silver.png";
+}
+
+function getRatioBadgeClass(pct: number): string {
+  if (pct >= 120) return "text-emerald-800";
+  if (pct >= 100) return "text-sky-800";
+  return "text-rose-800";
+}
+
 export const SettingsView: React.FC = () => {
   const {
     snapshot,
@@ -173,6 +297,9 @@ export const SettingsView: React.FC = () => {
   const [overlayCfg, setOverlayCfg] = useState<OverlayConfig>(
     snapshot?.overlay_config || DEFAULT_OVERLAY_CFG
   );
+  const [previewTab, setPreviewTab] = useState<"auto" | "pve" | "pvp">("auto");
+  const isPvpPreview =
+    previewTab === "pvp" || (previewTab === "auto" && overlayCfg.filter === "pvp");
 
   const [cloudInterval, setCloudInterval] = useState<number>(
     snapshot?.cloud_status?.backup_interval_minutes ?? 30
@@ -1647,10 +1774,37 @@ export const SettingsView: React.FC = () => {
 
           {/* Live Overlay Preview Box */}
           <div className="pt-3 border-t border-binance-hairline space-y-2">
-            <div className="flex items-center justify-between text-[11px] font-mono">
-              <span className="text-binance-muted">
-                {language === "vi" ? "Xem trước giao diện HUD trực quan" : "Live HUD Visual Preview"}
-              </span>
+            <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono">
+              <div className="flex items-center gap-2">
+                <span className="text-binance-muted">
+                  {language === "vi" ? "Xem trước giao diện HUD trực quan" : "Live HUD Visual Preview"}
+                </span>
+                <div className="flex items-center bg-binance-canvas p-0.5 rounded border border-binance-hairline text-[10px]">
+                  <button
+                    type="button"
+                    onClick={() => setPreviewTab("pve")}
+                    className={`px-2 py-0.5 rounded transition-all ${
+                      !isPvpPreview
+                        ? "bg-binance-elevated text-binance-yellow font-bold shadow-xs border border-binance-yellow/40"
+                        : "text-binance-muted hover:text-slate-200"
+                    }`}
+                  >
+                    {language === "vi" ? "PvE Rơi đồ" : "PvE Drops"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPreviewTab("pvp")}
+                    className={`px-2 py-0.5 rounded transition-all ${
+                      isPvpPreview
+                        ? "bg-binance-elevated text-binance-yellow font-bold shadow-xs border border-binance-yellow/40"
+                        : "text-binance-muted hover:text-slate-200"
+                    }`}
+                  >
+                    {language === "vi" ? "PvP Chiến báo" : "PvP Reports"}
+                  </button>
+                </div>
+              </div>
+
               <div className="flex items-center gap-2">
                 {(overlayCfg.fade_timeout_secs ?? 0) > 0 && (
                   <span
@@ -1706,73 +1860,305 @@ export const SettingsView: React.FC = () => {
                 <div className="space-y-1.5">
                   {(overlayCfg.mode === "MiniHud" || overlayCfg.mode === "Combined") && (
                     <div className="flex items-center gap-1 flex-wrap font-mono leading-none">
-                      {/* Battle count pill rendered first matching in-game OverlayView */}
-                      <div className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[0.88em] text-slate-200 font-medium ${overlayCfg.transparent_bg ? "bg-transparent border border-white/10" : "bg-[#060a14]/75 border border-slate-700/80"}`}>
-                        <span className="text-red-400 font-bold">8M</span>
-                        <span>·</span>
-                        <span className="text-amber-400 font-bold">12F</span>
-                        <span>·</span>
-                        <span className="text-sky-400 font-bold">24B</span>
-                      </div>
-                      <div className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[0.88em] ${overlayCfg.transparent_bg ? "bg-transparent border border-white/10" : "bg-[#060a14]/75 border border-slate-700/80"}`}>
-                        <span className="font-bold" style={{ color: overlayCfg.accent_color_hex || "#38BDF8" }}>GEMS</span>
-                        <span className="font-bold" style={{ color: overlayCfg.text_color_hex || "#F8FAFC" }}>12,450</span>
-                      </div>
-                      <div className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[0.88em] ${overlayCfg.transparent_bg ? "bg-transparent border border-white/10" : "bg-[#060a14]/75 border border-slate-700/80"}`}>
-                        <span className="font-bold" style={{ color: overlayCfg.accent_color_hex || "#38BDF8" }}>SPD</span>
-                        <span className="font-bold" style={{ color: overlayCfg.text_color_hex || "#F8FAFC" }}>14h 20m</span>
-                      </div>
+                      {isPvpPreview ? (
+                        <>
+                          <div
+                            className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[0.88em] text-slate-200 font-medium ${
+                              overlayCfg.transparent_bg
+                                ? "bg-transparent border border-white/10"
+                                : "bg-[#060a14]/75 border border-slate-700/80"
+                            }`}
+                          >
+                            <span className="text-fuchsia-400 font-bold">14P</span>
+                            <span>·</span>
+                            <span className="text-red-400 font-bold">8M</span>
+                            <span>·</span>
+                            <span className="text-amber-400 font-bold">12F</span>
+                            <span>·</span>
+                            <span className="text-sky-400 font-bold">24B</span>
+                          </div>
+                          <div
+                            className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[0.88em] ${
+                              overlayCfg.transparent_bg
+                                ? "bg-transparent border border-white/10"
+                                : "bg-[#060a14]/75 border border-slate-700/80"
+                            }`}
+                          >
+                            <span
+                              className="font-bold"
+                              style={{ color: overlayCfg.accent_color_hex || "#38BDF8" }}
+                            >
+                              KP
+                            </span>
+                            <span
+                              className="font-bold"
+                              style={{ color: overlayCfg.text_color_hex || "#F8FAFC" }}
+                            >
+                              +1.45M
+                            </span>
+                          </div>
+                          <div
+                            className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[0.88em] ${
+                              overlayCfg.transparent_bg
+                                ? "bg-transparent border border-white/10"
+                                : "bg-[#060a14]/75 border border-slate-700/80"
+                            }`}
+                          >
+                            <span
+                              className="font-bold"
+                              style={{ color: overlayCfg.accent_color_hex || "#38BDF8" }}
+                            >
+                              KILLS
+                            </span>
+                            <span
+                              className="font-bold"
+                              style={{ color: overlayCfg.text_color_hex || "#F8FAFC" }}
+                            >
+                              72.5K
+                            </span>
+                          </div>
+                          <div
+                            className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[0.88em] ${
+                              overlayCfg.transparent_bg
+                                ? "bg-transparent border border-white/10"
+                                : "bg-[#060a14]/75 border border-slate-700/80"
+                            }`}
+                          >
+                            <span
+                              className="font-bold"
+                              style={{ color: overlayCfg.accent_color_hex || "#38BDF8" }}
+                            >
+                              RATIO
+                            </span>
+                            <span className="font-bold text-emerald-400">142%</span>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          {/* Battle count pill rendered first matching in-game OverlayView */}
+                          <div
+                            className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[0.88em] text-slate-200 font-medium ${
+                              overlayCfg.transparent_bg
+                                ? "bg-transparent border border-white/10"
+                                : "bg-[#060a14]/75 border border-slate-700/80"
+                            }`}
+                          >
+                            <span className="text-red-400 font-bold">8M</span>
+                            <span>·</span>
+                            <span className="text-amber-400 font-bold">12F</span>
+                            <span>·</span>
+                            <span className="text-sky-400 font-bold">24B</span>
+                          </div>
+                          <div
+                            className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[0.88em] ${
+                              overlayCfg.transparent_bg
+                                ? "bg-transparent border border-white/10"
+                                : "bg-[#060a14]/75 border border-slate-700/80"
+                            }`}
+                          >
+                            <span
+                              className="font-bold"
+                              style={{ color: overlayCfg.accent_color_hex || "#38BDF8" }}
+                            >
+                              GEMS
+                            </span>
+                            <span
+                              className="font-bold"
+                              style={{ color: overlayCfg.text_color_hex || "#F8FAFC" }}
+                            >
+                              12,450
+                            </span>
+                          </div>
+                          <div
+                            className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[0.88em] ${
+                              overlayCfg.transparent_bg
+                                ? "bg-transparent border border-white/10"
+                                : "bg-[#060a14]/75 border border-slate-700/80"
+                            }`}
+                          >
+                            <span
+                              className="font-bold"
+                              style={{ color: overlayCfg.accent_color_hex || "#38BDF8" }}
+                            >
+                              SPD
+                            </span>
+                            <span
+                              className="font-bold"
+                              style={{ color: overlayCfg.text_color_hex || "#F8FAFC" }}
+                            >
+                              14h 20m
+                            </span>
+                          </div>
+                        </>
+                      )}
                     </div>
                   )}
 
                   {(overlayCfg.mode === "Cards" || overlayCfg.mode === "Combined") && (
                     <div className="space-y-1">
-                      {Array.from({ length: Math.min(overlayCfg.card_count ?? 3, 2) }).map((_, cIdx) => (
-                        <div
-                          key={cIdx}
-                          className="relative rounded-md overflow-hidden px-3.5 py-2 pe-10 flex items-center gap-2.5 min-h-[58px]"
-                          style={{
-                            backgroundImage: "url('/hud/img_MailBarSelected.png')",
-                            backgroundSize: "100% 100%",
-                            backgroundRepeat: "no-repeat",
-                            textShadow: "none",
-                          }}
-                        >
-                          <div className="flex items-center gap-2.5 w-full min-w-0">
-                            {/* Left: NPC Target Emblem */}
-                            <div className="shrink-0 w-10 h-10 flex items-center justify-center p-0.5 overflow-hidden">
-                              <img
-                                src={cIdx === 0 ? "/npc/S10_barbarian_lod3.png" : "/npc/barbarian_fort_lod3.png"}
-                                alt="Target"
-                                className="w-full h-full object-contain filter drop-shadow-sm"
-                              />
+                      {isPvpPreview ? (
+                        MOCK_PVP_PREVIEW_SESSIONS.slice(
+                          0,
+                          Math.min(overlayCfg.card_count ?? 3, 3)
+                        ).map((session) => {
+                          const combatType = session.combat_type || "open-field";
+                          const badgeClass =
+                            combatType === "rally"
+                              ? "bg-rose-100 text-rose-900 border-rose-300"
+                              : combatType === "garrison"
+                              ? "bg-indigo-100 text-indigo-900 border-indigo-300"
+                              : "bg-fuchsia-100 text-fuchsia-900 border-fuchsia-300";
+
+                          const badgeText =
+                            combatType === "open-field"
+                              ? "Field"
+                              : combatType === "rally"
+                              ? "Rally"
+                              : "Garrison";
+
+                          return (
+                            <div
+                              key={session.troop_id}
+                              className="relative rounded-md overflow-hidden px-3.5 py-2 pe-10 flex items-center gap-2.5 min-h-[58px]"
+                              style={{
+                                backgroundImage: "url('/hud/img_MailBarSelected.png')",
+                                backgroundSize: "100% 100%",
+                                backgroundRepeat: "no-repeat",
+                                textShadow: "none",
+                              }}
+                            >
+                              {/* Structure: Left CommanderPair, Right 3-lines */}
+                              <div className="flex items-center gap-2.5 w-full min-w-0">
+                                {/* Left: Commander Pair */}
+                                <div className="shrink-0 flex items-center justify-center">
+                                  <CommanderCardPair
+                                    primaryId={session.primary_commander_id}
+                                    primaryName={session.primary_commander_name}
+                                    primaryIsExpertised={session.primary_is_expertised}
+                                    secondaryId={session.secondary_commander_id}
+                                    secondaryName={session.secondary_commander_name}
+                                    secondaryIsExpertised={session.secondary_is_expertised}
+                                    size="sm"
+                                    showWakeupBadge={false}
+                                    showEmblem={false}
+                                  />
+                                </div>
+
+                                {/* Right 3-line Stack */}
+                                <div className="flex flex-col justify-between flex-1 min-w-0 overflow-hidden leading-tight">
+                                  {/* Line 1: [Type of report] */}
+                                  <div className="flex items-center justify-between gap-1 min-w-0">
+                                    <span className="font-bold truncate text-[0.92em] text-slate-900 tracking-tight">
+                                      {session.display_pair_name}
+                                    </span>
+                                    <div className="flex items-center gap-1 shrink-0">
+                                      <img
+                                        src={getPvpBadgeSrc(session.kills_dealt)}
+                                        alt="PvP Badge"
+                                        className="h-[16px] w-auto object-contain shrink-0 filter drop-shadow-sm"
+                                        title={`PvP (${session.kills_dealt.toLocaleString()} Kills)`}
+                                      />
+                                      <span
+                                        className={`text-[8.5px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border leading-none shrink-0 ${badgeClass}`}
+                                      >
+                                        {badgeText}
+                                      </span>
+                                    </div>
+                                  </div>
+
+                                  {/* Line 2: [Statistic] */}
+                                  <div className="flex items-center justify-between gap-1.5 min-w-0 text-[0.88em] font-mono">
+                                    <span className="min-w-0 truncate text-amber-900 font-bold">
+                                      +{formatCompactCount(session.kills_dealt)} Kills
+                                    </span>
+                                    <span
+                                      className={`shrink-0 whitespace-nowrap font-bold ${getRatioBadgeClass(
+                                        session.trade_ratio_pct
+                                      )}`}
+                                    >
+                                      Ratio{" "}
+                                      {session.trade_ratio_pct > 999
+                                        ? ">999%"
+                                        : `${session.trade_ratio_pct.toFixed(0)}%`}
+                                    </span>
+                                  </div>
+
+                                  {/* Line 3: [Session Battle Count & Status] */}
+                                  <div className="flex items-center justify-between gap-1 min-w-0 text-[0.80em] font-mono text-slate-600">
+                                    <span className="min-w-0 truncate">
+                                      {session.battle_count} battle
+                                      {session.battle_count > 1 ? "s" : ""} · {session.last_time_vn.slice(11, 16)}
+                                    </span>
+                                    {session.is_death ? (
+                                      <span className="shrink-0 text-rose-700 font-bold text-[8.5px] uppercase tracking-wider px-1.5 py-0.5 bg-rose-50 border border-rose-200 rounded leading-none">
+                                        Died
+                                      </span>
+                                    ) : (
+                                      <span className="shrink-0 text-purple-900 font-semibold">
+                                        PvP
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
                             </div>
-                            {/* Right: 3-line Stack */}
-                            <div className="flex flex-col justify-between flex-1 min-w-0 leading-tight">
-                              <div className="flex items-center justify-between gap-1 min-w-0">
-                                <span className="font-bold truncate text-[0.92em] text-slate-900 tracking-tight">
-                                  {cIdx === 0 ? "Lvl 52 English Soldiers" : "Barbarian Fort Lvl 10"}
-                                </span>
-                                <span className={`text-[8.5px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border leading-none shrink-0 ${cIdx === 0 ? "bg-sky-100 text-sky-900 border-sky-300" : "bg-amber-100 text-amber-900 border-amber-300"}`}>
-                                  {cIdx === 0 ? "Barb" : "Fort"}
-                                </span>
+                          );
+                        })
+                      ) : (
+                        MOCK_PVE_PREVIEW_CARDS.slice(
+                          0,
+                          Math.min(overlayCfg.card_count ?? 3, 3)
+                        ).map((card, cIdx) => (
+                          <div
+                            key={cIdx}
+                            className="relative rounded-md overflow-hidden px-3.5 py-2 pe-10 flex items-center gap-2.5 min-h-[58px]"
+                            style={{
+                              backgroundImage: "url('/hud/img_MailBarSelected.png')",
+                              backgroundSize: "100% 100%",
+                              backgroundRepeat: "no-repeat",
+                              textShadow: "none",
+                            }}
+                          >
+                            <div className="flex items-center gap-2.5 w-full min-w-0">
+                              {/* Left: NPC Target Emblem */}
+                              <div className="shrink-0 w-10 h-10 flex items-center justify-center p-0.5 overflow-hidden">
+                                <img
+                                  src={card.icon}
+                                  alt="Target"
+                                  className="w-full h-full object-contain filter drop-shadow-sm"
+                                />
                               </div>
-                              <div className="flex items-center justify-between gap-1 text-[0.88em] font-mono">
-                                <span className="text-amber-900 font-bold truncate">
-                                  +50 Gems · +2 Books
-                                </span>
-                                <span className="font-bold text-slate-800">
-                                  100% · T3
-                                </span>
-                              </div>
-                              <div className="flex items-center justify-between gap-1 text-[0.80em] font-mono text-slate-600">
-                                <span>(450, 782)</span>
-                                <span className="text-slate-500 font-medium">14:32</span>
+                              {/* Right: 3-line Stack */}
+                              <div className="flex flex-col justify-between flex-1 min-w-0 leading-tight">
+                                <div className="flex items-center justify-between gap-1 min-w-0">
+                                  <span className="font-bold truncate text-[0.92em] text-slate-900 tracking-tight">
+                                    {card.name}
+                                  </span>
+                                  <span
+                                    className={`text-[8.5px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border leading-none shrink-0 ${card.tagClass}`}
+                                  >
+                                    {card.tag}
+                                  </span>
+                                </div>
+                                <div className="flex items-center justify-between gap-1 text-[0.88em] font-mono">
+                                  <span className="text-amber-900 font-bold truncate">
+                                    {card.rewards}
+                                  </span>
+                                  <span className="font-bold text-slate-800">
+                                    {card.pct}
+                                  </span>
+                                </div>
+                                <div className="flex items-center justify-between gap-1 text-[0.80em] font-mono text-slate-600">
+                                  <span>{card.coord}</span>
+                                  <span className="text-slate-500 font-medium">
+                                    {card.time}
+                                  </span>
+                                </div>
                               </div>
                             </div>
                           </div>
-                        </div>
-                      ))}
+                        ))
+                      )}
                     </div>
                   )}
                 </div>

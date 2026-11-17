@@ -194,6 +194,8 @@ export interface PvpTimelinePoint {
   kp_lost: number;
   trade_ratio_pct: number;
   battle_count: number;
+  is_death?: boolean;
+  last_time_vn?: string;
 }
 
 export interface PvpDashboardData {
@@ -277,6 +279,8 @@ export interface TroopTradeSummaryDto {
   kp_lost: number;
   trade_ratio_pct: number;
   battle_count: number;
+  is_death?: boolean;
+  last_time_vn?: string;
 }
 
 export interface OverlayPayloadDto {

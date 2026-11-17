@@ -462,10 +462,26 @@ pub fn get_overlay_payload_internal(
         pvp = today_pvp_records.len();
     }
 
-    let troop_trades: Vec<TroopTradeSummaryDto> = crate::analyzer::aggregate_troop_combat_stats(&today_pvp_records)
+    let pvp_source: Vec<BattleRecord> = if !today_pvp_records.is_empty() {
+        today_pvp_records
+    } else if overlay_cfg.filter == FilterMode::PvP {
+        watcher
+            .get_latest_vault_records(FilterMode::PvP, 50)
+            .into_iter()
+            .filter(|r| matches_account_filter(r, &main_uids, selected_account))
+            .collect()
+    } else {
+        Vec::new()
+    };
+
+    let troop_trades: Vec<TroopTradeSummaryDto> = crate::analyzer::aggregate_troop_sessions(&pvp_source)
         .into_iter()
         .map(|s| TroopTradeSummaryDto {
-            troop_id: s.troop_key(),
+            troop_id: if !s.session_key.is_empty() {
+                format!("{}_{}", s.troop_key(), s.session_key)
+            } else {
+                s.troop_key()
+            },
             display_pair_name: s.display_pair_name(),
             primary_commander_id: s.primary_commander_id,
             primary_commander_name: s.primary_commander_name.clone(),
@@ -480,6 +496,8 @@ pub fn get_overlay_payload_internal(
             kp_lost: s.kp_lost,
             trade_ratio_pct: s.trade_ratio_pct(),
             battle_count: s.battle_count,
+            is_death: s.is_death,
+            last_time_vn: s.last_time_vn.clone(),
         })
         .collect();
 

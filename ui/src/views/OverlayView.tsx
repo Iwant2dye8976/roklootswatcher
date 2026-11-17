@@ -59,6 +59,12 @@ export const OverlayView: React.FC = () => {
     return "text-rose-800";
   };
 
+  const getPvpBadgeSrc = (kills: number): string => {
+    if (kills >= 100_000) return "/hud/badges/pvp_badge_gold_100k.png";
+    if (kills >= 35_000) return "/hud/badges/pvp_badge_gold_35k.png";
+    return "/hud/badges/pvp_badge_silver.png";
+  };
+
   const totalIdle = (data.idle_secs || 0) + extraIdleSecs;
   const userOpacity = Math.max(0.3, Math.min(1.0, config.opacity || 0.95));
   const fadeTimeout = config.fade_timeout_secs ?? 0;
@@ -232,11 +238,25 @@ export const OverlayView: React.FC = () => {
                           <span className="font-bold truncate text-[0.92em] text-slate-900 tracking-tight">
                             {troop.display_pair_name}
                           </span>
-                          <span
-                            className={`text-[8.5px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border leading-none shrink-0 ${badgeClass}`}
-                          >
-                            {badgeText}
-                          </span>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <img
+                              src={getPvpBadgeSrc(
+                                troop.kills_dealt ?? troop.kp_gained ?? 0
+                              )}
+                              alt="PvP Badge"
+                              className="h-[30px] w-auto object-contain shrink-0 filter drop-shadow-sm"
+                              title={`PvP (${(
+                                troop.kills_dealt ??
+                                troop.kp_gained ??
+                                0
+                              ).toLocaleString()} Kills)`}
+                            />
+                            <span
+                              className={`text-[8.5px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border leading-none shrink-0 ${badgeClass}`}
+                            >
+                              {badgeText}
+                            </span>
+                          </div>
                         </div>
 
                         {/* Line 2: [Statistic] */}
@@ -260,15 +280,24 @@ export const OverlayView: React.FC = () => {
                           </span>
                         </div>
 
-                        {/* Line 3: [Date] */}
+                        {/* Line 3: [Session Battle Count & Status] */}
                         <div className="flex items-center justify-between gap-1 min-w-0 text-[0.80em] font-mono text-slate-600">
                           <span className="min-w-0 truncate">
                             {troop.battle_count} battle
                             {troop.battle_count > 1 ? "s" : ""}
+                            {troop.last_time_vn
+                              ? ` · ${troop.last_time_vn.slice(11, 16)}`
+                              : ""}
                           </span>
-                          <span className="shrink-0 text-purple-900 font-semibold">
-                            PvP
-                          </span>
+                          {troop.is_death ? (
+                            <span className="shrink-0 text-rose-700 font-bold text-[8.5px] uppercase tracking-wider px-1.5 py-0.5 bg-rose-50 border border-rose-200 rounded leading-none">
+                              Died
+                            </span>
+                          ) : (
+                            <span className="shrink-0 text-purple-900 font-semibold">
+                              PvP
+                            </span>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -296,6 +325,10 @@ export const OverlayView: React.FC = () => {
               </div>
             ) : (
               records.slice(0, maxCards).map((rec, idx) => {
+                const isPvp = rec.battle_type === "pvp";
+                const pvpKills =
+                  rec.kills_dealt ?? Math.round(rec.kp_gained ?? 0);
+
                 const npcSprite = getNpcSprite(
                   rec.battle_type,
                   rec.display_target || rec.target,
@@ -318,6 +351,12 @@ export const OverlayView: React.FC = () => {
                     ? "Fort"
                     : rec.battle_type === "gathering"
                     ? "Gather"
+                    : rec.battle_type === "pvp"
+                    ? (rec.pvp_combat_type === "rally"
+                        ? "Rally"
+                        : rec.pvp_combat_type === "garrison"
+                        ? "Garrison"
+                        : "Field")
                     : "Barb";
 
                 return (
@@ -331,25 +370,41 @@ export const OverlayView: React.FC = () => {
                       textShadow: "none",
                     }}
                   >
-                    {/* Structure: Left Target Emblem, Right 3-lines */}
+                    {/* Structure: Left Target Emblem or Commander Pair, Right 3-lines */}
                     <div className="flex items-center gap-2.5 w-full min-w-0">
-                      {/* Left: NPC Target Emblem */}
-                      <div className="shrink-0 w-10 h-10 flex items-center justify-center p-0.5 overflow-hidden">
-                        <img
-                          src={npcSprite.src}
-                          alt={npcSprite.fallbackText}
-                          className="w-full h-full object-contain filter drop-shadow-sm"
-                          onError={(e) => {
-                            // If sprite fails to load, show text fallback
-                            const target = e.target as HTMLElement;
-                            target.style.display = "none";
-                            if (target.parentElement) {
-                              target.parentElement.innerText =
-                                npcSprite.fallbackText;
-                            }
-                          }}
-                        />
-                      </div>
+                      {/* Left: NPC Target Emblem or Commander Pair for PvP */}
+                      {isPvp && rec.primary_commander_id ? (
+                        <div className="shrink-0 flex items-center justify-center">
+                          <CommanderCardPair
+                            primaryId={rec.primary_commander_id}
+                            primaryName={rec.primary_commander_name}
+                            primaryIsExpertised={rec.primary_is_expertised}
+                            secondaryId={rec.secondary_commander_id}
+                            secondaryName={rec.secondary_commander_name}
+                            secondaryIsExpertised={rec.secondary_is_expertised}
+                            size="sm"
+                            showWakeupBadge={false}
+                            showEmblem={false}
+                          />
+                        </div>
+                      ) : (
+                        <div className="shrink-0 w-10 h-10 flex items-center justify-center p-0.5 overflow-hidden">
+                          <img
+                            src={npcSprite.src}
+                            alt={npcSprite.fallbackText}
+                            className="w-full h-full object-contain filter drop-shadow-sm"
+                            onError={(e) => {
+                              // If sprite fails to load, show text fallback
+                              const target = e.target as HTMLElement;
+                              target.style.display = "none";
+                              if (target.parentElement) {
+                                target.parentElement.innerText =
+                                  npcSprite.fallbackText;
+                              }
+                            }}
+                          />
+                        </div>
+                      )}
 
                       {/* Right 3-line Stack */}
                       <div className="flex flex-col justify-between flex-1 min-w-0 overflow-hidden leading-tight">
@@ -358,16 +413,41 @@ export const OverlayView: React.FC = () => {
                           <span className="font-bold truncate text-[0.92em] text-slate-900 tracking-tight">
                             {rec.display_target || rec.target}
                           </span>
-                          <span
-                            className={`text-[8.5px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border leading-none shrink-0 ${typeBadgeClass}`}
-                          >
-                            {typeBadgeLabel}
-                          </span>
+                          {isPvp ? (
+                            <span
+                              className={`text-[8.5px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border leading-none shrink-0 ${typeBadgeClass}`}
+                            >
+                              {typeBadgeLabel}
+                            </span>
+                          ) : (
+                             <img
+                              src={getPvpBadgeSrc(pvpKills)}
+                              alt="PvP Badge"
+                              className="h-[30px] w-auto object-contain shrink-0 filter drop-shadow-sm"
+                              title={`PvP (${pvpKills.toLocaleString()} Kills)`}
+                            />
+                          )}
                         </div>
 
                         {/* Line 2: [Statistic] */}
                         <div className="flex items-center justify-between gap-1 min-w-0 text-[0.88em] font-mono">
-                          {rec.items && rec.items.length > 0 ? (
+                          {isPvp ? (
+                            <>
+                              <span className="min-w-0 truncate text-amber-900 font-bold">
+                                +{formatCompactCount(pvpKills)} Kills
+                              </span>
+                              <span
+                                className={`shrink-0 whitespace-nowrap font-bold ${getRatioBadgeClass(
+                                  rec.trade_ratio_pct ?? 100
+                                )}`}
+                              >
+                                Ratio{" "}
+                                {(rec.trade_ratio_pct ?? 100) > 999
+                                  ? ">999%"
+                                  : `${(rec.trade_ratio_pct ?? 100).toFixed(0)}%`}
+                              </span>
+                            </>
+                          ) : rec.items && rec.items.length > 0 ? (
                             <div className="flex items-center gap-1.5 truncate">
                               {rec.items.slice(0, 5).map((it, iIdx) => (
                                 <span
@@ -391,17 +471,19 @@ export const OverlayView: React.FC = () => {
                             </span>
                           )}
 
-                          <span className="font-bold shrink-0 text-[0.88em] text-slate-800">
-                            {rec.battle_type === "gathering"
-                              ? rec.talent_add > 0
-                                ? `+${rec.talent_add.toLocaleString()}`
-                                : "OK"
-                              : `${rec.damage_pct}%${
-                                  rec.plunder_tier > 0
-                                    ? ` · T${rec.plunder_tier}`
-                                    : ""
-                                }`}
-                          </span>
+                          {!isPvp && (
+                            <span className="font-bold shrink-0 text-[0.88em] text-slate-800">
+                              {rec.battle_type === "gathering"
+                                ? rec.talent_add > 0
+                                  ? `+${rec.talent_add.toLocaleString()}`
+                                  : "OK"
+                                : `${rec.damage_pct}%${
+                                    rec.plunder_tier > 0
+                                      ? ` · T${rec.plunder_tier}`
+                                      : ""
+                                  }`}
+                            </span>
+                          )}
                         </div>
 
                         {/* Line 3: [Date] */}

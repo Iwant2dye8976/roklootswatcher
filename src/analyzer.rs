@@ -710,6 +710,103 @@ pub fn aggregate_troop_combat_stats(records: &[BattleRecord]) -> Vec<TroopCombat
     list
 }
 
+pub fn aggregate_troop_sessions(records: &[BattleRecord]) -> Vec<TroopCombatStats> {
+    let mut pvp_records: Vec<&BattleRecord> = records
+        .iter()
+        .filter(|r| r.battle_type == "pvp")
+        .collect();
+    pvp_records.sort_by_key(|r| r.time_raw);
+
+    let mut sessions: Vec<TroopCombatStats> = Vec::new();
+    let max_gap_micros: i64 = 20 * 60 * 1_000_000; // 20 minutes
+
+    for rec in pvp_records {
+        let primary_name = if rec.primary_commander_id > 0 {
+            crate::classifier::get_commander_name(rec.primary_commander_id)
+        } else {
+            rec.primary_commander_name.clone()
+        };
+        let secondary_name = if rec.secondary_commander_id > 0 {
+            crate::classifier::get_commander_name(rec.secondary_commander_id)
+        } else {
+            rec.secondary_commander_name.clone()
+        };
+        let combat_type = match rec.pvp_combat_type.as_str() {
+            "rally" => "rally".to_string(),
+            "garrison" => "garrison".to_string(),
+            _ => "open-field".to_string(),
+        };
+
+        let raw_key = if !rec.pvp_troop_key.is_empty() {
+            rec.pvp_troop_key.clone()
+        } else {
+            format!("cmdr_{}_{}_{}", rec.primary_commander_id, rec.secondary_commander_id, rec.time_raw / (1_000_000 * 900))
+        };
+
+        // Find active session matching raw_key that hasn't died and is within max_gap_micros
+        let existing_idx = sessions.iter().rposition(|s| {
+            s.session_key == raw_key 
+                && !s.is_death 
+                && (rec.time_raw - s.last_time_raw).abs() <= max_gap_micros
+        });
+
+        if let Some(idx) = existing_idx {
+            let s = &mut sessions[idx];
+            if rec.primary_is_expertised {
+                s.primary_is_expertised = true;
+            }
+            if rec.secondary_is_expertised {
+                s.secondary_is_expertised = true;
+            }
+            s.kp_gained += rec.kp_gained;
+            s.kp_lost += rec.kp_lost;
+            s.dead_dealt += rec.dead_dealt;
+            s.dead_taken += rec.dead_taken;
+            s.severely_wounded_dealt += rec.severely_wounded_dealt;
+            s.severely_wounded_taken += rec.severely_wounded_taken;
+            s.battle_count += 1;
+            if rec.is_death {
+                s.is_death = true;
+            }
+            if rec.time_raw > s.last_time_raw {
+                s.last_time_raw = rec.time_raw;
+                s.last_time_vn = rec.time_vn.clone();
+            }
+        } else {
+            let s = TroopCombatStats {
+                primary_commander_id: rec.primary_commander_id,
+                primary_commander_name: primary_name,
+                secondary_commander_id: rec.secondary_commander_id,
+                secondary_commander_name: secondary_name,
+                primary_is_expertised: rec.primary_is_expertised,
+                secondary_is_expertised: rec.secondary_is_expertised,
+                combat_type,
+                kp_gained: rec.kp_gained,
+                kp_lost: rec.kp_lost,
+                dead_dealt: rec.dead_dealt,
+                dead_taken: rec.dead_taken,
+                severely_wounded_dealt: rec.severely_wounded_dealt,
+                severely_wounded_taken: rec.severely_wounded_taken,
+                battle_count: 1,
+                session_key: raw_key,
+                is_death: rec.is_death,
+                last_time_raw: rec.time_raw,
+                last_time_vn: rec.time_vn.clone(),
+            };
+            sessions.push(s);
+        }
+    }
+
+    // Sort descending by last_time_raw (most recent session first on HUD!)
+    sessions.sort_by(|a, b| {
+        b.last_time_raw
+            .cmp(&a.last_time_raw)
+            .then_with(|| b.kills_dealt().cmp(&a.kills_dealt()))
+    });
+
+    sessions
+}
+
 pub fn estimate_t4_t5_breakdown(total_kills: u64, kp: f64) -> (u64, u64) {
     if total_kills == 0 || kp <= 0.0 {
         return (0, 0);
@@ -1862,6 +1959,93 @@ mod tests {
         assert_eq!(stats[1].dead_dealt, 700);
         assert_eq!(stats[1].dead_taken, 150);
         assert_eq!(stats[1].battle_count, 2);
+    }
+
+    #[test]
+    fn test_aggregate_troop_sessions_separates_by_ctk_and_death() {
+        // Session 1: Scipio / Liu Che (140 / 185) dispatched at 1794744345
+        let s1_b1 = BattleRecord {
+            battle_type: "pvp".into(),
+            primary_commander_id: 140,
+            secondary_commander_id: 185,
+            pvp_troop_key: "122980539_1794744345_140_185".into(),
+            time_raw: 1794744345_000_000,
+            time_vn: "2026-11-15 19:10:00".into(),
+            dead_dealt: 1000,
+            dead_taken: 200,
+            kp_gained: 10_000.0,
+            kp_lost: 2_000.0,
+            is_death: false,
+            ..Default::default()
+        };
+        let s1_b2 = BattleRecord {
+            battle_type: "pvp".into(),
+            primary_commander_id: 140,
+            secondary_commander_id: 185,
+            pvp_troop_key: "122980539_1794744345_140_185".into(),
+            time_raw: 1794744360_000_000,
+            time_vn: "2026-11-15 19:10:15".into(),
+            dead_dealt: 500,
+            dead_taken: 800,
+            kp_gained: 5_000.0,
+            kp_lost: 8_000.0,
+            is_death: true, // Troop died here!
+            ..Default::default()
+        };
+
+        // Session 2: Same commander pair dispatched later at 1794744667 (new outing)
+        let s2_b1 = BattleRecord {
+            battle_type: "pvp".into(),
+            primary_commander_id: 140,
+            secondary_commander_id: 185,
+            pvp_troop_key: "122980539_1794744667_140_185".into(),
+            time_raw: 1794744667_000_000,
+            time_vn: "2026-11-15 19:14:00".into(),
+            dead_dealt: 3000,
+            dead_taken: 500,
+            kp_gained: 30_000.0,
+            kp_lost: 5_000.0,
+            is_death: false,
+            ..Default::default()
+        };
+
+        // Garrison defense with unique key
+        let garrison = BattleRecord {
+            battle_type: "pvp".into(),
+            pvp_combat_type: "garrison".into(),
+            primary_commander_id: 506,
+            pvp_troop_key: "garrison_123".into(),
+            time_raw: 1794744500_000_000,
+            time_vn: "2026-11-15 19:12:00".into(),
+            dead_dealt: 5000,
+            dead_taken: 1000,
+            kp_gained: 50_000.0,
+            kp_lost: 10_000.0,
+            is_death: false,
+            ..Default::default()
+        };
+
+        let sessions = aggregate_troop_sessions(&[s1_b1, s1_b2, s2_b1, garrison]);
+
+        // Must be 3 distinct sessions, NOT merged!
+        assert_eq!(sessions.len(), 3);
+
+        // Sorted by last_time_raw descending: Session 2 is newest (19:14:00)
+        assert_eq!(sessions[0].session_key, "122980539_1794744667_140_185");
+        assert_eq!(sessions[0].battle_count, 1);
+        assert_eq!(sessions[0].kills_dealt(), 3000);
+        assert_eq!(sessions[0].is_death, false);
+
+        // Second is Garrison (19:12:00)
+        assert_eq!(sessions[1].session_key, "garrison_123");
+        assert_eq!(sessions[1].battle_count, 1);
+
+        // Third is Session 1 (19:10:15) which aggregated 2 battles and ended with death!
+        assert_eq!(sessions[2].session_key, "122980539_1794744345_140_185");
+        assert_eq!(sessions[2].battle_count, 2);
+        assert_eq!(sessions[2].kills_dealt(), 1500); // 1000 + 500
+        assert_eq!(sessions[2].kills_taken(), 1000); // 200 + 800
+        assert_eq!(sessions[2].is_death, true);
     }
 
     #[test]

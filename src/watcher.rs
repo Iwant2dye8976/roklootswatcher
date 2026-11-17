@@ -984,6 +984,7 @@ impl RoKMailWatcher {
         }
 
         if initial_scan {
+            *self.is_watching.write().unwrap_or_else(|e| e.into_inner()) = true;
             let self_clone = self.clone_handle();
             thread::spawn(move || {
                 self_clone.run_initial_scan(false);
@@ -1604,6 +1605,34 @@ mod tests {
 
         watcher.stop();
         assert!(!watcher.vault_dirty.load(std::sync::atomic::Ordering::SeqCst), "Dirty flag must be cleared by flush on stop");
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_start_with_initial_scan_marks_watching_immediately() {
+        let temp_dir = std::env::temp_dir().join(format!("rok_test_initial_scan_watch_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&temp_dir);
+
+        let (tx, _rx) = std::sync::mpsc::channel();
+        let watcher = RoKMailWatcher::new(
+            Some(temp_dir.clone()),
+            Some(temp_dir.clone()),
+            FilterMode::AllTargets,
+            LootCatalog::empty(),
+            tx,
+        );
+
+        assert!(!watcher.is_watching());
+        assert!(!watcher.is_scanning());
+
+        // Calling start(true) must transition is_watching to true immediately so
+        // that initial UI state queries during scanning do not report PAUSED.
+        watcher.start(true);
+        assert!(watcher.is_watching());
+
+        watcher.stop();
+        assert!(!watcher.is_watching());
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }

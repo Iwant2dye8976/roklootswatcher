@@ -54,6 +54,8 @@ pub fn create_schema(conn: &Connection) -> rusqlite::Result<()> {
             severely_wounded_dealt INTEGER NOT NULL DEFAULT 0,
             severely_wounded_taken INTEGER NOT NULL DEFAULT 0,
             raw_header       TEXT NOT NULL DEFAULT '',
+            pvp_troop_key    TEXT NOT NULL DEFAULT '',
+            is_death         INTEGER NOT NULL DEFAULT 0,
             dedup_key        TEXT NOT NULL,
             synced_at        INTEGER,
             PRIMARY KEY (dedup_key)
@@ -92,9 +94,17 @@ pub fn create_schema(conn: &Connection) -> rusqlite::Result<()> {
     let _ = conn.execute("ALTER TABLE battle_records ADD COLUMN severely_wounded_dealt INTEGER NOT NULL DEFAULT 0", []);
     let _ = conn.execute("ALTER TABLE battle_records ADD COLUMN severely_wounded_taken INTEGER NOT NULL DEFAULT 0", []);
     let _ = conn.execute("ALTER TABLE battle_records ADD COLUMN raw_header TEXT NOT NULL DEFAULT ''", []);
+    let _ = conn.execute("ALTER TABLE battle_records ADD COLUMN pvp_troop_key TEXT NOT NULL DEFAULT ''", []);
+    let _ = conn.execute("ALTER TABLE battle_records ADD COLUMN is_death INTEGER NOT NULL DEFAULT 0", []);
     let _ = conn.execute("CREATE INDEX IF NOT EXISTS idx_account_id ON battle_records(account_id)", []);
+    let _ = conn.execute("CREATE INDEX IF NOT EXISTS idx_pvp_troop_key ON battle_records(pvp_troop_key)", []);
     let _ = conn.execute(
         "UPDATE battle_records SET pvp_combat_type = 'open-field' WHERE pvp_combat_type = 'field'",
+        [],
+    );
+
+    let _ = conn.execute(
+        "UPDATE battle_records SET pvp_troop_key = 'pvp_' || mail_id || '_' || time_raw WHERE battle_type = 'pvp' AND (pvp_troop_key = '' OR pvp_troop_key IS NULL)",
         [],
     );
     Ok(())

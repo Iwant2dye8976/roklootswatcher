@@ -425,6 +425,8 @@ impl PvpDashboardDto {
             kp_lost: s.kp_lost,
             trade_ratio_pct: s.trade_ratio_pct(),
             battle_count: s.battle_count,
+            is_death: s.is_death,
+            last_time_vn: s.last_time_vn.clone(),
         });
 
         let timeline = stats.timeline.into_iter().map(|p| PvpTimelinePointDto {
@@ -497,6 +499,10 @@ pub struct TroopTradeSummaryDto {
     pub kp_lost: f64,
     pub trade_ratio_pct: f64,
     pub battle_count: usize,
+    #[serde(default)]
+    pub is_death: bool,
+    #[serde(default)]
+    pub last_time_vn: String,
 }
 
 fn default_dto_combat_type() -> String {
