@@ -381,6 +381,26 @@ pub fn run(
                                 );
                                 let _ = app_events.emit("overlay://updated", overlay_payload);
                             }
+                            WatcherUiEvent::BatchImported { .. } => {
+                                if let Ok(mut ts) = last_mail_events.lock() {
+                                    *ts = std::time::Instant::now();
+                                }
+                                let _ = app_events.emit("watcher://updated", ());
+                                let cfg_snap = config_events
+                                    .lock()
+                                    .unwrap_or_else(|e| e.into_inner())
+                                    .clone();
+                                let sel_acc = app_events
+                                    .try_state::<TauriAppState>()
+                                    .and_then(|st| st.selected_account_clone());
+                                let overlay_payload = commands::get_overlay_payload_internal(
+                                    &watcher_events,
+                                    &cfg_snap,
+                                    sel_acc.as_deref(),
+                                    0,
+                                );
+                                let _ = app_events.emit("overlay://updated", overlay_payload);
+                            }
                             WatcherUiEvent::MailDetected {
                                 target,
                                 damage_pct,

@@ -217,6 +217,9 @@ pub enum WatcherUiEvent {
         is_new: bool,
         loot_summary: String,
     },
+    BatchImported {
+        new_count: usize,
+    },
 }
 
 type CachedRecords = Option<(u64, Arc<Vec<BattleRecord>>)>;
@@ -391,6 +394,10 @@ impl RoKMailWatcher {
 
     pub fn is_scanning(&self) -> bool {
         *self.is_scanning.read().unwrap_or_else(|e| e.into_inner())
+    }
+
+    pub fn is_observer_running(&self) -> bool {
+        self.stop_signal.lock().unwrap_or_else(|e| e.into_inner()).is_some()
     }
 
     pub fn log(&self, level: &str, msg: &str) {
@@ -983,11 +990,30 @@ impl RoKMailWatcher {
             return;
         }
 
+        *self.is_watching.write().unwrap_or_else(|e| e.into_inner()) = true;
+
         if initial_scan {
-            *self.is_watching.write().unwrap_or_else(|e| e.into_inner()) = true;
+            if !self.start_observer() {
+                return;
+            }
+
+            *self.is_scanning.write().unwrap_or_else(|e| e.into_inner()) = true;
+            let (scan_status, scan_start) = match self.get_language() {
+                AppLanguage::Vietnamese => (
+                    "Đang quét và đồng bộ kho lưu trữ Vault...".to_string(),
+                    format!("Bắt đầu quét thư mục game: {} (Chế độ: {})", dir.display(), self.get_mode().as_str()),
+                ),
+                AppLanguage::English => (
+                    "Scanning and synchronizing Vault archive...".to_string(),
+                    format!("Started scanning game directory: {} (Mode: {})", dir.display(), self.get_mode().as_str()),
+                ),
+            };
+            self.set_status(WatcherStatus::Scanning(scan_status));
+            self.log("INFO", &scan_start);
+
             let self_clone = self.clone_handle();
             thread::spawn(move || {
-                self_clone.run_initial_scan(false);
+                self_clone.execute_scan(false);
             });
         } else {
             self.start_observer();
@@ -997,12 +1023,12 @@ impl RoKMailWatcher {
     pub fn stop(&self) {
         self.flush_vault_if_dirty();
 
-        if !*self.is_watching.read().unwrap_or_else(|e| e.into_inner()) {
-            return;
-        }
-
         if let Some(stop_tx) = self.stop_signal.lock().unwrap_or_else(|e| e.into_inner()).take() {
             let _ = stop_tx.send(());
+        }
+
+        if !*self.is_watching.read().unwrap_or_else(|e| e.into_inner()) {
+            return;
         }
 
         trim_memory_working_set();
@@ -1038,9 +1064,6 @@ impl RoKMailWatcher {
 
         let mail_dir = self.get_mail_dir();
         let mode = self.get_mode();
-        let vault_dir = self.get_vault_binary_dir();
-        let _ = std::fs::create_dir_all(&vault_dir);
-
         let lang = self.get_language();
         let (scan_status, scan_start) = match lang {
             AppLanguage::Vietnamese => (
@@ -1054,6 +1077,17 @@ impl RoKMailWatcher {
         };
         self.set_status(WatcherStatus::Scanning(scan_status));
         self.log("INFO", &scan_start);
+
+        self.execute_scan(force_all);
+    }
+
+    fn execute_scan(&self, force_all: bool) {
+        let mail_dir = self.get_mail_dir();
+        let _mode = self.get_mode();
+        let vault_dir = self.get_vault_binary_dir();
+        let _ = std::fs::create_dir_all(&vault_dir);
+
+        let lang = self.get_language();
 
         let mut all_files_map = HashMap::new();
 
@@ -1191,6 +1225,9 @@ impl RoKMailWatcher {
 
         if new_added > 0 {
             self.notify_sync_trigger();
+            let _ = self.ui_sender.send(WatcherUiEvent::BatchImported {
+                new_count: new_added,
+            });
         }
 
         let total_all = self.vault.read().unwrap_or_else(|e| e.into_inner()).total_count();
@@ -1212,69 +1249,88 @@ impl RoKMailWatcher {
         };
         self.log("SUCCESS", &sync_msg);
 
-        if !*self.is_watching.read().unwrap_or_else(|e| e.into_inner()) {
-            self.start_observer();
+        if *self.is_watching.read().unwrap_or_else(|e| e.into_inner()) {
+            if !self.is_observer_running() {
+                self.start_observer();
+            } else {
+                let watch_msg = match lang {
+                    AppLanguage::Vietnamese => format!("Đang theo dõi: {}", mail_dir.display()),
+                    AppLanguage::English => format!("Watching: {}", mail_dir.display()),
+                };
+                self.set_status(WatcherStatus::Running(watch_msg));
+            }
         } else {
-            let watch_msg = match lang {
-                AppLanguage::Vietnamese => format!("Đang theo dõi: {}", mail_dir.display()),
-                AppLanguage::English => format!("Watching: {}", mail_dir.display()),
+            let stopped_msg = match lang {
+                AppLanguage::Vietnamese => "Đã dừng theo dõi".to_string(),
+                AppLanguage::English => "Watching stopped".to_string(),
             };
-            self.set_status(WatcherStatus::Running(watch_msg));
+            self.set_status(WatcherStatus::Stopped(stopped_msg));
         }
     }
 
-    fn start_observer(&self) {
+    fn start_observer(&self) -> bool {
+        if let Some(old_stop) = self.stop_signal.lock().unwrap_or_else(|e| e.into_inner()).take() {
+            let _ = old_stop.send(());
+        }
+
         let mail_dir = self.get_mail_dir();
+        let lang = self.get_language();
+        let (tx_notify, rx_notify) = channel();
+
+        let mut watcher = match RecommendedWatcher::new(tx_notify, Config::default()) {
+            Ok(w) => w,
+            Err(e) => {
+                let err_msg = match lang {
+                    AppLanguage::Vietnamese => format!("Lỗi khởi tạo RecommendedWatcher: {}", e),
+                    AppLanguage::English => format!("Error initializing RecommendedWatcher: {}", e),
+                };
+                self.log("ERROR", &err_msg);
+                *self.stop_signal.lock().unwrap_or_else(|e| e.into_inner()) = None;
+                *self.is_watching.write().unwrap_or_else(|e| e.into_inner()) = false;
+                self.set_status(WatcherStatus::Error(e.to_string()));
+                return false;
+            }
+        };
+
+        if let Err(e) = watcher.watch(&mail_dir, RecursiveMode::NonRecursive) {
+            let err_msg = match lang {
+                AppLanguage::Vietnamese => format!("Lỗi lắng nghe thư mục {}: {}", mail_dir.display(), e),
+                AppLanguage::English => format!("Error watching directory {}: {}", mail_dir.display(), e),
+            };
+            self.log("ERROR", &err_msg);
+            *self.stop_signal.lock().unwrap_or_else(|e| e.into_inner()) = None;
+            *self.is_watching.write().unwrap_or_else(|e| e.into_inner()) = false;
+            self.set_status(WatcherStatus::Error(e.to_string()));
+            return false;
+        }
+
         let (tx_stop, rx_stop) = channel();
         *self.stop_signal.lock().unwrap_or_else(|e| e.into_inner()) = Some(tx_stop);
+        *self.is_watching.write().unwrap_or_else(|e| e.into_inner()) = true;
+
+        let (status_text, log_text) = match lang {
+            AppLanguage::Vietnamese => (
+                format!("Đang theo dõi: {}", mail_dir.display()),
+                format!("Bắt đầu lắng nghe thay đổi thời gian thực tại: {}", mail_dir.display()),
+            ),
+            AppLanguage::English => (
+                format!("Watching: {}", mail_dir.display()),
+                format!("Started real-time listening for changes at: {}", mail_dir.display()),
+            ),
+        };
+        if !self.is_scanning() {
+            self.set_status(WatcherStatus::Running(status_text));
+        }
+        self.log("INFO", &log_text);
 
         let self_clone = self.clone_handle();
-        let dir_to_watch = mail_dir.clone();
 
         thread::spawn(move || {
-            let (tx_notify, rx_notify) = channel();
-
-            let lang = self_clone.get_language();
-            let mut watcher = match RecommendedWatcher::new(tx_notify, Config::default()) {
-                Ok(w) => w,
-                Err(e) => {
-                    let err_msg = match lang {
-                        AppLanguage::Vietnamese => format!("Lỗi khởi tạo RecommendedWatcher: {}", e),
-                        AppLanguage::English => format!("Error initializing RecommendedWatcher: {}", e),
-                    };
-                    self_clone.log("ERROR", &err_msg);
-                    return;
-                }
-            };
-
-            if let Err(e) = watcher.watch(&dir_to_watch, RecursiveMode::NonRecursive) {
-                let err_msg = match lang {
-                    AppLanguage::Vietnamese => format!("Lỗi lắng nghe thư mục {}: {}", dir_to_watch.display(), e),
-                    AppLanguage::English => format!("Error watching directory {}: {}", dir_to_watch.display(), e),
-                };
-                self_clone.log("ERROR", &err_msg);
-                self_clone.set_status(WatcherStatus::Error(e.to_string()));
-                return;
-            }
-
-            *self_clone.is_watching.write().unwrap_or_else(|e| e.into_inner()) = true;
-            let (status_text, log_text) = match lang {
-                AppLanguage::Vietnamese => (
-                    format!("Đang theo dõi: {}", dir_to_watch.display()),
-                    format!("Bắt đầu lắng nghe thay đổi thời gian thực tại: {}", dir_to_watch.display()),
-                ),
-                AppLanguage::English => (
-                    format!("Watching: {}", dir_to_watch.display()),
-                    format!("Started real-time listening for changes at: {}", dir_to_watch.display()),
-                ),
-            };
-            self_clone.set_status(WatcherStatus::Running(status_text));
-            self_clone.log("INFO", &log_text);
-
+            let _keep_watcher_alive = watcher;
             let mut recent_events: HashMap<PathBuf, Instant> = HashMap::new();
 
             loop {
-                if rx_stop.try_recv().is_ok() {
+                if matches!(rx_stop.try_recv(), Ok(_) | Err(std::sync::mpsc::TryRecvError::Disconnected)) {
                     self_clone.flush_vault_if_dirty();
                     break;
                 }
@@ -1303,7 +1359,7 @@ impl RoKMailWatcher {
                                     let debounce_threshold = if is_create {
                                         Duration::from_millis(50)
                                     } else {
-                                        Duration::from_millis(400)
+                                        Duration::from_millis(200)
                                     };
 
                                     if let Some(last_time) = recent_events.get(&path) {
@@ -1331,6 +1387,8 @@ impl RoKMailWatcher {
                 }
             }
         });
+
+        true
     }
 
     fn process_file_async(&self, path: &Path) {
@@ -1409,13 +1467,13 @@ impl RoKMailWatcher {
             v.upsert(rec.clone())
         };
 
-        self.mark_vault_dirty();
-
-        if is_new {
-            self.notify_sync_trigger();
-            self.invalidate_records_cache();
-            self.recompute_filtered_records_and_stats();
+        if !is_new {
+            return;
         }
+
+        self.mark_vault_dirty();
+        self.notify_sync_trigger();
+        self.invalidate_records_cache();
 
         let loot_preview: Vec<String> = rec
             .item_totals
@@ -1426,25 +1484,17 @@ impl RoKMailWatcher {
 
         let preview_str = loot_preview.join(", ");
         let lang = self.get_language();
-        let is_new_str = match (is_new, lang) {
-            (true, AppLanguage::Vietnamese) => "mới",
-            (false, AppLanguage::Vietnamese) => "cập nhật",
-            (true, AppLanguage::English) => "new",
-            (false, AppLanguage::English) => "updated",
-        };
         let target_display = rec.display_target(lang);
         if btype == "gathering" {
             let msg = match lang {
                 AppLanguage::Vietnamese => format!(
-                    "Phát hiện thu thập {}: {} (Cấp {}) [Đã bảo vệ trong Vault] | Thu hoạch: {}",
-                    is_new_str,
+                    "Phát hiện thu thập mới: {} (Cấp {}) [Đã bảo vệ trong Vault] | Thu hoạch: {}",
                     target_display,
                     rec.target_level,
                     preview_str
                 ),
                 AppLanguage::English => format!(
-                    "Detected {} gathering: {} (Lvl {}) [Secured in Vault] | Harvest: {}",
-                    is_new_str,
+                    "Detected new gathering: {} (Lvl {}) [Secured in Vault] | Harvest: {}",
                     target_display,
                     rec.target_level,
                     preview_str
@@ -1454,16 +1504,14 @@ impl RoKMailWatcher {
         } else {
             let msg = match lang {
                 AppLanguage::Vietnamese => format!(
-                    "Phát hiện {}: {} ({}% ST, Tier {}) [Đã bảo vệ trong Vault] | Quà: {}",
-                    is_new_str,
+                    "Phát hiện mới: {} ({}% ST, Tier {}) [Đã bảo vệ trong Vault] | Quà: {}",
                     target_display,
                     rec.damage_pct,
                     rec.plunder_tier,
                     preview_str
                 ),
                 AppLanguage::English => format!(
-                    "Detected {} battle: {} ({}% DMG, Tier {}) [Secured in Vault] | Loot: {}",
-                    is_new_str,
+                    "Detected new battle: {} ({}% DMG, Tier {}) [Secured in Vault] | Loot: {}",
                     target_display,
                     rec.damage_pct,
                     rec.plunder_tier,
@@ -1477,9 +1525,11 @@ impl RoKMailWatcher {
             target: rec.target.clone(),
             damage_pct: rec.damage_pct,
             tier: rec.plunder_tier,
-            is_new,
+            is_new: true,
             loot_summary: preview_str,
         });
+
+        self.recompute_filtered_records_and_stats();
     }
 
     fn clone_handle(&self) -> Self {
@@ -1630,9 +1680,358 @@ mod tests {
         // that initial UI state queries during scanning do not report PAUSED.
         watcher.start(true);
         assert!(watcher.is_watching());
+        assert!(watcher.is_observer_running());
 
         watcher.stop();
         assert!(!watcher.is_watching());
+        assert!(!watcher.is_observer_running());
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_start_with_initial_scan_starts_observer_and_detects_live_mail() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let temp_dir = std::env::temp_dir().join(format!("rok_test_live_scan_init_{}_{}", std::process::id(), unique));
+        let mailcache = temp_dir.join("mailcache");
+        let _ = std::fs::create_dir_all(&mailcache);
+
+        let (tx_ui, rx_ui) = std::sync::mpsc::channel();
+        let watcher = RoKMailWatcher::new(
+            Some(mailcache.clone()),
+            Some(temp_dir.clone()),
+            FilterMode::AllTargets,
+            LootCatalog::empty(),
+            tx_ui,
+        );
+
+        assert!(!watcher.is_watching());
+        assert!(!watcher.is_observer_running());
+
+        // Calling start(true) must start the observer thread and mark watching true
+        watcher.start(true);
+        assert!(watcher.is_watching());
+        assert!(watcher.is_observer_running());
+
+        // Wait for initial scan to complete
+        let start_wait = std::time::Instant::now();
+        while watcher.is_scanning() && start_wait.elapsed() < Duration::from_secs(3) {
+            thread::sleep(Duration::from_millis(20));
+        }
+        assert!(!watcher.is_scanning());
+        assert!(watcher.is_watching());
+        assert!(watcher.is_observer_running());
+
+        // Write a real mail fixture into mailcache to simulate game creating a report
+        let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let fixture_path = manifest_dir.join("tests/fixtures/Persistent.Mail.1002220217856803764");
+        let target_mail = mailcache.join("Persistent.Mail.1002220217856803764");
+        std::fs::copy(&fixture_path, &target_mail).expect("Failed to copy fixture");
+
+        // The background observer should detect the file and notify via UI channel
+        let mut mail_detected = false;
+        let event_timeout = std::time::Instant::now();
+        while event_timeout.elapsed() < Duration::from_secs(5) {
+            if let Ok(event) = rx_ui.recv_timeout(Duration::from_millis(200)) {
+                if let WatcherUiEvent::MailDetected { target, is_new, .. } = event {
+                    assert_eq!(target, "Mỏ Đá Cấp 6");
+                    assert!(is_new);
+                    mail_detected = true;
+                    break;
+                }
+            }
+        }
+        assert!(mail_detected, "Live mail must be detected by observer when start(true) is used");
+
+        watcher.stop();
+        assert!(!watcher.is_watching());
+        assert!(!watcher.is_observer_running());
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_start_without_initial_scan_starts_observer_and_detects_live_mail() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let temp_dir = std::env::temp_dir().join(format!("rok_test_live_scan_no_init_{}_{}", std::process::id(), unique));
+        let mailcache = temp_dir.join("mailcache");
+        let _ = std::fs::create_dir_all(&mailcache);
+
+        let (tx_ui, rx_ui) = std::sync::mpsc::channel();
+        let watcher = RoKMailWatcher::new(
+            Some(mailcache.clone()),
+            Some(temp_dir.clone()),
+            FilterMode::AllTargets,
+            LootCatalog::empty(),
+            tx_ui,
+        );
+
+        assert!(!watcher.is_watching());
+        assert!(!watcher.is_observer_running());
+
+        // Calling start(false) must start the observer thread without running initial scan
+        watcher.start(false);
+        assert!(watcher.is_watching());
+        assert!(!watcher.is_scanning());
+        assert!(watcher.is_observer_running());
+
+        // Write a real mail fixture into mailcache to simulate game creating a report
+        let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let fixture_path = manifest_dir.join("tests/fixtures/Persistent.Mail.1002220217856803764");
+        let target_mail = mailcache.join("Persistent.Mail.1002220217856803764");
+        std::fs::copy(&fixture_path, &target_mail).expect("Failed to copy fixture");
+
+        // The background observer should detect the file and notify via UI channel
+        let mut mail_detected = false;
+        let event_timeout = std::time::Instant::now();
+        while event_timeout.elapsed() < Duration::from_secs(5) {
+            if let Ok(event) = rx_ui.recv_timeout(Duration::from_millis(200)) {
+                if let WatcherUiEvent::MailDetected { target, is_new, .. } = event {
+                    assert_eq!(target, "Mỏ Đá Cấp 6");
+                    assert!(is_new);
+                    mail_detected = true;
+                    break;
+                }
+            }
+        }
+        assert!(mail_detected, "Live mail must be detected by observer when start(false) is used");
+
+        watcher.stop();
+        assert!(!watcher.is_watching());
+        assert!(!watcher.is_observer_running());
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_start_observer_stops_existing_observer_preventing_leak() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let temp_dir = std::env::temp_dir().join(format!("rok_test_obs_reenter_{}_{}", std::process::id(), unique));
+        let mailcache = temp_dir.join("mailcache");
+        let _ = std::fs::create_dir_all(&mailcache);
+
+        let (tx_ui, _rx_ui) = std::sync::mpsc::channel();
+        let watcher = RoKMailWatcher::new(
+            Some(mailcache.clone()),
+            Some(temp_dir.clone()),
+            FilterMode::AllTargets,
+            LootCatalog::empty(),
+            tx_ui,
+        );
+
+        watcher.start_observer();
+        assert!(watcher.is_observer_running());
+
+        // Starting observer again while one is active should cleanly replace the old observer
+        watcher.start_observer();
+        assert!(watcher.is_observer_running());
+
+        watcher.stop();
+        assert!(!watcher.is_observer_running());
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_start_observer_failure_resets_stop_signal_and_watching() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let temp_dir = std::env::temp_dir().join(format!("rok_test_obs_fail_{}_{}", std::process::id(), unique));
+        let mailcache = temp_dir.join("mailcache");
+        let _ = std::fs::create_dir_all(&mailcache);
+
+        let (tx_ui, rx_ui) = std::sync::mpsc::channel();
+        let watcher = RoKMailWatcher::new(
+            Some(mailcache.clone()),
+            Some(temp_dir.clone()),
+            FilterMode::AllTargets,
+            LootCatalog::empty(),
+            tx_ui,
+        );
+
+        // Delete the directory before starting observer to trigger watch error
+        let _ = std::fs::remove_dir_all(&mailcache);
+
+        watcher.start_observer();
+
+        // Give the background thread time to fail watcher.watch()
+        let start_wait = std::time::Instant::now();
+        let mut got_error = false;
+        while start_wait.elapsed() < Duration::from_secs(3) {
+            if let Ok(event) = rx_ui.recv_timeout(Duration::from_millis(50)) {
+                if let WatcherUiEvent::StatusChanged(WatcherStatus::Error(_)) = event {
+                    got_error = true;
+                    break;
+                }
+            }
+        }
+        assert!(got_error, "Should emit WatcherStatus::Error when directory cannot be watched");
+        assert!(!watcher.is_watching(), "is_watching must be reset to false on watcher setup failure");
+        assert!(!watcher.is_observer_running(), "stop_signal must be reset to None on watcher setup failure");
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_start_with_initial_scan_preserves_error_when_observer_fails() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let temp_dir = std::env::temp_dir().join(format!("rok_test_obs_err_scan_{}_{}", std::process::id(), unique));
+        let mailcache = temp_dir.join("mailcache");
+        let _ = std::fs::create_dir_all(&mailcache);
+
+        let (tx_ui, rx_ui) = std::sync::mpsc::channel();
+        let watcher = RoKMailWatcher::new(
+            Some(mailcache.clone()),
+            Some(temp_dir.clone()),
+            FilterMode::AllTargets,
+            LootCatalog::empty(),
+            tx_ui,
+        );
+
+        // Delete directory right before starting to test non-existent dir
+        let _ = std::fs::remove_dir_all(&mailcache);
+
+        // Calling start(true) should abort early if mailcache directory does not exist
+        watcher.start(true);
+
+        let mut got_stopped = false;
+        let mut got_scanning = false;
+        let start_wait = std::time::Instant::now();
+        while start_wait.elapsed() < Duration::from_millis(500) {
+            if let Ok(event) = rx_ui.recv_timeout(Duration::from_millis(50)) {
+                match event {
+                    WatcherUiEvent::StatusChanged(WatcherStatus::Stopped(_)) => got_stopped = true,
+                    WatcherUiEvent::StatusChanged(WatcherStatus::Scanning(_)) => got_scanning = true,
+                    _ => {}
+                }
+            }
+        }
+        assert!(got_stopped, "Must emit WatcherStatus::Stopped when directory does not exist");
+        assert!(!got_scanning, "Must not start scanning when directory does not exist");
+        assert!(!watcher.is_watching());
+        assert!(!watcher.is_scanning());
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_rescan_when_paused_emits_stopped_status_and_clears_scanning() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let temp_dir = std::env::temp_dir().join(format!("rok_test_rescan_paused_{}_{}", std::process::id(), unique));
+        let mailcache = temp_dir.join("mailcache");
+        let _ = std::fs::create_dir_all(&mailcache);
+
+        let (tx_ui, rx_ui) = std::sync::mpsc::channel();
+        let watcher = RoKMailWatcher::new(
+            Some(mailcache.clone()),
+            Some(temp_dir.clone()),
+            FilterMode::AllTargets,
+            LootCatalog::empty(),
+            tx_ui,
+        );
+
+        assert!(!watcher.is_watching());
+        assert!(!watcher.is_scanning());
+
+        // Trigger rescan while watching is paused
+        watcher.rescan();
+
+        // Wait for scanning to start and then finish
+        let start_wait = std::time::Instant::now();
+        let mut got_scanning = false;
+        let mut got_stopped = false;
+        while start_wait.elapsed() < Duration::from_secs(3) {
+            if let Ok(event) = rx_ui.recv_timeout(Duration::from_millis(50)) {
+                match event {
+                    WatcherUiEvent::StatusChanged(WatcherStatus::Scanning(_)) => {
+                        got_scanning = true;
+                    }
+                    WatcherUiEvent::StatusChanged(WatcherStatus::Stopped(_)) => {
+                        got_stopped = true;
+                        if !watcher.is_scanning() {
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        assert!(got_scanning, "Rescan while paused must emit WatcherStatus::Scanning");
+        assert!(got_stopped, "Rescan while paused must emit WatcherStatus::Stopped on completion");
+        assert!(!watcher.is_scanning(), "is_scanning must be false after rescan finishes");
+        assert!(!watcher.is_watching(), "is_watching must remain false");
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_process_file_duplicate_is_ignored() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let temp_dir = std::env::temp_dir().join(format!("rok_test_proc_dup_{}_{}", std::process::id(), unique));
+        let mailcache = temp_dir.join("mailcache");
+        let _ = std::fs::create_dir_all(&mailcache);
+
+        let (tx_ui, rx_ui) = std::sync::mpsc::channel();
+        let watcher = RoKMailWatcher::new(
+            Some(mailcache.clone()),
+            Some(temp_dir.clone()),
+            FilterMode::AllTargets,
+            LootCatalog::empty(),
+            tx_ui,
+        );
+
+        let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let fixture_path = manifest_dir.join("tests/fixtures/Persistent.Mail.1002220217856803764");
+        let target_mail = mailcache.join("Persistent.Mail.1002220217856803764");
+        std::fs::copy(&fixture_path, &target_mail).expect("Failed to copy fixture");
+
+        // First ingestion: must detect new mail
+        watcher.process_file_async(&target_mail);
+        let mut detected_first = false;
+        while let Ok(event) = rx_ui.recv_timeout(Duration::from_millis(100)) {
+            if let WatcherUiEvent::MailDetected { target, is_new, .. } = event {
+                assert_eq!(target, "Mỏ Đá Cấp 6");
+                assert!(is_new);
+                detected_first = true;
+                break;
+            }
+        }
+        assert!(detected_first, "First call must detect mail");
+
+        // Drain any remaining events in rx_ui
+        while rx_ui.try_recv().is_ok() {}
+
+        // Second ingestion of same file: must be a no-op (duplicate ignored)
+        watcher.process_file_async(&target_mail);
+        let mut detected_second = false;
+        while let Ok(event) = rx_ui.recv_timeout(Duration::from_millis(100)) {
+            if let WatcherUiEvent::MailDetected { .. } = event {
+                detected_second = true;
+                break;
+            }
+        }
+        assert!(!detected_second, "Duplicate mail file must be ignored and not re-emit MailDetected");
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }

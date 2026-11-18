@@ -187,7 +187,7 @@ const MOCK_PVP_PREVIEW_SESSIONS: MockPvpSession[] = [
     secondary_is_expertised: true,
     display_pair_name: "Nevsky / Joan (P)",
     combat_type: "rally",
-    kills_dealt: 48500,
+    kills_dealt: 685000,
     trade_ratio_pct: 122,
     battle_count: 2,
     last_time_vn: "2026-11-17 19:08:45",
@@ -202,10 +202,10 @@ const MOCK_PVP_PREVIEW_SESSIONS: MockPvpSession[] = [
     secondary_commander_name: "Sun Tzu",
     secondary_is_expertised: true,
     display_pair_name: "Zhuge Liang / Sun Tzu",
-    combat_type: "open-field",
-    kills_dealt: 14800,
-    trade_ratio_pct: 84,
-    battle_count: 1,
+    combat_type: "garrison",
+    kills_dealt: 1420000,
+    trade_ratio_pct: 168,
+    battle_count: 4,
     last_time_vn: "2026-11-17 18:55:10",
     is_death: false,
   },
@@ -258,6 +258,12 @@ function getPvpBadgeSrc(kills: number): string {
   if (kills >= 100_000) return "/hud/badges/pvp_badge_gold_100k.png";
   if (kills >= 35_000) return "/hud/badges/pvp_badge_gold_35k.png";
   return "/hud/badges/pvp_badge_silver.png";
+}
+
+function getRallyGarrisonBadgeSrc(kills: number): string | null {
+  if (kills >= 1_000_000) return "/hud/badges/pvp_badge_rally_1m.png";
+  if (kills >= 500_000) return "/hud/badges/pvp_badge_rally_500k.png";
+  return null;
 }
 
 function getRatioBadgeClass(pct: number): string {
@@ -2002,12 +2008,6 @@ export const SettingsView: React.FC = () => {
                           Math.min(overlayCfg.card_count ?? 3, 3)
                         ).map((session) => {
                           const combatType = session.combat_type || "open-field";
-                          const badgeClass =
-                            combatType === "rally"
-                              ? "bg-rose-100 text-rose-900 border-rose-300"
-                              : combatType === "garrison"
-                              ? "bg-indigo-100 text-indigo-900 border-indigo-300"
-                              : "bg-fuchsia-100 text-fuchsia-900 border-fuchsia-300";
 
                           const badgeText =
                             combatType === "open-field"
@@ -2038,7 +2038,7 @@ export const SettingsView: React.FC = () => {
                                     secondaryId={session.secondary_commander_id}
                                     secondaryName={session.secondary_commander_name}
                                     secondaryIsExpertised={session.secondary_is_expertised}
-                                    size="sm"
+                                    size="md"
                                     showWakeupBadge={false}
                                     showEmblem={false}
                                   />
@@ -2052,17 +2052,23 @@ export const SettingsView: React.FC = () => {
                                       {session.display_pair_name}
                                     </span>
                                     <div className="flex items-center gap-1 shrink-0">
-                                      <img
-                                        src={getPvpBadgeSrc(session.kills_dealt)}
-                                        alt="PvP Badge"
-                                        className="h-[16px] w-auto object-contain shrink-0 filter drop-shadow-sm"
-                                        title={`PvP (${session.kills_dealt.toLocaleString()} Kills)`}
-                                      />
-                                      <span
-                                        className={`text-[8.5px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border leading-none shrink-0 ${badgeClass}`}
-                                      >
-                                        {badgeText}
-                                      </span>
+                                      {combatType === "rally" || combatType === "garrison" ? (
+                                        getRallyGarrisonBadgeSrc(session.kills_dealt) ? (
+                                          <img
+                                            src={getRallyGarrisonBadgeSrc(session.kills_dealt)!}
+                                            alt={badgeText}
+                                            className="h-[30px] w-auto object-contain shrink-0 filter drop-shadow-sm"
+                                            title={`${badgeText} (${session.kills_dealt.toLocaleString()} Kills)`}
+                                          />
+                                        ) : null
+                                      ) : (
+                                          <img
+                                          src={getPvpBadgeSrc(session.kills_dealt)}
+                                          alt="PvP Badge"
+                                          className="h-[30px] w-auto object-contain shrink-0 filter drop-shadow-sm"
+                                          title={`PvP (${session.kills_dealt.toLocaleString()} Kills)`}
+                                        />
+                                      )}
                                     </div>
                                   </div>
 
@@ -2089,15 +2095,6 @@ export const SettingsView: React.FC = () => {
                                       {session.battle_count} battle
                                       {session.battle_count > 1 ? "s" : ""} · {session.last_time_vn.slice(11, 16)}
                                     </span>
-                                    {session.is_death ? (
-                                      <span className="shrink-0 text-rose-700 font-bold text-[8.5px] uppercase tracking-wider px-1.5 py-0.5 bg-rose-50 border border-rose-200 rounded leading-none">
-                                        Died
-                                      </span>
-                                    ) : (
-                                      <span className="shrink-0 text-purple-900 font-semibold">
-                                        PvP
-                                      </span>
-                                    )}
                                   </div>
                                 </div>
                               </div>

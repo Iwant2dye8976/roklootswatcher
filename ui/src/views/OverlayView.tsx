@@ -65,6 +65,12 @@ export const OverlayView: React.FC = () => {
     return "/hud/badges/pvp_badge_silver.png";
   };
 
+  const getRallyGarrisonBadgeSrc = (kills: number): string | null => {
+    if (kills >= 1_000_000) return "/hud/badges/pvp_badge_rally_1m.png";
+    if (kills >= 500_000) return "/hud/badges/pvp_badge_rally_500k.png";
+    return null;
+  };
+
   const totalIdle = (data.idle_secs || 0) + extraIdleSecs;
   const userOpacity = Math.max(0.3, Math.min(1.0, config.opacity || 0.95));
   const fadeTimeout = config.fade_timeout_secs ?? 0;
@@ -189,12 +195,12 @@ export const OverlayView: React.FC = () => {
             ) : (
               troop_trades.slice(0, maxCards).map((troop) => {
                 const combatType = troop.combat_type || "open-field";
-                const badgeClass =
-                  combatType === "rally"
-                    ? "bg-rose-100 text-rose-900 border-rose-300"
-                    : combatType === "garrison"
-                    ? "bg-indigo-100 text-indigo-900 border-indigo-300"
-                    : "bg-fuchsia-100 text-fuchsia-900 border-fuchsia-300";
+                const kills = troop.kills_dealt ?? troop.kp_gained ?? 0;
+                const isRallyOrGarrison =
+                  combatType === "rally" || combatType === "garrison";
+                const rallyGarrisonBadgeSrc = isRallyOrGarrison
+                  ? getRallyGarrisonBadgeSrc(kills)
+                  : null;
 
                 const badgeText =
                   combatType === "open-field"
@@ -225,7 +231,7 @@ export const OverlayView: React.FC = () => {
                           secondaryId={troop.secondary_commander_id}
                           secondaryName={troop.secondary_commander_name}
                           secondaryIsExpertised={troop.secondary_is_expertised}
-                          size="sm"
+                          size="md"
                           showWakeupBadge={false}
                           showEmblem={false}
                         />
@@ -239,23 +245,23 @@ export const OverlayView: React.FC = () => {
                             {troop.display_pair_name}
                           </span>
                           <div className="flex items-center gap-1 shrink-0">
-                            <img
-                              src={getPvpBadgeSrc(
-                                troop.kills_dealt ?? troop.kp_gained ?? 0
-                              )}
-                              alt="PvP Badge"
-                              className="h-[30px] w-auto object-contain shrink-0 filter drop-shadow-sm"
-                              title={`PvP (${(
-                                troop.kills_dealt ??
-                                troop.kp_gained ??
-                                0
-                              ).toLocaleString()} Kills)`}
-                            />
-                            <span
-                              className={`text-[8.5px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border leading-none shrink-0 ${badgeClass}`}
-                            >
-                              {badgeText}
-                            </span>
+                            {isRallyOrGarrison ? (
+                              rallyGarrisonBadgeSrc ? (
+                                <img
+                                  src={rallyGarrisonBadgeSrc}
+                                  alt={badgeText}
+                                  className="h-[30px] w-auto object-contain shrink-0 filter drop-shadow-sm"
+                                  title={`${badgeText} (${kills.toLocaleString()} Kills)`}
+                                />
+                              ) : null
+                            ) : (
+                                <img
+                                  src={getPvpBadgeSrc(kills)}
+                                  alt="PvP Badge"
+                                  className="h-[30px] w-auto object-contain shrink-0 filter drop-shadow-sm"
+                                  title={`PvP (${kills.toLocaleString()} Kills)`}
+                                />
+                            )}
                           </div>
                         </div>
 
@@ -289,15 +295,6 @@ export const OverlayView: React.FC = () => {
                               ? ` · ${troop.last_time_vn.slice(11, 16)}`
                               : ""}
                           </span>
-                          {troop.is_death ? (
-                            <span className="shrink-0 text-rose-700 font-bold text-[8.5px] uppercase tracking-wider px-1.5 py-0.5 bg-rose-50 border border-rose-200 rounded leading-none">
-                              Died
-                            </span>
-                          ) : (
-                            <span className="shrink-0 text-purple-900 font-semibold">
-                              PvP
-                            </span>
-                          )}
                         </div>
                       </div>
                     </div>
@@ -382,7 +379,7 @@ export const OverlayView: React.FC = () => {
                             secondaryId={rec.secondary_commander_id}
                             secondaryName={rec.secondary_commander_name}
                             secondaryIsExpertised={rec.secondary_is_expertised}
-                            size="sm"
+                            size="md"
                             showWakeupBadge={false}
                             showEmblem={false}
                           />
@@ -414,18 +411,35 @@ export const OverlayView: React.FC = () => {
                             {rec.display_target || rec.target}
                           </span>
                           {isPvp ? (
+                            <div className="flex items-center gap-1 shrink-0">
+                              <img
+                                src={getPvpBadgeSrc(pvpKills)}
+                                alt="PvP Badge"
+                                className="h-[16px] w-auto object-contain shrink-0 filter drop-shadow-sm"
+                                title={`PvP (${pvpKills.toLocaleString()} Kills)`}
+                              />
+                              {rec.pvp_combat_type === "rally" ||
+                              rec.pvp_combat_type === "garrison" ? (
+                                getRallyGarrisonBadgeSrc(pvpKills) ? (
+                                  <img
+                                    src={getRallyGarrisonBadgeSrc(pvpKills)!}
+                                    alt={typeBadgeLabel}
+                                    className="h-[30px] w-auto object-contain shrink-0 filter drop-shadow-sm"
+                                    title={`${typeBadgeLabel} (${pvpKills.toLocaleString()} Kills)`}
+                                  />
+                                ) : null
+                              ) : (
+                                <span className="text-[8.5px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border leading-none shrink-0 bg-fuchsia-100 text-fuchsia-900 border-fuchsia-300">
+                                  Field
+                                </span>
+                              )}
+                            </div>
+                          ) : (
                             <span
                               className={`text-[8.5px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border leading-none shrink-0 ${typeBadgeClass}`}
                             >
                               {typeBadgeLabel}
                             </span>
-                          ) : (
-                             <img
-                              src={getPvpBadgeSrc(pvpKills)}
-                              alt="PvP Badge"
-                              className="h-[30px] w-auto object-contain shrink-0 filter drop-shadow-sm"
-                              title={`PvP (${pvpKills.toLocaleString()} Kills)`}
-                            />
                           )}
                         </div>
 

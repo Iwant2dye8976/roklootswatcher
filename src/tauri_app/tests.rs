@@ -602,3 +602,29 @@ fn test_bench_query_battles_search_and_sorting() {
     println!("[BENCH] query_battles_from_slice (5,000 records, sort target): {:?}", elapsed_sort_target);
 }
 
+#[test]
+fn test_overlay_idle_reset_payload_contract() {
+    let (tx_ui, _rx_ui) = std::sync::mpsc::channel();
+    let temp_dir = std::env::temp_dir().join(format!("rok_test_idle_contract_{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&temp_dir);
+    let watcher = std::sync::Arc::new(crate::watcher::RoKMailWatcher::new(
+        Some(temp_dir.clone()),
+        Some(temp_dir.clone()),
+        crate::model::FilterMode::AllTargets,
+        crate::loot_catalog::LootCatalog::empty(),
+        tx_ui,
+    ));
+    let cfg = crate::model::AppConfig::default();
+
+    // Idle state: payload retains idle_secs passed into get_overlay_payload_internal
+    let payload_idle = get_overlay_payload_internal(&watcher, &cfg, None, 180);
+    assert_eq!(payload_idle.idle_secs, 180);
+
+    // After reset: payload has 0 idle_secs
+    let payload_reset = get_overlay_payload_internal(&watcher, &cfg, None, 0);
+    assert_eq!(payload_reset.idle_secs, 0);
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+
