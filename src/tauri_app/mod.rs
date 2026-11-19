@@ -182,7 +182,7 @@ pub fn run(
 
             // Setup localized System Tray
             let (show_lbl, rescan_lbl, toggle_lbl, quit_lbl) =
-                commands::tray_menu_labels(initial_lang);
+                commands::tray_menu_labels(initial_lang, watcher.is_watching());
             let show_i = MenuItem::with_id(app, "show", show_lbl, true, None::<&str>)?;
             let rescan_i = MenuItem::with_id(app, "rescan", rescan_lbl, true, None::<&str>)?;
             let toggle_i = MenuItem::with_id(app, "toggle", toggle_lbl, true, None::<&str>)?;
@@ -362,6 +362,21 @@ pub fn run(
                                         "is_scanning": is_scanning,
                                     }),
                                 );
+
+                                if let Some(st) = app_events.try_state::<TauriAppState>() {
+                                    let current_lang = st
+                                        .config
+                                        .lock()
+                                        .map(|c| c.language)
+                                        .unwrap_or(crate::model::AppLanguage::Vietnamese);
+                                    let (_, _, toggle_lbl, _) =
+                                        commands::tray_menu_labels(current_lang, is_watching);
+                                    if let Ok(guard) = st.tray_items.lock() {
+                                        if let Some(ref items) = *guard {
+                                            let _ = items.toggle.set_text(toggle_lbl);
+                                        }
+                                    }
+                                }
                             }
                             WatcherUiEvent::StatsUpdated { .. } => {
                                 let _ = app_events.emit("watcher://updated", ());

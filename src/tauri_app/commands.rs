@@ -19,18 +19,31 @@ pub struct TrayMenuItems {
 
 pub fn tray_menu_labels(
     lang: AppLanguage,
+    is_watching: bool,
 ) -> (&'static str, &'static str, &'static str, &'static str) {
-    match lang {
-        AppLanguage::Vietnamese => (
+    match (lang, is_watching) {
+        (AppLanguage::Vietnamese, true) => (
             "Mở cửa sổ chính",
             "Quét lại thư",
-            "Tạm dừng / Tiếp tục",
+            "Tạm dừng theo dõi",
             "Thoát ứng dụng",
         ),
-        AppLanguage::English => (
+        (AppLanguage::Vietnamese, false) => (
+            "Mở cửa sổ chính",
+            "Quét lại thư",
+            "Tiếp tục theo dõi",
+            "Thoát ứng dụng",
+        ),
+        (AppLanguage::English, true) => (
             "Open Main Window",
             "Rescan Mail",
-            "Pause / Resume",
+            "Pause Watching",
+            "Exit Application",
+        ),
+        (AppLanguage::English, false) => (
+            "Open Main Window",
+            "Rescan Mail",
+            "Resume Watching",
             "Exit Application",
         ),
     }
@@ -1199,7 +1212,8 @@ pub fn set_preferences(
 
     if let Ok(guard) = state.tray_items.lock() {
         if let Some(ref items) = *guard {
-            let (show_lbl, rescan_lbl, toggle_lbl, quit_lbl) = tray_menu_labels(language);
+            let (show_lbl, rescan_lbl, toggle_lbl, quit_lbl) =
+                tray_menu_labels(language, state.watcher.is_watching());
             let _ = items.show.set_text(show_lbl);
             let _ = items.rescan.set_text(rescan_lbl);
             let _ = items.toggle.set_text(toggle_lbl);

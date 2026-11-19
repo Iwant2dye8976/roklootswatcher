@@ -627,4 +627,20 @@ fn test_overlay_idle_reset_payload_contract() {
     let _ = std::fs::remove_dir_all(&temp_dir);
 }
 
+#[test]
+fn test_tray_menu_labels_state_and_localization() {
+    let (_, _, toggle_vi_watching, _) = tray_menu_labels(AppLanguage::Vietnamese, true);
+    assert_eq!(toggle_vi_watching, "Tạm dừng theo dõi");
+
+    let (_, _, toggle_vi_paused, _) = tray_menu_labels(AppLanguage::Vietnamese, false);
+    assert_eq!(toggle_vi_paused, "Tiếp tục theo dõi");
+
+    let (_, _, toggle_en_watching, _) = tray_menu_labels(AppLanguage::English, true);
+    assert_eq!(toggle_en_watching, "Pause Watching");
+
+    let (_, _, toggle_en_paused, _) = tray_menu_labels(AppLanguage::English, false);
+    assert_eq!(toggle_en_paused, "Resume Watching");
+}
+
+
 
