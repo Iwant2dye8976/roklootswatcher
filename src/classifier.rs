@@ -106,6 +106,36 @@ pub fn is_barbarian_battle_report(mail: &LilithValue) -> bool {
     false
 }
 
+pub fn is_fort_combat_report(mail: &LilithValue) -> bool {
+    if mail.get("type").and_then(|v| v.as_str()) != Some("Battle") {
+        return false;
+    }
+    let body = match mail.get("body") {
+        Some(b) => b,
+        None => return false,
+    };
+    let content = match body.get("content") {
+        Some(c) => c,
+        None => return false,
+    };
+    let attacks = match content.get("Attacks").and_then(|a| a.as_table()) {
+        Some(a) => a,
+        None => return false,
+    };
+
+    for (_atk_id, atk) in attacks {
+        if let Some(cidt) = atk.get("CIdt") {
+            let is_fort = cidt.get("IsFort").and_then(|v| v.as_bool()).unwrap_or(false);
+            let npcbtype = cidt.get("NpcBType").and_then(|v| v.as_f64()).unwrap_or(0.0) as i64;
+            let pid = cidt.get("PId").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            if is_fort || npcbtype == 2 || pid < 0.0 {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 pub fn get_commander_name(id: u32) -> String {
     crate::model::get_commander_name(id)
 }
@@ -149,6 +179,10 @@ pub fn classify_mail(mail: &LilithValue) -> Option<&'static str> {
 
     if is_barbarian_battle_report(mail) {
         return Some("barbarian");
+    }
+
+    if is_fort_combat_report(mail) {
+        return Some("fort_combat");
     }
 
     if is_pvp_battle_report(mail) {
@@ -286,6 +320,58 @@ pub fn extract_barbarian_battle_details(
     let mut npc_types: Vec<u32> = Vec::new();
     let mut pos_x: u32 = 0;
     let mut pos_y: u32 = 0;
+    let mut severely_wounded_taken: u64 = 0;
+    let mut dead_taken: u64 = 0;
+    let mut severely_wounded_dealt: u64 = 0;
+    let mut dead_dealt: u64 = 0;
+    let mut power_lost: u64 = 0;
+
+    let self_char = content.and_then(|c| c.get("SelfChar"));
+    let mut primary_commander_id = self_char
+        .and_then(|sc| sc.get("HId"))
+        .and_then(|v| v.as_u32())
+        .unwrap_or(0);
+    let mut secondary_commander_id = self_char
+        .and_then(|sc| sc.get("HId2"))
+        .and_then(|v| v.as_u32())
+        .unwrap_or(0);
+
+    // Fallback to STs if SelfChar did not carry HId
+    if primary_commander_id == 0 {
+        if let Some(sts) = content.and_then(|c| c.get("STs")).and_then(|s| s.as_table()) {
+            if let Some((_k, st)) = sts.iter().next() {
+                primary_commander_id = st.get("HId").and_then(|v| v.as_u32()).unwrap_or(0);
+                secondary_commander_id = st.get("HId2").and_then(|v| v.as_u32()).unwrap_or(0);
+            }
+        }
+    }
+
+    let primary_commander_name = get_commander_name(primary_commander_id);
+    let secondary_commander_name = get_commander_name(secondary_commander_id);
+
+    let mut primary_is_expertised = self_char
+        .and_then(|sc| sc.get("HAw"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let mut secondary_is_expertised = self_char
+        .and_then(|sc| sc.get("HAw2"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    if !primary_is_expertised {
+        if let Some(hss) = self_char.and_then(|sc| sc.get("HSS")).and_then(|h| h.as_table()) {
+            if hss.len() >= 5 || hss.contains_key("5") {
+                primary_is_expertised = true;
+            }
+        }
+    }
+    if !secondary_is_expertised {
+        if let Some(hss2) = self_char.and_then(|sc| sc.get("HSS2")).and_then(|h| h.as_table()) {
+            if hss2.len() >= 5 || hss2.contains_key("5") {
+                secondary_is_expertised = true;
+            }
+        }
+    }
 
     if let Some(att_map) = attacks {
         for (_atk_id, atk) in att_map {
@@ -335,6 +421,21 @@ pub fn extract_barbarian_battle_details(
                         pos_y = (y / 6.0).round() as u32;
                     }
                 }
+            }
+
+            if let Some(dmg) = atk.get("Damage") {
+                dead_taken += dmg.get("Death").and_then(|v| v.as_f64()).unwrap_or(0.0).max(0.0) as u64;
+                severely_wounded_taken += dmg.get("BadHurt").and_then(|v| v.as_f64()).unwrap_or(0.0).max(0.0) as u64;
+                if let Some(p) = dmg.get("Power").and_then(|v| v.as_f64()) {
+                    if p < 0.0 {
+                        power_lost += (-p).round() as u64;
+                    }
+                }
+            }
+
+            if let Some(kill) = atk.get("Kill") {
+                dead_dealt += kill.get("Death").and_then(|v| v.as_f64()).unwrap_or(0.0).max(0.0) as u64;
+                severely_wounded_dealt += kill.get("BadHurt").and_then(|v| v.as_f64()).unwrap_or(0.0).max(0.0) as u64;
             }
 
             if let Some(loots_map) = atk.get("NpcKillLoot").and_then(|l| l.as_table()) {
@@ -395,6 +496,17 @@ pub fn extract_barbarian_battle_details(
         content: content_desc,
         account_id,
         player_name,
+        primary_commander_id,
+        primary_commander_name,
+        secondary_commander_id,
+        secondary_commander_name,
+        primary_is_expertised,
+        secondary_is_expertised,
+        dead_dealt,
+        dead_taken,
+        severely_wounded_dealt,
+        severely_wounded_taken,
+        power_lost,
         ..Default::default()
     })
 }
@@ -603,6 +715,7 @@ pub fn extract_pvp_battle_details(
     let mut dead_taken: u64 = 0;
     let mut severely_wounded_dealt: u64 = 0;
     let mut severely_wounded_taken: u64 = 0;
+    let mut power_lost: u64 = 0;
     let mut pos_x: i32 = 0;
     let mut pos_y: i32 = 0;
     let mut enemy_names: Vec<String> = Vec::new();
@@ -655,6 +768,11 @@ pub fn extract_pvp_battle_details(
                 kp_gained += dmg.get("KillScore").and_then(|v| v.as_f64()).unwrap_or(0.0);
                 dead_taken += dmg.get("Death").and_then(|v| v.as_f64()).unwrap_or(0.0).max(0.0) as u64;
                 severely_wounded_taken += dmg.get("BadHurt").and_then(|v| v.as_f64()).unwrap_or(0.0).max(0.0) as u64;
+                if let Some(p) = dmg.get("Power").and_then(|v| v.as_f64()) {
+                    if p < 0.0 {
+                        power_lost += (-p).round() as u64;
+                    }
+                }
             }
 
             if let Some(kill) = atk.get("Kill") {
@@ -782,6 +900,7 @@ pub fn extract_pvp_battle_details(
         dead_taken,
         severely_wounded_dealt,
         severely_wounded_taken,
+        power_lost,
         pvp_troop_key,
         is_death,
         ..Default::default()
@@ -801,6 +920,13 @@ pub fn extract_motte_details(
 
     if btype == "barbarian" || is_barbarian_battle_report(mail) {
         return extract_barbarian_battle_details(mail, filename, catalog);
+    }
+
+    if btype == "fort_combat" || is_fort_combat_report(mail) {
+        let mut rec = extract_barbarian_battle_details(mail, filename, catalog)?;
+        rec.battle_type = "fort_combat".to_string();
+        rec.target = "Barbarian Fort Combat".to_string();
+        return Ok(rec);
     }
 
     if btype == "pvp" || is_pvp_battle_report(mail) {
@@ -952,6 +1078,82 @@ pub fn extract_motte_details(
 
     let (account_id, player_name) = extract_account_info(mail);
 
+    let mut primary_commander_id: u32 = 0;
+    let mut secondary_commander_id: u32 = 0;
+    let mut primary_is_expertised = false;
+    let mut secondary_is_expertised = false;
+    let mut dead_dealt: u64 = 0;
+    let mut dead_taken: u64 = 0;
+    let mut severely_wounded_dealt: u64 = 0;
+    let mut severely_wounded_taken: u64 = 0;
+    let mut power_lost: u64 = 0;
+
+    if let Some(content_table) = body.and_then(|b| b.get("content")).and_then(|c| c.as_table()) {
+        let self_char = content_table.get("SelfChar");
+        primary_commander_id = self_char
+            .and_then(|sc| sc.get("HId"))
+            .and_then(|v| v.as_u32())
+            .unwrap_or(0);
+        secondary_commander_id = self_char
+            .and_then(|sc| sc.get("HId2"))
+            .and_then(|v| v.as_u32())
+            .unwrap_or(0);
+
+        if primary_commander_id == 0 {
+            if let Some(sts) = content_table.get("STs").and_then(|s| s.as_table()) {
+                if let Some((_k, st)) = sts.iter().next() {
+                    primary_commander_id = st.get("HId").and_then(|v| v.as_u32()).unwrap_or(0);
+                    secondary_commander_id = st.get("HId2").and_then(|v| v.as_u32()).unwrap_or(0);
+                }
+            }
+        }
+
+        primary_is_expertised = self_char
+            .and_then(|sc| sc.get("HAw"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        secondary_is_expertised = self_char
+            .and_then(|sc| sc.get("HAw2"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
+        if !primary_is_expertised {
+            if let Some(hss) = self_char.and_then(|sc| sc.get("HSS")).and_then(|h| h.as_table()) {
+                if hss.len() >= 5 || hss.contains_key("5") {
+                    primary_is_expertised = true;
+                }
+            }
+        }
+        if !secondary_is_expertised {
+            if let Some(hss2) = self_char.and_then(|sc| sc.get("HSS2")).and_then(|h| h.as_table()) {
+                if hss2.len() >= 5 || hss2.contains_key("5") {
+                    secondary_is_expertised = true;
+                }
+            }
+        }
+
+        if let Some(attacks) = content_table.get("Attacks").and_then(|a| a.as_table()) {
+            for (_atk_id, atk) in attacks {
+                if let Some(dmg) = atk.get("Damage") {
+                    dead_taken += dmg.get("Death").and_then(|v| v.as_f64()).unwrap_or(0.0).max(0.0) as u64;
+                    severely_wounded_taken += dmg.get("BadHurt").and_then(|v| v.as_f64()).unwrap_or(0.0).max(0.0) as u64;
+                    if let Some(p) = dmg.get("Power").and_then(|v| v.as_f64()) {
+                        if p < 0.0 {
+                            power_lost += (-p).round() as u64;
+                        }
+                    }
+                }
+                if let Some(kill) = atk.get("Kill") {
+                    dead_dealt += kill.get("Death").and_then(|v| v.as_f64()).unwrap_or(0.0).max(0.0) as u64;
+                    severely_wounded_dealt += kill.get("BadHurt").and_then(|v| v.as_f64()).unwrap_or(0.0).max(0.0) as u64;
+                }
+            }
+        }
+    }
+
+    let primary_commander_name = get_commander_name(primary_commander_id);
+    let secondary_commander_name = get_commander_name(secondary_commander_id);
+
     Ok(BattleRecord {
         filename: filename.to_string(),
         mail_id,
@@ -971,6 +1173,17 @@ pub fn extract_motte_details(
         content,
         account_id,
         player_name,
+        primary_commander_id,
+        primary_commander_name,
+        secondary_commander_id,
+        secondary_commander_name,
+        primary_is_expertised,
+        secondary_is_expertised,
+        dead_dealt,
+        dead_taken,
+        severely_wounded_dealt,
+        severely_wounded_taken,
+        power_lost,
         ..Default::default()
     })
 }
@@ -1083,6 +1296,18 @@ mod tests {
         assert_eq!(rec.item_totals.get("Pha Lê"), Some(&688));
         assert!(rec.item_totals.contains_key("Sách Kiến Thức Cấp 3"), "Should contain Sách EXP");
         assert_eq!(rec.item_totals.get("Sách Kiến Thức Cấp 3"), Some(&10));
+
+        // PvE Severely wounded / healing & commander verification
+        assert_eq!(rec.primary_commander_id, 37);
+        assert_eq!(rec.primary_commander_name, "Lohar");
+        assert_eq!(rec.secondary_commander_id, 575);
+        assert_eq!(rec.secondary_commander_name, "Achilles");
+        assert_eq!(rec.severely_wounded_taken, 19);
+        assert_eq!(rec.power_lost, 190);
+        let (t4, t5) = rec.troop_tier_breakdown();
+        // 190 power for 19 wounded => 10 power/unit => 100% T5
+        assert_eq!(t4, 0);
+        assert_eq!(t5, 19);
     }
 
     #[test]
@@ -1116,6 +1341,18 @@ mod tests {
             assert_eq!(rec.target, "Lvl 47-52 English Soldiers (x27)");
             assert_eq!(rec.target_level, "47-52");
             assert!(!rec.items.is_empty());
+
+            // PvE Severely wounded / healing & commander verification
+            assert_eq!(rec.primary_commander_id, 595);
+            assert_eq!(rec.primary_commander_name, "Sun Tzu (P)");
+            assert_eq!(rec.secondary_commander_id, 196);
+            assert_eq!(rec.secondary_commander_name, "Choe Yeong");
+            assert_eq!(rec.severely_wounded_taken, 1794);
+            assert_eq!(rec.power_lost, 17940);
+            let (t4, t5) = rec.troop_tier_breakdown();
+            // 17940 power for 1794 wounded => 10 power/unit => 100% T5
+            assert_eq!(t4, 0);
+            assert_eq!(t5, 1794);
         }
     }
 
@@ -1467,5 +1704,29 @@ mod tests {
         assert_eq!(get_commander_name(575), "Achilles");
         assert_eq!(get_commander_name(595), "Sun Tzu (P)");
         assert_eq!(get_commander_name(618), "Pelagius (P)");
+    }
+
+    #[test]
+    fn test_fort_combat_report_classification_and_extraction() {
+        let test_path = std::path::Path::new("testmails/Persistent.Mail.52946193179535015225");
+        if !test_path.exists() {
+            return;
+        }
+        let mail = crate::lilith_stream::decode_mail_file(test_path).expect("Decode fort combat mail");
+        assert_eq!(classify_mail(&mail), Some("fort_combat"));
+
+        let catalog = LootCatalog::load_from_candidates(None);
+        let rec = extract_motte_details(&mail, "Persistent.Mail.52946193179535015225", &catalog, Some("fort_combat"))
+            .expect("Extract fort combat record");
+
+        assert_eq!(rec.battle_type, "fort_combat");
+        assert_eq!(rec.severely_wounded_taken, 2516);
+        assert_eq!(rec.power_lost, 22610);
+        let (t4, t5) = rec.troop_tier_breakdown();
+        // 4 * 425 + 10 * 2091 = 1700 + 20910 = 22610
+        assert_eq!(t4, 425);
+        assert_eq!(t5, 2091);
+        assert_eq!(rec.primary_commander_id, 545);
+        assert_eq!(rec.secondary_commander_id, 185);
     }
 }

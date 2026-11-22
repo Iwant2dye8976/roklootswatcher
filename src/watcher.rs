@@ -812,6 +812,47 @@ impl RoKMailWatcher {
         }
     }
 
+    pub fn get_filtered_healing_records(&self, is_pvp: bool) -> Vec<BattleRecord> {
+        let all = self.get_or_load_all_records();
+        let s = *self.start_date.read().unwrap_or_else(|e| e.into_inner());
+        let e_date = *self.end_date.read().unwrap_or_else(|e| e.into_inner());
+        let d = *self.days.read().unwrap_or_else(|e| e.into_inner());
+        let selected_account = self.get_selected_account();
+        let main_uids = self.get_main_account_uids();
+        let ignore_non_main = self.get_ignore_non_main_reports();
+
+        let matches_acc = |r: &BattleRecord| -> bool {
+            if let Some(ref sel) = selected_account {
+                let clean_r = r.account_id.strip_prefix("player_").unwrap_or(&r.account_id).trim();
+                let clean_sel = sel.strip_prefix("player_").unwrap_or(sel).trim();
+                clean_r == clean_sel
+            } else if ignore_non_main && !main_uids.is_empty() {
+                let clean_r = r.account_id.strip_prefix("player_").unwrap_or(&r.account_id).trim();
+                !clean_r.is_empty() && main_uids.iter().any(|u| {
+                    let clean_u = u.strip_prefix("player_").unwrap_or(u).trim();
+                    clean_u == clean_r
+                })
+            } else {
+                true
+            }
+        };
+
+        let iter = all.iter().filter(|r| {
+            if is_pvp {
+                r.battle_type == "pvp" && matches_acc(r)
+            } else {
+                // PvE healing: barbarian, motte, fort, fort_combat (and any non-pvp combat reports)
+                r.battle_type != "pvp" && matches_acc(r)
+            }
+        });
+
+        if s.is_none() && e_date.is_none() && d.is_none() {
+            iter.cloned().collect()
+        } else {
+            crate::analyzer::filter_records_by_date(iter, s, e_date, d)
+        }
+    }
+
     pub fn get_active_count(&self) -> usize {
         self.active_records.read().unwrap_or_else(|e| e.into_inner()).len()
     }

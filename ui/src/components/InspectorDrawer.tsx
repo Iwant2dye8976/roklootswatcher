@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
-import { X, MapPin, Crosshair, Award, Clock, FileText, User, Copy, Check } from "lucide-react";
+import { X, MapPin, Crosshair, Award, Clock, FileText, User, Copy, Check, Activity } from "lucide-react";
 import { useAppStore } from "../store/appStore";
-import { useI18n, formatSpeedupMinutes } from "../i18n";
+import { useI18n, formatSpeedupMinutes, formatSpeedupSeconds } from "../i18n";
 import { CommanderCardPair } from "./CommanderCardPair";
 import { ResourceIcon } from "./ResourceIcon";
 
@@ -230,6 +230,88 @@ export const InspectorDrawer: React.FC = () => {
                   {b.gems.toLocaleString()} Gems
                 </span>
               ) : null}
+            </div>
+          )}
+
+          {/* Hospital Healing Requirements */}
+          {b.healing_cost && b.healing_cost.severely_wounded > 0 && (
+            <div className="pt-2 border-t border-binance-hairline space-y-2">
+              <div className="flex items-center justify-between text-xs font-semibold text-rose-400">
+                <div className="flex items-center gap-1.5">
+                  <Activity className="w-3.5 h-3.5 text-rose-400" />
+                  <span>{t("hospitalPerBattleHealing")}</span>
+                </div>
+                <span className="text-[10px] font-mono font-bold text-binance-body bg-rose-500/15 border border-rose-500/30 px-1.5 py-0.5 rounded">
+                  {b.healing_cost.severely_wounded.toLocaleString()} {t("hospitalSeverelyWounded")}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-1.5 text-[11px] font-mono text-binance-muted">
+                <span className="px-1.5 py-0.5 rounded bg-binance-elevated border border-binance-hairline text-binance-body">
+                  {b.healing_cost.troop_type}
+                </span>
+                <span className="px-1.5 py-0.5 rounded bg-binance-elevated border border-binance-hairline text-binance-yellow font-semibold">
+                  {b.healing_cost.troop_tier}
+                </span>
+              </div>
+
+              {/* RSS Breakdown Grid */}
+              <div className="grid grid-cols-2 gap-1.5 font-mono text-[11px]">
+                {b.healing_cost.food > 0 && (
+                  <div className="flex items-center justify-between p-1.5 rounded bg-binance-elevated border border-binance-hairline">
+                    <div className="flex items-center gap-1">
+                      <ResourceIcon resource="food" size="xs" />
+                      <span className="text-binance-muted text-[10px]">Food</span>
+                    </div>
+                    <span className="text-binance-body font-semibold">{b.healing_cost.food.toLocaleString()}</span>
+                  </div>
+                )}
+                {b.healing_cost.wood > 0 && (
+                  <div className="flex items-center justify-between p-1.5 rounded bg-binance-elevated border border-binance-hairline">
+                    <div className="flex items-center gap-1">
+                      <ResourceIcon resource="wood" size="xs" />
+                      <span className="text-binance-muted text-[10px]">Wood</span>
+                    </div>
+                    <span className="text-binance-body font-semibold">{b.healing_cost.wood.toLocaleString()}</span>
+                  </div>
+                )}
+                {b.healing_cost.stone > 0 && (
+                  <div className="flex items-center justify-between p-1.5 rounded bg-binance-elevated border border-binance-hairline">
+                    <div className="flex items-center gap-1">
+                      <ResourceIcon resource="stone" size="xs" />
+                      <span className="text-binance-muted text-[10px]">Stone</span>
+                    </div>
+                    <span className="text-binance-body font-semibold">{b.healing_cost.stone.toLocaleString()}</span>
+                  </div>
+                )}
+                {b.healing_cost.gold > 0 && (
+                  <div className="flex items-center justify-between p-1.5 rounded bg-binance-elevated border border-binance-hairline">
+                    <div className="flex items-center gap-1">
+                      <ResourceIcon resource="gold" size="xs" />
+                      <span className="text-binance-muted text-[10px]">Gold</span>
+                    </div>
+                    <span className="text-binance-body font-semibold">{b.healing_cost.gold.toLocaleString()}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Speedup Time */}
+              <div className="flex items-center justify-between p-1.5 rounded bg-rose-500/10 border border-rose-500/20 text-[11px] font-mono">
+                <div className="flex items-center gap-1.5 text-rose-300">
+                  <Clock className="w-3.5 h-3.5" />
+                  <span>{t("hospitalSpeedupNeeded")}:</span>
+                </div>
+                <div className="text-right">
+                  <div className="font-bold text-rose-300">
+                    {formatSpeedupSeconds(b.healing_cost.final_speedup_seconds, speedupUnit, language)}
+                  </div>
+                  {b.healing_cost.buffed_speedup_seconds > b.healing_cost.final_speedup_seconds && (
+                    <div className="text-[9px] text-binance-muted">
+                      ({formatSpeedupSeconds(b.healing_cost.buffed_speedup_seconds, speedupUnit, language)} {t("hospitalBeforeHelps")})
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           )}
         </div>

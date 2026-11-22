@@ -158,6 +158,7 @@ pub fn run(
             commands::delete_secondary_records,
             commands::export_active_data,
             commands::get_clipboard_summary,
+            commands::update_healing_config,
             commands::export_vault_backup,
             commands::import_vault_backup,
             commands::clean_binary_vault,

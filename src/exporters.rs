@@ -10,8 +10,8 @@ fn escape_csv_field(val: &str) -> String {
 
 pub fn generate_csv(records: &[BattleRecord], lang: AppLanguage) -> String {
     let header = match lang {
-        AppLanguage::Vietnamese => "\u{FEFF}Thời gian,Loại trận,Mục tiêu,Sát thương (%),Tier quà,Pha lê,Tổng tài nguyên,Kinh nghiệm,Mũi tên,Tăng tốc chung (phút),Tăng tốc lính (phút),Tăng tốc trị (phút)\n",
-        AppLanguage::English => "\u{FEFF}Time,Battle Type,Target,Damage (%),Loot Tier,Crystals,Total Resources,Experience,Arrows,Univ Speedup (min),Train Speedup (min),Heal Speedup (min)\n",
+        AppLanguage::Vietnamese => "\u{FEFF}Thời gian,Loại trận,Mục tiêu,Sát thương (%),Tier quà,Pha lê,Tổng tài nguyên,Kinh nghiệm,Mũi tên,Tăng tốc chung (phút),Tăng tốc lính (phút),Tăng tốc trị (phút),Trọng thương,Chiến lực mất\n",
+        AppLanguage::English => "\u{FEFF}Time,Battle Type,Target,Damage (%),Loot Tier,Crystals,Total Resources,Experience,Arrows,Univ Speedup (min),Train Speedup (min),Heal Speedup (min),Severely Wounded,Power Lost\n",
     };
 
     let mut w = String::from(header);
@@ -38,10 +38,11 @@ pub fn generate_csv(records: &[BattleRecord], lang: AppLanguage) -> String {
         let safe_target = escape_csv_field(&target_display);
 
         w.push_str(&format!(
-            "\"{}\",\"{}\",\"{}\",{},{},{},{},{},{},{},{},{}\n",
+            "\"{}\",\"{}\",\"{}\",{},{},{},{},{},{},{},{},{},{},{}\n",
             safe_time, safe_btype, safe_target, r.damage_pct, r.plunder_tier,
             cry, rss, exp, arrow,
-            r.univ_speedup_minutes(), r.training_speedup_minutes(), r.heal_speedup_minutes()
+            r.univ_speedup_minutes(), r.training_speedup_minutes(), r.heal_speedup_minutes(),
+            r.severely_wounded_taken, r.power_lost
         ));
     }
     w
@@ -97,12 +98,12 @@ mod tests {
         };
 
         let csv_vi = generate_csv(std::slice::from_ref(&rec), AppLanguage::Vietnamese);
-        assert!(csv_vi.starts_with("\u{FEFF}Thời gian,Loại trận,Mục tiêu,Sát thương (%),Tier quà,Pha lê,Tổng tài nguyên,Kinh nghiệm,Mũi tên,Tăng tốc chung (phút),Tăng tốc lính (phút),Tăng tốc trị (phút)\n"));
-        assert!(csv_vi.contains("\"2026-10-23 12:00:00\",\"Pháo Đài\",\"Pháo Đài Cấp 10\",100,1,0,0,0,0,0,0,0\n"));
+        assert!(csv_vi.starts_with("\u{FEFF}Thời gian,Loại trận,Mục tiêu,Sát thương (%),Tier quà,Pha lê,Tổng tài nguyên,Kinh nghiệm,Mũi tên,Tăng tốc chung (phút),Tăng tốc lính (phút),Tăng tốc trị (phút),Trọng thương,Chiến lực mất\n"));
+        assert!(csv_vi.contains("\"2026-10-23 12:00:00\",\"Pháo Đài\",\"Pháo Đài Cấp 10\",100,1,0,0,0,0,0,0,0,0,0\n"));
 
         let csv_en = generate_csv(&[rec], AppLanguage::English);
-        assert!(csv_en.starts_with("\u{FEFF}Time,Battle Type,Target,Damage (%),Loot Tier,Crystals,Total Resources,Experience,Arrows,Univ Speedup (min),Train Speedup (min),Heal Speedup (min)\n"));
-        assert!(csv_en.contains("\"2026-10-23 12:00:00\",\"Barbarian Fort\",\"Barbarian Fort Level 10\",100,1,0,0,0,0,0,0,0\n"));
+        assert!(csv_en.starts_with("\u{FEFF}Time,Battle Type,Target,Damage (%),Loot Tier,Crystals,Total Resources,Experience,Arrows,Univ Speedup (min),Train Speedup (min),Heal Speedup (min),Severely Wounded,Power Lost\n"));
+        assert!(csv_en.contains("\"2026-10-23 12:00:00\",\"Barbarian Fort\",\"Barbarian Fort Level 10\",100,1,0,0,0,0,0,0,0,0,0\n"));
     }
 
     #[test]

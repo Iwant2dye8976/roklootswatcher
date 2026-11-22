@@ -271,6 +271,26 @@ export const translations = {
     inspectorCoord: "Tọa độ",
     inspectorDamage: "Sát thương đóng góp",
     inspectorDrops: "Chiến lợi phẩm nhận được",
+    // Hospital & Healing
+    hospitalHealingTitle: "YÊU CẦU VIỆN QUÂN Y & TRỊ LIỆU",
+    hospitalHealingSubtitle: "Tính toán tài nguyên và tăng tốc cần thiết để chữa trị lính trọng thương",
+    hospitalSeverelyWounded: "Lính Trọng Thương",
+    hospitalRssNeeded: "Tài Nguyên Cần Trị",
+    hospitalSpeedupNeeded: "Tăng Tốc Cần Trị",
+    hospitalSpeedBonus: "Tốc Độ Trị Bệnh",
+    hospitalAllianceHelps: "Trợ Giúp Liên Minh",
+    hospitalVipDiscount: "Giảm Giá VIP",
+    hospitalNetCoverage: "Độ Bao Phủ Từ Loot",
+    hospitalBaseTime: "Thời Gian Gốc (0% Buff)",
+    hospitalSurplus: "Dư",
+    hospitalDeficit: "Thiếu",
+    hospitalSettingsTitle: "CẤU HÌNH VIỆN QUÂN Y & TRỊ LIỆU",
+    hospitalSettingsDesc: "Thiết lập buff tốc độ trị bệnh, số lượt trợ giúp liên minh và cấp VIP để tính toán chính xác chi phí viện quân y",
+    hospitalHelpTooltip: "Số lượt trợ giúp liên minh nhận được khi ấn nút Chữa trị trong Viện Quân Y",
+    hospitalVipTooltip: "VIP 16 giảm 10% tài nguyên, VIP 18 giảm 15% tài nguyên trị lính",
+    hospitalPerBattleHealing: "Chi phí trị trận này",
+    hospitalInferredType: "Binh chủng suy luận",
+    hospitalBeforeHelps: "trước trợ giúp",
   },
   en: {
     appName: "Rise of Kingdoms",
@@ -542,6 +562,26 @@ export const translations = {
     inspectorCoord: "Coordinates",
     inspectorDamage: "Damage Contribution",
     inspectorDrops: "Loot Drops Acquired",
+    // Hospital & Healing
+    hospitalHealingTitle: "HOSPITAL HEALING REQUIREMENTS",
+    hospitalHealingSubtitle: "Calculated resources and speedups required to heal severely wounded troops",
+    hospitalSeverelyWounded: "Severely Wounded",
+    hospitalRssNeeded: "Healing RSS Needed",
+    hospitalSpeedupNeeded: "Healing Speedup Needed",
+    hospitalSpeedBonus: "Healing Speed Buff",
+    hospitalAllianceHelps: "Alliance Helps",
+    hospitalVipDiscount: "VIP Discount",
+    hospitalNetCoverage: "Farmed Loot Coverage",
+    hospitalBaseTime: "Base Time (Unbuffed)",
+    hospitalSurplus: "Surplus",
+    hospitalDeficit: "Deficit",
+    hospitalSettingsTitle: "HOSPITAL HEALING CONFIGURATION",
+    hospitalSettingsDesc: "Configure healing speed buff %, alliance helps count, and VIP level for accurate hospital calculations",
+    hospitalHelpTooltip: "Number of alliance helps received when requesting healing in Hospital",
+    hospitalVipTooltip: "VIP 16 reduces healing resources by 10%, VIP 18 reduces by 15%",
+    hospitalPerBattleHealing: "Battle Healing Cost",
+    hospitalInferredType: "Inferred Troop Type",
+    hospitalBeforeHelps: "before helps",
   },
 };
 
@@ -569,6 +609,43 @@ export function formatSpeedupMinutes(
     return `${m}m`;
   }
   const h = mins / 60;
+  return `${h.toFixed(1)}h`;
+}
+
+export function formatSpeedupSeconds(
+  secs: number,
+  unit: SpeedupUnit,
+  lang: AppLanguage = "en"
+): string {
+  if (!secs || secs <= 0) return "0s";
+  if (unit === "days") {
+    const d = secs / 86400;
+    return `${d.toFixed(d >= 10 ? 1 : 2)}d`;
+  }
+  if (unit === "minutes") {
+    const mins = Math.ceil(secs / 60);
+    return `${mins.toLocaleString()}${lang === "vi" ? "p" : "m"}`;
+  }
+  if (unit === "dhm") {
+    const total = Math.round(secs);
+    const days = Math.floor(total / 86400);
+    const remD = total % 86400;
+    const hours = Math.floor(remD / 3600);
+    const remH = remD % 3600;
+    const mins = Math.floor(remH / 60);
+    const s = remH % 60;
+    if (days > 0) {
+      return s > 0 ? `${days}d ${hours}h ${mins}m ${s}s` : `${days}d ${hours}h ${mins}m`;
+    }
+    if (hours > 0) {
+      return s > 0 ? `${hours}h ${mins}m ${s}s` : `${hours}h ${mins}m`;
+    }
+    if (mins > 0) {
+      return s > 0 ? `${mins}m ${s}s` : `${mins}m`;
+    }
+    return `${s}s`;
+  }
+  const h = secs / 3600;
   return `${h.toFixed(1)}h`;
 }
 

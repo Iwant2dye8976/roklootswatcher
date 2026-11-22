@@ -21,9 +21,12 @@ import {
   ZoomIn,
   ZoomOut,
   RotateCcw,
+  Plus,
+  Minus,
 } from "lucide-react";
+import * as api from "../api/tauri";
 import { useAppStore } from "../store/appStore";
-import { useI18n, formatSpeedupMinutes } from "../i18n";
+import { useI18n, formatSpeedupMinutes, formatSpeedupSeconds } from "../i18n";
 import { BattleRecord } from "../types";
 import { ResourceIcon } from "../components/ResourceIcon";
 import { CommanderCardPair } from "@/components/CommanderCardPair";
@@ -138,6 +141,362 @@ export const getPvpChartRange = (
   return { start, end: start + visibleCount };
 };
 
+const HospitalHealingCard: React.FC<{
+  healing: import("../types").HealingSummaryDto;
+  language: import("../types").AppLanguage;
+  speedupUnit: import("../types").SpeedupUnit;
+  onUpdateConfig: (bonus?: number, helps?: number, vip?: number) => void;
+  context?: "pvp" | "pve";
+}> = ({ healing, language, speedupUnit, onUpdateConfig, context }) => {
+  const { t } = useI18n(language);
+
+  const speedBonusPct = Math.round((healing.healing_speed_bonus || 0) * 100);
+  const helpsCount = healing.alliance_helps_count || 0;
+  const vipLvl = healing.vip_level || 0;
+
+  const handleBonusChange = (delta: number) => {
+    const nextPct = Math.max(0, speedBonusPct + delta);
+    onUpdateConfig(nextPct / 100, undefined, undefined);
+  };
+
+  const handleHelpsChange = (delta: number) => {
+    const nextHelps = Math.max(0, Math.min(30, helpsCount + delta));
+    onUpdateConfig(undefined, nextHelps, undefined);
+  };
+
+  const handleVipChange = (lvl: number) => {
+    onUpdateConfig(undefined, undefined, lvl);
+  };
+
+  const isSpeedupCovered =
+    healing.final_speedup_seconds === 0 || healing.speedup_coverage_pct >= 100;
+  const isRssCovered =
+    healing.total_rss_needed === 0 || healing.rss_coverage_pct >= 100;
+
+  return (
+    <div className="p-3.5 rounded-md bg-binance-card border border-binance-hairline space-y-3 hover:border-rose-500/30 transition">
+      {/* Header */}
+      <div className="flex items-center justify-between text-xs border-b border-binance-hairline pb-2.5 flex-wrap gap-2">
+        <div className="flex items-center gap-2">
+          <Activity className="w-4 h-4 text-rose-400 shrink-0" />
+          <div>
+            <div className="font-semibold text-binance-body tracking-wide flex items-center gap-2 flex-wrap">
+              <span>{t("hospitalHealingTitle")}</span>
+              {context && (
+                <span
+                  className={`text-[10px] px-1.5 py-0.2 rounded font-mono font-bold border ${
+                    context === "pvp"
+                      ? "bg-purple-500/15 text-purple-300 border-purple-500/30"
+                      : "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
+                  }`}
+                >
+                  {context.toUpperCase()}
+                </span>
+              )}
+              {healing.vip_discount_pct > 0 && (
+                <span className="text-[10px] px-1.5 py-0.2 rounded font-mono font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                  VIP {healing.vip_discount_pct}% OFF
+                </span>
+              )}
+            </div>
+            <div className="text-[10px] text-binance-muted">
+              {t("hospitalHealingSubtitle")}
+            </div>
+          </div>
+        </div>
+
+        {/* Interactive Quick Adjusters */}
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Healing Speed Bonus Stepper */}
+          <div className="flex items-center bg-binance-elevated border border-binance-hairline rounded px-1.5 py-0.5 text-[10px] font-mono gap-1">
+            <span className="text-binance-muted">{t("hospitalSpeedBonus")}:</span>
+            <span className="text-binance-body font-bold">{speedBonusPct}%</span>
+            <button
+              type="button"
+              onClick={() => handleBonusChange(-5)}
+              className="p-0.5 hover:bg-binance-card rounded text-binance-muted hover:text-binance-body"
+              title="-5% Buff"
+            >
+              <Minus className="w-3 h-3" />
+            </button>
+            <button
+              type="button"
+              onClick={() => handleBonusChange(5)}
+              className="p-0.5 hover:bg-binance-card rounded text-binance-muted hover:text-binance-body"
+              title="+5% Buff"
+            >
+              <Plus className="w-3 h-3" />
+            </button>
+          </div>
+
+          {/* Alliance Helps Stepper */}
+          <div className="flex items-center bg-binance-elevated border border-binance-hairline rounded px-1.5 py-0.5 text-[10px] font-mono gap-1">
+            <span className="text-binance-muted">{t("hospitalAllianceHelps")}:</span>
+            <span className="text-binance-body font-bold">{helpsCount}</span>
+            <button
+              type="button"
+              onClick={() => handleHelpsChange(-5)}
+              className="p-0.5 hover:bg-binance-card rounded text-binance-muted hover:text-binance-body"
+              title="-5 Helps"
+            >
+              <Minus className="w-3 h-3" />
+            </button>
+            <button
+              type="button"
+              onClick={() => handleHelpsChange(5)}
+              className="p-0.5 hover:bg-binance-card rounded text-binance-muted hover:text-binance-body"
+              title="+5 Helps"
+            >
+              <Plus className="w-3 h-3" />
+            </button>
+          </div>
+
+          {/* VIP Level Toggles */}
+          <div className="flex items-center bg-binance-elevated border border-binance-hairline rounded p-0.5 text-[10px] font-mono">
+            <button
+              type="button"
+              onClick={() => handleVipChange(0)}
+              className={`px-1.5 py-0.5 rounded transition ${
+                vipLvl < 16
+                  ? "bg-binance-card text-binance-body font-bold shadow-xs"
+                  : "text-binance-muted hover:text-binance-body"
+              }`}
+              title="VIP <16 (0% RSS discount)"
+            >
+              VIP &lt;16
+            </button>
+            <button
+              type="button"
+              onClick={() => handleVipChange(16)}
+              className={`px-1.5 py-0.5 rounded transition ${
+                vipLvl >= 16 && vipLvl < 18
+                  ? "bg-binance-card text-amber-300 font-bold shadow-xs"
+                  : "text-binance-muted hover:text-binance-body"
+              }`}
+              title="VIP 16 (10% RSS discount)"
+            >
+              VIP 16 (-10%)
+            </button>
+            <button
+              type="button"
+              onClick={() => handleVipChange(18)}
+              className={`px-1.5 py-0.5 rounded transition ${
+                vipLvl >= 18
+                  ? "bg-binance-card text-amber-400 font-bold shadow-xs"
+                  : "text-binance-muted hover:text-binance-body"
+              }`}
+              title="VIP 18 (15% RSS discount)"
+            >
+              VIP 18 (-15%)
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Main Stats Grid */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2.5">
+        {/* 1. Severely Wounded Casualties */}
+        <div className="p-2.5 rounded bg-binance-elevated border border-binance-hairline flex flex-col justify-between">
+          <div className="flex items-center justify-between text-[11px] text-binance-muted">
+            <span className="font-medium">{t("hospitalSeverelyWounded")}</span>
+            <Activity className="w-3.5 h-3.5 text-rose-400" />
+          </div>
+          <div className="my-1">
+            <div className="text-xl font-bold font-mono text-rose-400 tracking-tight">
+              {healing.total_severely_wounded.toLocaleString()}
+            </div>
+          </div>
+          <div className="flex items-center gap-1.5 text-[10px] font-mono">
+            <span className="px-1.5 py-0.5 rounded bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 font-semibold">
+              T4: {healing.t4_count.toLocaleString()}
+            </span>
+            <span className="px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 font-semibold">
+              T5: {healing.t5_count.toLocaleString()}
+            </span>
+          </div>
+        </div>
+
+        {/* 2. Speedup Needed & Farmed Coverage */}
+        <div className="p-2.5 rounded bg-binance-elevated border border-binance-hairline flex flex-col justify-between">
+          <div className="flex items-center justify-between text-[11px] text-binance-muted">
+            <span className="font-medium">{t("hospitalSpeedupNeeded")}</span>
+            <Clock className="w-3.5 h-3.5 text-rose-400" />
+          </div>
+          <div className="my-1">
+            <div className="text-xl font-bold font-mono text-rose-300 tracking-tight flex items-baseline gap-2 flex-wrap">
+              <span>
+                {formatSpeedupSeconds(
+                  healing.final_speedup_seconds,
+                  speedupUnit,
+                  language
+                )}
+              </span>
+              {healing.alliance_helps_count > 0 &&
+                healing.buffed_speedup_seconds > healing.final_speedup_seconds && (
+                  <span className="text-[11px] text-binance-muted font-normal">
+                    ({formatSpeedupSeconds(
+                      healing.buffed_speedup_seconds,
+                      speedupUnit,
+                      language
+                    )}{" "}
+                    {t("hospitalBeforeHelps")})
+                  </span>
+                )}
+            </div>
+          </div>
+          <div className="flex items-center justify-between text-[10px] font-mono">
+            <span className="text-binance-muted">
+              Base:{" "}
+              {formatSpeedupSeconds(
+                healing.base_speedup_seconds,
+                speedupUnit,
+                language
+              )}
+            </span>
+            <span
+              className={`px-1.5 py-0.2 rounded font-bold border ${
+                isSpeedupCovered
+                  ? "bg-binance-green/15 text-binance-green border-binance-green/30"
+                  : "bg-binance-red/15 text-binance-red border-binance-red/30"
+              }`}
+              title={`${t("hospitalNetCoverage")}: ${healing.speedup_coverage_pct.toFixed(0)}%`}
+            >
+              {healing.final_speedup_seconds === 0
+                ? "100% Covered"
+                : `${healing.speedup_coverage_pct.toFixed(0)}% (${
+                    healing.net_speedup_seconds >= 0 ? "+" : "-"
+                  }${formatSpeedupSeconds(
+                    Math.abs(healing.net_speedup_seconds),
+                    speedupUnit,
+                    language
+                  )})`}
+            </span>
+          </div>
+        </div>
+
+        {/* 3. Total Resources Needed */}
+        <div className="p-2.5 rounded bg-binance-elevated border border-binance-hairline flex flex-col justify-between">
+          <div className="flex items-center justify-between text-[11px] text-binance-muted">
+            <span className="font-medium">{t("hospitalRssNeeded")}</span>
+            <div className="flex items-center -space-x-1 shrink-0">
+              <ResourceIcon resource="food" size="xs" />
+              <ResourceIcon resource="wood" size="xs" />
+              <ResourceIcon resource="stone" size="xs" />
+              <ResourceIcon resource="gold" size="xs" />
+            </div>
+          </div>
+          <div className="my-1">
+            <div className="text-xl font-bold font-mono text-binance-body tracking-tight">
+              {healing.total_rss_needed >= 1_000_000
+                ? `${(healing.total_rss_needed / 1_000_000).toFixed(2)}M`
+                : healing.total_rss_needed.toLocaleString()}{" "}
+              <span className="text-xs font-normal text-binance-muted">RSS</span>
+            </div>
+          </div>
+          <div className="flex items-center justify-between text-[10px] font-mono">
+            <span className="text-binance-muted">
+              Loot RSS: {(healing.farmed_total_rss / 1_000_000).toFixed(1)}M
+            </span>
+            <span
+              className={`px-1.5 py-0.2 rounded font-bold border ${
+                isRssCovered
+                  ? "bg-binance-green/15 text-binance-green border-binance-green/30"
+                  : "bg-binance-red/15 text-binance-red border-binance-red/30"
+              }`}
+            >
+              {healing.total_rss_needed === 0
+                ? "100% Covered"
+                : `${healing.rss_coverage_pct.toFixed(0)}% Covered`}
+            </span>
+          </div>
+        </div>
+
+        {/* 4. Per-Resource Breakdown */}
+        <div className="p-2.5 rounded bg-binance-elevated border border-binance-hairline flex flex-col justify-between">
+          <div className="grid grid-cols-2 gap-1.5 text-[10px] font-mono">
+            <div className="flex items-center justify-between p-1 rounded bg-binance-card border border-binance-hairline">
+              <div className="flex items-center gap-1">
+                <ResourceIcon resource="food" size="xs" />
+                <span className="text-binance-muted">Food</span>
+              </div>
+              <span className="text-binance-body font-semibold">
+                {healing.food_needed >= 1_000_000
+                  ? `${(healing.food_needed / 1_000_000).toFixed(1)}M`
+                  : healing.food_needed.toLocaleString()}
+              </span>
+            </div>
+
+            <div className="flex items-center justify-between p-1 rounded bg-binance-card border border-binance-hairline">
+              <div className="flex items-center gap-1">
+                <ResourceIcon resource="wood" size="xs" />
+                <span className="text-binance-muted">Wood</span>
+              </div>
+              <span className="text-binance-body font-semibold">
+                {healing.wood_needed >= 1_000_000
+                  ? `${(healing.wood_needed / 1_000_000).toFixed(1)}M`
+                  : healing.wood_needed.toLocaleString()}
+              </span>
+            </div>
+
+            <div className="flex items-center justify-between p-1 rounded bg-binance-card border border-binance-hairline">
+              <div className="flex items-center gap-1">
+                <ResourceIcon resource="stone" size="xs" />
+                <span className="text-binance-muted">Stone</span>
+              </div>
+              <span className="text-binance-body font-semibold">
+                {healing.stone_needed >= 1_000_000
+                  ? `${(healing.stone_needed / 1_000_000).toFixed(1)}M`
+                  : healing.stone_needed.toLocaleString()}
+              </span>
+            </div>
+
+            <div className="flex items-center justify-between p-1 rounded bg-binance-card border border-binance-hairline">
+              <div className="flex items-center gap-1">
+                <ResourceIcon resource="gold" size="xs" />
+                <span className="text-binance-muted">Gold</span>
+              </div>
+              <span className="text-binance-body font-semibold">
+                {healing.gold_needed >= 1_000_000
+                  ? `${(healing.gold_needed / 1_000_000).toFixed(1)}M`
+                  : healing.gold_needed.toLocaleString()}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between text-[9px] font-mono text-binance-muted pt-1">
+            <span>
+              Net Food:{" "}
+              <span
+                className={
+                  healing.net_food >= 0
+                    ? "text-binance-green"
+                    : "text-binance-red"
+                }
+              >
+                {healing.net_food >= 0 ? "+" : ""}
+                {(healing.net_food / 1_000_000).toFixed(1)}M
+              </span>
+            </span>
+            <span>
+              Net Gold:{" "}
+              <span
+                className={
+                  healing.net_gold >= 0
+                    ? "text-binance-green"
+                    : "text-binance-red"
+                }
+              >
+                {healing.net_gold >= 0 ? "+" : ""}
+                {(healing.net_gold / 1_000_000).toFixed(1)}M
+              </span>
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 export const DashboardView: React.FC = () => {
   const {
     dashboard,
@@ -147,6 +506,7 @@ export const DashboardView: React.FC = () => {
     speedupUnit,
     mode,
     updateFilter,
+    refreshDashboard,
   } = useAppStore();
   const { t } = useI18n(language);
   const isPvpMode = mode === "pvp";
@@ -177,6 +537,19 @@ export const DashboardView: React.FC = () => {
     gems_per_1k_ap: 0,
     daily_timeline: [],
     target_benchmarks: [],
+  };
+
+  const handleUpdateHealingConfig = async (
+    bonus?: number,
+    helps?: number,
+    vip?: number
+  ) => {
+    try {
+      await api.updateHealingConfig(bonus, helps, vip);
+      await refreshDashboard();
+    } catch (e) {
+      console.error("Failed to update healing config:", e);
+    }
   };
 
   const handleBenchmarkSort = (key: BenchmarkSortKey) => {
@@ -213,7 +586,7 @@ export const DashboardView: React.FC = () => {
       });
     }
 
-    return [...list].sort((a, b) => {
+    return list.toSorted((a, b) => {
       let cmp = 0;
       switch (bmSortKey) {
         case "target":
@@ -907,6 +1280,17 @@ export const DashboardView: React.FC = () => {
           </div>
         </div>
       </div>
+      )}
+
+      {/* Hospital Healing Summary Card (PvE) */}
+      {!isPvpMode && d.healing_summary && (
+        <HospitalHealingCard
+          healing={d.healing_summary}
+          language={language}
+          speedupUnit={speedupUnit}
+          onUpdateConfig={handleUpdateHealingConfig}
+          context="pve"
+        />
       )}
 
       {/* 3. Target Encounter Distribution (PvE Only) */}
@@ -1948,6 +2332,17 @@ export const DashboardView: React.FC = () => {
                 </div>
               </div>
             </div>
+
+            {/* Hospital Healing Summary Card (PvP) */}
+            {d.healing_summary && (
+              <HospitalHealingCard
+                healing={d.healing_summary}
+                language={language}
+                speedupUnit={speedupUnit}
+                onUpdateConfig={handleUpdateHealingConfig}
+                context="pvp"
+              />
+            )}
 
             {/* SVG Multi-Line / Area Chart */}
             <div className="p-3.5 rounded-md bg-binance-card border border-binance-hairline space-y-3">

@@ -568,11 +568,14 @@ pub fn query_battles_from_slice(
 ) -> Vec<BattleRecordDto> {
     let q = search.trim().to_lowercase();
     let mut filtered: Vec<&BattleRecord> = if q.is_empty() {
-        records.iter().collect()
+        records.iter().filter(|r| r.battle_type != "fort_combat").collect()
     } else {
         records
             .iter()
             .filter(|r| {
+                if r.battle_type == "fort_combat" {
+                    return false;
+                }
                 contains_case_insensitive(&r.target, &q)
                     || contains_case_insensitive(&r.display_target(lang), &q)
                     || contains_case_insensitive(&r.filename, &q)
@@ -1109,6 +1112,9 @@ pub fn get_initial_state(state: State<'_, TauriAppState>) -> Result<AppSnapshotD
         autostart_minimized,
         overlay_config: cfg.overlay.clone(),
         cloud_status,
+        healing_speed_bonus: cfg.healing_speed_bonus,
+        alliance_helps_count: cfg.alliance_helps_count,
+        vip_level: cfg.vip_level,
     })
 }
 
@@ -1326,10 +1332,19 @@ pub fn get_dashboard_data(state: State<'_, TauriAppState>) -> Result<DashboardDt
         })
         .collect();
 
+    let (bonus, helps, vip) = {
+        let cfg = state.config.lock().unwrap_or_else(|e| e.into_inner());
+        (cfg.healing_speed_bonus, cfg.alliance_helps_count, cfg.vip_level)
+    };
+    let current_mode = state.watcher.get_mode();
+    let is_pvp_filter = current_mode == crate::model::FilterMode::PvP;
+    let healing_records = state.watcher.get_filtered_healing_records(is_pvp_filter);
+    let healing_summary = crate::analyzer::compute_healing_summary(&healing_records, bonus, helps, vip);
+
     let latest_raw = crate::analyzer::get_latest_records(&active_records, 5);
     let latest_battles = latest_raw
         .iter()
-        .map(|r| BattleRecordDto::from_record(r, lang))
+        .map(|r| BattleRecordDto::from_record_with_healing(r, lang, bonus, helps, vip))
         .collect();
 
     let pvp_records = state.watcher.get_filtered_pvp_records();
@@ -1356,6 +1371,7 @@ pub fn get_dashboard_data(state: State<'_, TauriAppState>) -> Result<DashboardDt
         top_items,
         latest_battles,
         pvp_stats: Some(pvp_stats_dto),
+        healing_summary: Some(HealingSummaryDto::from(healing_summary)),
     })
 }
 
@@ -1661,7 +1677,85 @@ pub fn get_clipboard_summary(state: State<'_, TauriAppState>) -> Result<String, 
         ),
     };
 
-    Ok(summary)
+    let current_mode = state.watcher.get_mode();
+    let is_pvp_filter = current_mode == crate::model::FilterMode::PvP;
+    let healing_records = state.watcher.get_filtered_healing_records(is_pvp_filter);
+    let healing = crate::analyzer::compute_healing_summary(
+        &healing_records,
+        cfg.healing_speed_bonus,
+        cfg.alliance_helps_count,
+        cfg.vip_level,
+    );
+    let mut final_summary = summary;
+    if healing.total_severely_wounded > 0 {
+        match lang {
+            AppLanguage::Vietnamese => {
+                final_summary.push_str(&format!(
+                    "\nViện Quân Y: {} trọng thương (T4: {} | T5: {})\n\
+                     Chi phí trị: {} (Ngô: {} | Gỗ: {} | Đá: {} | Vàng: {})\n\
+                     Tăng tốc trị cần: {} (Bao phủ loot: {}%)",
+                    format_num(healing.total_severely_wounded as i64),
+                    format_num(healing.t4_count as i64),
+                    format_num(healing.t5_count as i64),
+                    format_num(healing.total_rss_needed),
+                    format_num(healing.food_needed),
+                    format_num(healing.wood_needed),
+                    format_num(healing.stone_needed),
+                    format_num(healing.gold_needed),
+                    su.format_duration_for_language((healing.final_speedup_seconds as f64) / 60.0, lang),
+                    healing.speedup_coverage_pct,
+                ));
+            }
+            AppLanguage::English => {
+                final_summary.push_str(&format!(
+                    "\nHospital Healing: {} Severely Wounded (T4: {} | T5: {})\n\
+                     Healing Cost: {} (Food: {} | Wood: {} | Stone: {} | Gold: {})\n\
+                     Healing Speedup: {} (Loot Coverage: {}%)",
+                    format_num(healing.total_severely_wounded as i64),
+                    format_num(healing.t4_count as i64),
+                    format_num(healing.t5_count as i64),
+                    format_num(healing.total_rss_needed),
+                    format_num(healing.food_needed),
+                    format_num(healing.wood_needed),
+                    format_num(healing.stone_needed),
+                    format_num(healing.gold_needed),
+                    su.format_duration_for_language((healing.final_speedup_seconds as f64) / 60.0, lang),
+                    healing.speedup_coverage_pct,
+                ));
+            }
+        }
+    }
+
+    Ok(final_summary)
+}
+
+#[tauri::command]
+pub fn update_healing_config(
+    state: State<'_, TauriAppState>,
+    healing_speed_bonus: Option<f64>,
+    alliance_helps_count: Option<u32>,
+    vip_level: Option<u32>,
+) -> Result<AppSnapshotDto, String> {
+    {
+        let mut cfg = state.config.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(bonus) = healing_speed_bonus {
+            cfg.healing_speed_bonus = bonus.max(0.0);
+        }
+        if let Some(helps) = alliance_helps_count {
+            cfg.alliance_helps_count = helps.min(30);
+        }
+        if let Some(vip) = vip_level {
+            cfg.vip_level = vip;
+        }
+        cfg.save();
+    }
+    let cfg_snap = state
+        .config
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
+    sync_settings_to_cloud_async(&cfg_snap);
+    get_initial_state(state)
 }
 
 #[tauri::command]

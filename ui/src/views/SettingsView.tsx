@@ -23,6 +23,7 @@ import {
   Sparkles,
   Check,
   AlertCircle,
+  Activity,
 } from "lucide-react";
 import { useAppStore } from "../store/appStore";
 import { useConfirm } from "../components/ConfirmDialog";
@@ -311,6 +312,16 @@ export const SettingsView: React.FC = () => {
     snapshot?.cloud_status?.backup_interval_minutes ?? 30
   );
 
+  const [healingSpeedBonusPct, setHealingSpeedBonusPct] = useState<number>(
+    Math.round((snapshot?.healing_speed_bonus ?? 0.85) * 100)
+  );
+  const [allianceHelps, setAllianceHelps] = useState<number>(
+    snapshot?.alliance_helps_count ?? 30
+  );
+  const [vipLevel, setVipLevel] = useState<number>(
+    snapshot?.vip_level ?? 0
+  );
+
   const [autoScroll, setAutoScroll] = useState(true);
   const logContainerRef = useRef<HTMLDivElement>(null);
   const lastFadeTimeoutRef = useRef<number>(
@@ -338,7 +349,29 @@ export const SettingsView: React.FC = () => {
     if (snapshot.cloud_status) {
       setCloudInterval(snapshot.cloud_status.backup_interval_minutes);
     }
+    if (snapshot.healing_speed_bonus !== undefined) {
+      setHealingSpeedBonusPct(Math.round(snapshot.healing_speed_bonus * 100));
+    }
+    if (snapshot.alliance_helps_count !== undefined) {
+      setAllianceHelps(snapshot.alliance_helps_count);
+    }
+    if (snapshot.vip_level !== undefined) {
+      setVipLevel(snapshot.vip_level);
+    }
   }, [snapshot]);
+
+  const saveHealingConfig = async () => {
+    try {
+      await api.updateHealingConfig(
+        healingSpeedBonusPct / 100,
+        allianceHelps,
+        vipLevel
+      );
+      await refreshSnapshot();
+    } catch (e) {
+      console.error("Failed to save healing config:", e);
+    }
+  };
 
   useEffect(() => {
     if (autoScroll && logContainerRef.current) {
@@ -780,7 +813,7 @@ export const SettingsView: React.FC = () => {
               value={mailPath}
               onChange={(e) => setMailPath(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter") {
+                if (e.key === "Enter" && !e.nativeEvent.isComposing && e.keyCode !== 229) {
                   e.preventDefault();
                   handleApplyMailDir();
                 }
@@ -1159,7 +1192,7 @@ export const SettingsView: React.FC = () => {
               value={newUidInput}
               onChange={(e) => setNewUidInput(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter") {
+                if (e.key === "Enter" && !e.nativeEvent.isComposing && e.keyCode !== 229) {
                   e.preventDefault();
                   handleAddMainUid();
                 }
@@ -1252,6 +1285,82 @@ export const SettingsView: React.FC = () => {
               <Sparkles className="w-3.5 h-3.5 text-binance-yellow" />
               <span>{t("btnCleanBinaries")}</span>
             </button>
+          </div>
+        </div>
+
+        {/* Card 5.5: Hospital Healing Configuration */}
+        <div className="p-4 rounded-lg bg-binance-card border border-binance-hairline space-y-4">
+          <div className="flex items-center justify-between border-b border-binance-hairline pb-2">
+            <div className="flex items-center gap-2">
+              <Activity className="w-4 h-4 text-rose-400" />
+              <h3 className="text-xs font-semibold uppercase font-mono text-binance-body">
+                {t("hospitalSettingsTitle")}
+              </h3>
+            </div>
+          </div>
+          <p className="text-xs text-binance-muted">
+            {t("hospitalSettingsDesc")}
+          </p>
+
+          <div className="space-y-3 text-xs">
+            {/* Healing Speed Bonus */}
+            <div>
+              <label className="block text-binance-muted mb-1 font-medium">
+                {t("hospitalSpeedBonus")} (%):
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min="0"
+                  max="1000"
+                  step="5"
+                  value={healingSpeedBonusPct}
+                  onChange={(e) => setHealingSpeedBonusPct(Number(e.target.value))}
+                  onBlur={saveHealingConfig}
+                  className="w-24 px-2.5 py-1.5 rounded bg-binance-elevated border border-binance-hairline text-binance-body font-mono text-xs focus:border-binance-yellow outline-hidden"
+                />
+                <span className="text-binance-muted font-mono">%</span>
+              </div>
+            </div>
+
+            {/* Alliance Helps Count */}
+            <div>
+              <label className="block text-binance-muted mb-1 font-medium" title={t("hospitalHelpTooltip")}>
+                {t("hospitalAllianceHelps")} (0 - 30):
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min="0"
+                  max="30"
+                  value={allianceHelps}
+                  onChange={(e) => setAllianceHelps(Math.min(30, Math.max(0, Number(e.target.value))))}
+                  onBlur={saveHealingConfig}
+                  className="w-24 px-2.5 py-1.5 rounded bg-binance-elevated border border-binance-hairline text-binance-body font-mono text-xs focus:border-binance-yellow outline-hidden"
+                />
+                <span className="text-binance-muted font-mono">helps</span>
+              </div>
+            </div>
+
+            {/* VIP Level */}
+            <div>
+              <label className="block text-binance-muted mb-1 font-medium" title={t("hospitalVipTooltip")}>
+                {t("hospitalVipDiscount")}:
+              </label>
+              <select
+                value={vipLevel >= 18 ? 18 : vipLevel >= 16 ? 16 : 0}
+                onChange={(e) => {
+                  const val = Number(e.target.value);
+                  setVipLevel(val);
+                  api.updateHealingConfig(undefined, undefined, val).then(refreshSnapshot);
+                }}
+                className="w-full px-2.5 py-1.5 rounded bg-binance-elevated border border-binance-hairline text-binance-body font-mono text-xs focus:border-binance-yellow outline-hidden cursor-pointer"
+              >
+                <option value={0}>VIP &lt; 16 (0% discount)</option>
+                <option value={16}>VIP 16 - 17 (10% resource discount)</option>
+                <option value={18}>VIP 18+ (15% resource discount)</option>
+              </select>
+            </div>
           </div>
         </div>
 

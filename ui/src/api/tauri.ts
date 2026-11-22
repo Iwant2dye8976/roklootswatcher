@@ -334,3 +334,16 @@ export function onOverlayUpdated(callback: (payload: OverlayPayloadDto) => void)
   return listen<OverlayPayloadDto>("overlay://updated", (e) => callback(e.payload));
 }
 
+export async function updateHealingConfig(
+  healingSpeedBonus?: number,
+  allianceHelpsCount?: number,
+  vipLevel?: number
+): Promise<AppSnapshotDto> {
+  if (!isTauri()) return getMockSnapshot();
+  return await invoke<AppSnapshotDto>("update_healing_config", {
+    healingSpeedBonus: healingSpeedBonus !== undefined ? healingSpeedBonus : null,
+    allianceHelpsCount: allianceHelpsCount !== undefined ? allianceHelpsCount : null,
+    vipLevel: vipLevel !== undefined ? vipLevel : null,
+  });
+}
+

@@ -233,7 +233,7 @@ export const CommandPalette: React.FC = () => {
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Escape") setCommandPaletteOpen(false);
-              if (e.key === "Enter" && filtered.length > 0) {
+              if (e.key === "Enter" && !e.nativeEvent.isComposing && e.keyCode !== 229 && filtered.length > 0) {
                 filtered[0].run();
                 setCommandPaletteOpen(false);
               }

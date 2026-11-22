@@ -101,6 +101,56 @@ export interface BattleRecord {
   dead_taken?: number;
   severely_wounded_dealt?: number;
   severely_wounded_taken?: number;
+  healing_cost?: HealingCostDto;
+}
+
+export interface HealingCostDto {
+  food: number;
+  wood: number;
+  stone: number;
+  gold: number;
+  total_rss: number;
+  base_speedup_seconds: number;
+  buffed_speedup_seconds: number;
+  final_speedup_seconds: number;
+  troop_tier: string;
+  troop_type: string;
+  severely_wounded: number;
+  t4_count: number;
+  t5_count: number;
+}
+
+export interface HealingSummaryDto {
+  total_severely_wounded: number;
+  t4_count: number;
+  t5_count: number;
+  food_needed: number;
+  wood_needed: number;
+  stone_needed: number;
+  gold_needed: number;
+  total_rss_needed: number;
+  base_speedup_seconds: number;
+  buffed_speedup_seconds: number;
+  final_speedup_seconds: number;
+  healing_speed_bonus: number;
+  alliance_helps_count: number;
+  vip_level: number;
+  vip_discount_pct: number;
+  farmed_heal_speedup_seconds: number;
+  farmed_univ_speedup_seconds: number;
+  total_farmed_speedup_seconds: number;
+  speedup_coverage_pct: number;
+  net_speedup_seconds: number;
+  farmed_food: number;
+  farmed_wood: number;
+  farmed_stone: number;
+  farmed_gold: number;
+  farmed_total_rss: number;
+  net_food: number;
+  net_wood: number;
+  net_stone: number;
+  net_gold: number;
+  rss_coverage_pct: number;
 }
 
 export interface DailyApPoint {
@@ -232,6 +282,7 @@ export interface DashboardDto {
   top_items: ItemStatDto[];
   latest_battles: BattleRecord[];
   pvp_stats?: PvpDashboardData;
+  healing_summary?: HealingSummaryDto;
 }
 
 export type OverlayFadeStyle = "Dim" | "Hide";
@@ -342,4 +393,7 @@ export interface AppSnapshotDto {
   autostart_minimized: boolean;
   overlay_config: OverlayConfig;
   cloud_status: CloudStatusDto;
+  healing_speed_bonus?: number;
+  alliance_helps_count?: number;
+  vip_level?: number;
 }

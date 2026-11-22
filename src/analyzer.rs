@@ -1099,6 +1099,192 @@ pub fn compute_pvp_dashboard_analytics(records: &[BattleRecord], is_single_day: 
     }
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct HealingSummary {
+    pub total_severely_wounded: u64,
+    pub t4_count: u64,
+    pub t5_count: u64,
+    pub food_needed: i64,
+    pub wood_needed: i64,
+    pub stone_needed: i64,
+    pub gold_needed: i64,
+    pub total_rss_needed: i64,
+    pub base_speedup_seconds: u64,
+    pub buffed_speedup_seconds: u64,
+    pub final_speedup_seconds: u64,
+    pub healing_speed_bonus: f64,
+    pub alliance_helps_count: u32,
+    pub vip_level: u32,
+    pub vip_discount_pct: f64,
+    pub farmed_heal_speedup_seconds: i64,
+    pub farmed_univ_speedup_seconds: i64,
+    pub total_farmed_speedup_seconds: i64,
+    pub speedup_coverage_pct: f64,
+    pub net_speedup_seconds: i64,
+    pub farmed_food: i64,
+    pub farmed_wood: i64,
+    pub farmed_stone: i64,
+    pub farmed_gold: i64,
+    pub farmed_total_rss: i64,
+    pub net_food: i64,
+    pub net_wood: i64,
+    pub net_stone: i64,
+    pub net_gold: i64,
+    pub rss_coverage_pct: f64,
+}
+
+pub fn compute_healing_summary(
+    records: &[BattleRecord],
+    healing_speed_bonus: f64,
+    alliance_helps_count: u32,
+    vip_level: u32,
+) -> HealingSummary {
+    let vip_discount_pct = match vip_level {
+        18.. => 15.0,
+        16..=17 => 10.0,
+        _ => 0.0,
+    };
+
+    let mut total_severely_wounded = 0u64;
+    let mut t4_count = 0u64;
+    let mut t5_count = 0u64;
+    let mut food_needed = 0i64;
+    let mut wood_needed = 0i64;
+    let mut stone_needed = 0i64;
+    let mut gold_needed = 0i64;
+    let mut base_speedup_seconds = 0u64;
+
+    let mut farmed_heal_mins = 0i64;
+    let mut farmed_univ_mins = 0i64;
+    let mut farmed_food = 0i64;
+    let mut farmed_wood = 0i64;
+    let mut farmed_stone = 0i64;
+    let mut farmed_gold = 0i64;
+
+    for r in records {
+        farmed_heal_mins += r.heal_speedup_minutes();
+        farmed_univ_mins += r.univ_speedup_minutes();
+        let rss = r.total_resources_breakdown();
+        farmed_food += rss.food_val;
+        farmed_wood += rss.wood_val;
+        farmed_stone += rss.stone_val;
+        farmed_gold += rss.gold_val;
+
+        if r.severely_wounded_taken > 0 {
+            total_severely_wounded += r.severely_wounded_taken;
+            let (t4, t5) = r.troop_tier_breakdown();
+            t4_count += t4;
+            t5_count += t5;
+
+            let cost = r.compute_healing_cost(healing_speed_bonus, 0, vip_level);
+            food_needed += cost.food;
+            wood_needed += cost.wood;
+            stone_needed += cost.stone;
+            gold_needed += cost.gold;
+            base_speedup_seconds += cost.base_healing_time_secs.round() as u64;
+        }
+    }
+
+    let base_t4_secs = (t4_count * 3) as f64;
+    let base_t5_secs = (t5_count * 4) as f64;
+    let buffed_t4_secs = if t4_count == 1 {
+        3.0
+    } else if healing_speed_bonus > 0.0 {
+        base_t4_secs / (1.0 + healing_speed_bonus)
+    } else {
+        base_t4_secs
+    };
+    let buffed_t5_secs = if t5_count == 1 {
+        3.0
+    } else if healing_speed_bonus > 0.0 {
+        base_t5_secs / (1.0 + healing_speed_bonus)
+    } else {
+        base_t5_secs
+    };
+
+    let buffed_speedup_seconds = (buffed_t4_secs + buffed_t5_secs).round() as u64;
+
+    // Apply alliance helps per troop tier as modeled in getTime:
+    let capped_helps = alliance_helps_count.min(30);
+    let final_t4_secs = if capped_helps > 0 && t4_count > 0 {
+        if 0.01 * buffed_t4_secs < 180.0 {
+            (buffed_t4_secs - (3.0 * capped_helps as f64 * 60.0)).max(0.0)
+        } else {
+            crate::model::apply_help(capped_helps, buffed_t4_secs)
+        }
+    } else {
+        buffed_t4_secs
+    };
+    let final_t5_secs = if capped_helps > 0 && t5_count > 0 {
+        if 0.01 * buffed_t5_secs < 180.0 {
+            (buffed_t5_secs - (3.0 * capped_helps as f64 * 60.0)).max(0.0)
+        } else {
+            crate::model::apply_help(capped_helps, buffed_t5_secs)
+        }
+    } else {
+        buffed_t5_secs
+    };
+
+    let final_speedup_seconds = (final_t4_secs.round() as u64) + (final_t5_secs.round() as u64);
+
+    let total_rss_needed = food_needed + wood_needed + stone_needed + gold_needed;
+    let farmed_heal_speedup_seconds = farmed_heal_mins * 60;
+    let farmed_univ_speedup_seconds = farmed_univ_mins * 60;
+    let total_farmed_speedup_seconds = farmed_heal_speedup_seconds + farmed_univ_speedup_seconds;
+
+    let speedup_coverage_pct = if final_speedup_seconds > 0 {
+        ((total_farmed_speedup_seconds as f64 / final_speedup_seconds as f64) * 100.0 * 10.0).round() / 10.0
+    } else {
+        0.0
+    };
+    let net_speedup_seconds = total_farmed_speedup_seconds - final_speedup_seconds as i64;
+
+    let farmed_total_rss = farmed_food + farmed_wood + farmed_stone + farmed_gold;
+    let rss_coverage_pct = if total_rss_needed > 0 {
+        ((farmed_total_rss as f64 / total_rss_needed as f64) * 100.0 * 10.0).round() / 10.0
+    } else {
+        0.0
+    };
+
+    let net_food = farmed_food - food_needed;
+    let net_wood = farmed_wood - wood_needed;
+    let net_stone = farmed_stone - stone_needed;
+    let net_gold = farmed_gold - gold_needed;
+
+    HealingSummary {
+        total_severely_wounded,
+        t4_count,
+        t5_count,
+        food_needed,
+        wood_needed,
+        stone_needed,
+        gold_needed,
+        total_rss_needed,
+        base_speedup_seconds,
+        buffed_speedup_seconds,
+        final_speedup_seconds,
+        healing_speed_bonus,
+        alliance_helps_count,
+        vip_level,
+        vip_discount_pct,
+        farmed_heal_speedup_seconds,
+        farmed_univ_speedup_seconds,
+        total_farmed_speedup_seconds,
+        speedup_coverage_pct,
+        net_speedup_seconds,
+        farmed_food,
+        farmed_wood,
+        farmed_stone,
+        farmed_gold,
+        farmed_total_rss,
+        net_food,
+        net_wood,
+        net_stone,
+        net_gold,
+        rss_coverage_pct,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2176,5 +2362,100 @@ mod tests {
         assert_eq!(daily.timeline[1].kills_dealt, 0);
         assert_eq!(daily.timeline[2].label, "11/15");
         assert_eq!(daily.timeline[2].battle_count, 1);
+    }
+
+    #[test]
+    fn test_compute_healing_summary_calculations() {
+        use crate::model::ItemDrop;
+
+        // r1: 1,000 T4 Infantry wounded, Richard I (Infantry), power_lost = 4,000 (4 power per T4)
+        let r1 = BattleRecord {
+            battle_type: "pvp".into(),
+            primary_commander_id: 8, // Richard I -> Infantry
+            severely_wounded_taken: 1_000,
+            power_lost: 4_000,
+            items: vec![
+                // 10x 60m heal speedup = 600m
+                ItemDrop {
+                    itype: 2,
+                    sub_type: 96,
+                    value: 10,
+                    ..Default::default()
+                },
+                // 50,000 Food pack
+                ItemDrop {
+                    itype: 1,
+                    sub_type: 1,
+                    value: 50_000,
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+
+        // VIP 0, 0% buff, 0 helps
+        let summary_vip0 = compute_healing_summary(&[r1.clone()], 0.0, 0, 0);
+        assert_eq!(summary_vip0.total_severely_wounded, 1_000);
+        assert_eq!(summary_vip0.t4_count, 1_000);
+        assert_eq!(summary_vip0.t5_count, 0);
+        // T4 Infantry: 120 Food, 120 Wood, 0 Stone, 8 Gold
+        assert_eq!(summary_vip0.food_needed, 120_000);
+        assert_eq!(summary_vip0.wood_needed, 120_000);
+        assert_eq!(summary_vip0.stone_needed, 0);
+        assert_eq!(summary_vip0.gold_needed, 8_000);
+        assert_eq!(summary_vip0.total_rss_needed, 248_000);
+        assert_eq!(summary_vip0.base_speedup_seconds, 3_000);
+        assert_eq!(summary_vip0.buffed_speedup_seconds, 3_000);
+        assert_eq!(summary_vip0.final_speedup_seconds, 3_000);
+        assert_eq!(summary_vip0.vip_discount_pct, 0.0);
+        assert_eq!(summary_vip0.farmed_heal_speedup_seconds, 600 * 60);
+        assert!(summary_vip0.speedup_coverage_pct > 100.0);
+        assert_eq!(summary_vip0.farmed_food, 50_000);
+        assert_eq!(summary_vip0.net_food, 50_000 - 120_000);
+
+        // VIP 16: 10% discount
+        let summary_vip16 = compute_healing_summary(&[r1.clone()], 0.0, 0, 16);
+        assert_eq!(summary_vip16.vip_discount_pct, 10.0);
+        assert_eq!(summary_vip16.food_needed, 108_000);
+        assert_eq!(summary_vip16.wood_needed, 108_000);
+        assert_eq!(summary_vip16.gold_needed, 7_200);
+        assert_eq!(summary_vip16.total_rss_needed, 223_200);
+
+        // VIP 18: 15% discount
+        let summary_vip18 = compute_healing_summary(&[r1], 0.0, 0, 18);
+        assert_eq!(summary_vip18.vip_discount_pct, 15.0);
+        assert_eq!(summary_vip18.food_needed, 102_000);
+        assert_eq!(summary_vip18.wood_needed, 102_000);
+        assert_eq!(summary_vip18.gold_needed, 6_800);
+        assert_eq!(summary_vip18.total_rss_needed, 210_800);
+
+        // User test case: 41,462 severely wounded (T4: 11,132, T5: 30,330)
+        // 110% healing speed bonus (1.10), 30 helps
+        // Expected final healing time: 14h 47m 17s = 53,237 seconds
+        let r_t4 = BattleRecord {
+            battle_type: "barbarian".into(),
+            primary_commander_id: 8,
+            severely_wounded_taken: 11_132,
+            power_lost: 11_132 * 4, // 100% T4
+            ..Default::default()
+        };
+        let r_t5 = BattleRecord {
+            battle_type: "fort_combat".into(),
+            primary_commander_id: 8,
+            severely_wounded_taken: 30_330,
+            power_lost: 30_330 * 10, // 100% T5
+            ..Default::default()
+        };
+        let user_summary = compute_healing_summary(&[r_t4, r_t5], 1.10, 30, 0);
+        assert_eq!(user_summary.total_severely_wounded, 41_462);
+        assert_eq!(user_summary.t4_count, 11_132);
+        assert_eq!(user_summary.t5_count, 30_330);
+        // Base time = 11,132 * 3 + 30,330 * 4 = 33,396 + 121,320 = 154,716s
+        // Buffed time @ 110% = 154,716 / 2.10 = 73,674.2857s
+        // After 30 helps (applyHelp): 73,674.2857 * (0.99)^30 = 53,237s = 14h 47m 17s
+        assert_eq!(user_summary.final_speedup_seconds, 53_237);
+        assert_eq!(user_summary.final_speedup_seconds / 3600, 14);
+        assert_eq!((user_summary.final_speedup_seconds % 3600) / 60, 47);
+        assert_eq!(user_summary.final_speedup_seconds % 60, 17);
     }
 }

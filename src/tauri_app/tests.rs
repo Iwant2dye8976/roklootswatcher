@@ -551,6 +551,28 @@ fn test_battle_and_inventory_item_sprite_layers_are_preserved() {
 }
 
 #[test]
+fn test_battle_record_dto_healing_cost() {
+    let rec = BattleRecord {
+        severely_wounded_taken: 500,
+        power_lost: 2_000, // 4 power per T4 => 500 * 4 = 2,000
+        primary_commander_id: 8, // Richard I -> Infantry
+        ..Default::default()
+    };
+    let dto = BattleRecordDto::from_record(&rec, AppLanguage::English);
+    assert!(dto.healing_cost.is_some());
+    let cost = dto.healing_cost.unwrap();
+    assert_eq!(cost.severely_wounded, 500);
+    assert_eq!(cost.t4_count, 500);
+    assert_eq!(cost.t5_count, 0);
+    assert_eq!(cost.troop_type, "Infantry");
+    assert_eq!(cost.food, 500 * 120);
+    assert_eq!(cost.wood, 500 * 120);
+    assert_eq!(cost.gold, 500 * 8);
+    assert!(cost.base_speedup_seconds > 0);
+    assert!(cost.buffed_speedup_seconds > 0);
+}
+
+#[test]
 fn test_bench_query_battles_search_and_sorting() {
     let mut records = Vec::with_capacity(5_000);
     for i in 0..5_000 {

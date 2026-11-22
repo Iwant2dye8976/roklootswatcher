@@ -53,6 +53,7 @@ pub fn create_schema(conn: &Connection) -> rusqlite::Result<()> {
             dead_taken       INTEGER NOT NULL DEFAULT 0,
             severely_wounded_dealt INTEGER NOT NULL DEFAULT 0,
             severely_wounded_taken INTEGER NOT NULL DEFAULT 0,
+            power_lost       INTEGER NOT NULL DEFAULT 0,
             raw_header       TEXT NOT NULL DEFAULT '',
             pvp_troop_key    TEXT NOT NULL DEFAULT '',
             is_death         INTEGER NOT NULL DEFAULT 0,
@@ -93,6 +94,7 @@ pub fn create_schema(conn: &Connection) -> rusqlite::Result<()> {
     let _ = conn.execute("ALTER TABLE battle_records ADD COLUMN dead_taken INTEGER NOT NULL DEFAULT 0", []);
     let _ = conn.execute("ALTER TABLE battle_records ADD COLUMN severely_wounded_dealt INTEGER NOT NULL DEFAULT 0", []);
     let _ = conn.execute("ALTER TABLE battle_records ADD COLUMN severely_wounded_taken INTEGER NOT NULL DEFAULT 0", []);
+    let _ = conn.execute("ALTER TABLE battle_records ADD COLUMN power_lost INTEGER NOT NULL DEFAULT 0", []);
     let _ = conn.execute("ALTER TABLE battle_records ADD COLUMN raw_header TEXT NOT NULL DEFAULT ''", []);
     let _ = conn.execute("ALTER TABLE battle_records ADD COLUMN pvp_troop_key TEXT NOT NULL DEFAULT ''", []);
     let _ = conn.execute("ALTER TABLE battle_records ADD COLUMN is_death INTEGER NOT NULL DEFAULT 0", []);

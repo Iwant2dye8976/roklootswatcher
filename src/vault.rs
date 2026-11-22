@@ -152,6 +152,7 @@ fn row_to_battle_record(row: &rusqlite::Row) -> rusqlite::Result<BattleRecord> {
     let dead_taken: u64 = row.get("dead_taken").unwrap_or_default();
     let severely_wounded_dealt: u64 = row.get("severely_wounded_dealt").unwrap_or_default();
     let severely_wounded_taken: u64 = row.get("severely_wounded_taken").unwrap_or_default();
+    let power_lost: u64 = row.get("power_lost").unwrap_or_default();
     let raw_header: String = row.get("raw_header").unwrap_or_default();
     let pvp_troop_key: String = row.get("pvp_troop_key").unwrap_or_default();
     let is_death: bool = row.get("is_death").map(|v: i32| v != 0).unwrap_or(false);
@@ -195,6 +196,7 @@ fn row_to_battle_record(row: &rusqlite::Row) -> rusqlite::Result<BattleRecord> {
         dead_taken,
         severely_wounded_dealt,
         severely_wounded_taken,
+        power_lost,
         raw_header,
         pvp_troop_key,
         is_death,
@@ -741,8 +743,8 @@ impl MailVault {
                     target_player_name,
                     kp_gained, kp_lost, dead_dealt, dead_taken,
                     severely_wounded_dealt, severely_wounded_taken,
-                    raw_header, pvp_troop_key, is_death
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, NULL, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42)"
+                    raw_header, pvp_troop_key, is_death, power_lost
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, NULL, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42, ?43)"
             ) {
                 Ok(s) => s,
                 Err(e) => {
@@ -794,6 +796,7 @@ impl MailVault {
                 rec.raw_header,
                 rec.pvp_troop_key,
                 rec.is_death as i32,
+                rec.power_lost,
             ]) {
                 Ok(_) => true,
                 Err(e) => {
@@ -934,8 +937,8 @@ impl MailVault {
                     target_primary_is_expertised, target_secondary_is_expertised,
                     target_player_name,
                     kp_gained, kp_lost, dead_dealt, dead_taken,
-                    severely_wounded_dealt, severely_wounded_taken
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40)
+                    severely_wounded_dealt, severely_wounded_taken, power_lost
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40, ?41)
                 ON CONFLICT(dedup_key) DO UPDATE SET
                     synced_at = COALESCE(battle_records.synced_at, excluded.synced_at),
                     account_id = CASE WHEN battle_records.account_id IS NULL OR battle_records.account_id = '' THEN excluded.account_id ELSE battle_records.account_id END,
@@ -986,6 +989,7 @@ impl MailVault {
                     r.dead_taken,
                     r.severely_wounded_dealt,
                     r.severely_wounded_taken,
+                    r.power_lost,
                 ])?;
                 if changed > 0 {
                     restored += 1;
@@ -1021,7 +1025,7 @@ impl MailVault {
     pub fn query_latest_filtered(&self, filter: FilterMode, limit: usize) -> Vec<BattleRecord> {
         let sql = match filter {
             FilterMode::AllRewards => {
-                "SELECT * FROM battle_records WHERE battle_type != 'pvp' ORDER BY time_raw DESC LIMIT ?1"
+                "SELECT * FROM battle_records WHERE battle_type != 'pvp' AND battle_type != 'fort_combat' ORDER BY time_raw DESC LIMIT ?1"
             }
             FilterMode::AllTargets => {
                 "SELECT * FROM battle_records WHERE battle_type IN ('motte', 'fort', 'barbarian') ORDER BY time_raw DESC LIMIT ?1"

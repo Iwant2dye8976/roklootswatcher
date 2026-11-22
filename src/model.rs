@@ -99,7 +99,7 @@ impl FilterMode {
             FilterMode::Fort => battle_type == "fort",
             FilterMode::Barbarian => battle_type == "barbarian",
             FilterMode::AllForts => matches!(battle_type, "motte" | "fort"),
-            FilterMode::AllRewards => battle_type != "pvp",
+            FilterMode::AllRewards => battle_type != "pvp" && battle_type != "fort_combat",
             FilterMode::Gathering => battle_type == "gathering",
             FilterMode::PvP => battle_type == "pvp",
         }
@@ -135,11 +135,213 @@ pub fn calculate_kill_points(t1: u64, t2: u64, t3: u64, t4: u64, t5: u64) -> f64
         + (t5 as f64 * 20.0)
 }
 
-fn parse_commanders_yaml(yaml_text: &str) -> std::collections::HashMap<u32, String> {
-    let mut map = std::collections::HashMap::new();
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TroopUnitType {
+    Infantry,
+    Cavalry,
+    Archer,
+    Siege,
+}
+
+impl TroopUnitType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            TroopUnitType::Infantry => "infantry",
+            TroopUnitType::Cavalry => "cavalry",
+            TroopUnitType::Archer => "archer",
+            TroopUnitType::Siege => "siege",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TroopTier {
+    T4,
+    T5,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct HospitalHealingCost {
+    pub food: i64,
+    pub wood: i64,
+    pub stone: i64,
+    pub gold: i64,
+    pub base_healing_time_secs: f64,
+    pub buffed_healing_time_secs: f64,
+    pub final_healing_time_secs: f64,
+}
+
+/// Unit healing resource costs and base times per 1 unit according to docs/functions/hospital.md:
+/// - T5: infantry: 320 foods, 320 woods, 160 golds; cavalry: 320 foods, 240 stones, 160 golds; archer: 320 woods, 240 stones, 160 golds; siege: 200 foods, 200 woods, 160 stones, 160 golds. Healing time: 4 secs/1 unit.
+/// - T4: infantry: 120 foods, 120 woods, 8 golds; cavalry: 120 foods, 90 stones, 8 golds; archer: 120 woods, 90 stones, 8 golds; siege: 80 foods, 80 woods, 60 stones, 8 golds. Healing time: 3 secs/1 unit.
+pub fn get_unit_healing_rss_base(tier: TroopTier, unit_type: TroopUnitType) -> (i64, i64, i64, i64, u32) {
+    match tier {
+        TroopTier::T5 => match unit_type {
+            TroopUnitType::Infantry => (320, 320, 0, 160, 4),
+            TroopUnitType::Cavalry => (320, 0, 240, 160, 4),
+            TroopUnitType::Archer => (0, 320, 240, 160, 4),
+            TroopUnitType::Siege => (200, 200, 160, 160, 4),
+        },
+        TroopTier::T4 => match unit_type {
+            TroopUnitType::Infantry => (120, 120, 0, 8, 3),
+            TroopUnitType::Cavalry => (120, 0, 90, 8, 3),
+            TroopUnitType::Archer => (0, 120, 90, 8, 3),
+            TroopUnitType::Siege => (80, 80, 60, 8, 3),
+        },
+    }
+}
+
+/// VIP Resource Cost Reductions from docs/functions/hospital.md:
+/// - VIP 16: reduces Healing resources cost by 10%
+/// - VIP 18: reduces Healing resources cost by 15%
+pub fn get_vip_discount_multiplier(vip_level: u32) -> f64 {
+    if vip_level >= 18 {
+        0.85
+    } else if vip_level >= 16 {
+        0.90
+    } else {
+        1.00
+    }
+}
+
+/// Alliance help application from docs/functions/hospital.md:
+/// fn applyHelp(int helpCount, float healingTime) -> float {
+///     return helpCount > 0 ? applyHelp(helpCount - 1, healingTime - (.01 * healingTime)) : healingTime;
+/// }
+pub fn apply_help(help_count: u32, healing_time: f64) -> f64 {
+    let capped = help_count.min(30);
+    if capped > 0 {
+        apply_help(capped - 1, healing_time - (0.01 * healing_time))
+    } else {
+        healing_time
+    }
+}
+
+/// Healing time calculation from docs/functions/hospital.md:
+/// fn getTime(int woundedTroops, int healingTime, float healingSpeedBonus, int helpCount) -> float
+pub fn get_time(wounded_troops: u64, healing_time_per_unit: u32, healing_speed_bonus: f64, help_count: u32) -> f64 {
+    let mut final_healing_time = 0.0;
+    if wounded_troops == 1 {
+        final_healing_time = 3.0;
+    } else if wounded_troops > 1 {
+        final_healing_time = if healing_speed_bonus > 0.0 {
+            (wounded_troops as f64 * healing_time_per_unit as f64) / (1.0 + healing_speed_bonus)
+        } else {
+            wounded_troops as f64 * healing_time_per_unit as f64
+        };
+    }
+
+    let capped_helps = help_count.min(30);
+    let calculated = if capped_helps > 0 {
+        if 0.01 * final_healing_time < 180.0 {
+            final_healing_time - (3.0 * capped_helps as f64 * 60.0)
+        } else {
+            apply_help(capped_helps, final_healing_time)
+        }
+    } else {
+        final_healing_time
+    };
+
+    calculated.max(0.0)
+}
+
+/// Calculate healing cost and speedup times for a single troop batch.
+pub fn calculate_hospital_cost(
+    wounded: u64,
+    tier: TroopTier,
+    unit_type: TroopUnitType,
+    healing_speed_bonus: f64,
+    help_count: u32,
+    vip_level: u32,
+) -> HospitalHealingCost {
+    if wounded == 0 {
+        return HospitalHealingCost::default();
+    }
+    let (u_food, u_wood, u_stone, u_gold, time_per_unit) = get_unit_healing_rss_base(tier, unit_type);
+    let discount = get_vip_discount_multiplier(vip_level);
+
+    let raw_food = (wounded as f64 * u_food as f64 * discount).round() as i64;
+    let raw_wood = (wounded as f64 * u_wood as f64 * discount).round() as i64;
+    let raw_stone = (wounded as f64 * u_stone as f64 * discount).round() as i64;
+    let raw_gold = (wounded as f64 * u_gold as f64 * discount).round() as i64;
+
+    let base_time = if wounded == 1 { 3.0 } else { wounded as f64 * time_per_unit as f64 };
+    let buffed_time = if wounded == 1 {
+        3.0
+    } else if healing_speed_bonus > 0.0 {
+        base_time / (1.0 + healing_speed_bonus)
+    } else {
+        base_time
+    };
+    let final_time = get_time(wounded, time_per_unit, healing_speed_bonus, help_count);
+
+    HospitalHealingCost {
+        food: raw_food,
+        wood: raw_wood,
+        stone: raw_stone,
+        gold: raw_gold,
+        base_healing_time_secs: base_time,
+        buffed_healing_time_secs: buffed_time,
+        final_healing_time_secs: final_time,
+    }
+}
+
+/// Deterministically resolve T4 and T5 split from severely wounded troops and lost power/KP.
+/// Power per troop tier: T1 = 1, T2 = 2, T3 = 3, T4 = 4, T5 = 10 power.
+/// KP per troop tier (PvP): T1 = 0.2, T2 = 2, T3 = 4, T4 = 10, T5 = 20 KP.
+pub fn resolve_troop_tier_split(severely_wounded: u64, power_lost: u64, kp_lost: f64) -> (u64, u64) {
+    if severely_wounded == 0 {
+        return (0, 0);
+    }
+    // Power per unit: T4 = 4 power, T5 = 10 power (T1=1, T2=2, T3=3)
+    if power_lost > 0 {
+        let p = power_lost as f64;
+        let w = severely_wounded as f64;
+        // Solving: 4 * T4 + 10 * T5 = P and T4 + T5 = W
+        // => 4 * (W - T5) + 10 * T5 = P => 6 * T5 = P - 4 * W => T5 = (P - 4 * W) / 6
+        let t5 = ((p - 4.0 * w) / 6.0).round();
+        if t5 >= 0.0 && t5 <= w {
+            let t5_u = t5 as u64;
+            let t4_u = severely_wounded.saturating_sub(t5_u);
+            return (t4_u, t5_u);
+        } else if p >= 7.0 * w {
+            return (0, severely_wounded);
+        } else {
+            return (severely_wounded, 0);
+        }
+    }
+    // Fallback: derive from kp_lost (T4 = 10 KP, T5 = 20 KP)
+    if kp_lost > 0.0 {
+        let w = severely_wounded as f64;
+        let t5 = ((kp_lost - 10.0 * w) / 10.0).round();
+        if t5 >= 0.0 && t5 <= w {
+            let t5_u = t5 as u64;
+            let t4_u = severely_wounded.saturating_sub(t5_u);
+            return (t4_u, t5_u);
+        } else if kp_lost >= 15.0 * w {
+            return (0, severely_wounded);
+        } else {
+            return (severely_wounded, 0);
+        }
+    }
+    // Default to T4 if no power or KP
+    (severely_wounded, 0)
+}
+
+fn parse_commanders_yaml(
+    yaml_text: &str,
+) -> (
+    std::collections::HashMap<u32, String>,
+    std::collections::HashMap<u32, TroopUnitType>,
+) {
+    let mut name_map = std::collections::HashMap::new();
+    let mut type_map = std::collections::HashMap::new();
     let mut current_id: Option<u32> = None;
     let mut current_name: Option<String> = None;
     let mut current_prime: bool = false;
+    let mut current_unit_type: Option<TroopUnitType> = None;
 
     for raw_line in yaml_text.lines() {
         let line = raw_line.trim_end_matches('\r');
@@ -153,11 +355,15 @@ fn parse_commanders_yaml(yaml_text: &str) -> std::collections::HashMap<u32, Stri
                             } else {
                                 prev_name
                             };
-                            map.insert(prev_id, display);
+                            name_map.insert(prev_id, display);
+                            if let Some(ut) = current_unit_type.take() {
+                                type_map.insert(prev_id, ut);
+                            }
                         }
                         current_id = Some(id);
                         current_name = None;
                         current_prime = false;
+                        current_unit_type = None;
                         continue;
                     }
                 }
@@ -171,6 +377,17 @@ fn parse_commanders_yaml(yaml_text: &str) -> std::collections::HashMap<u32, Stri
             }
         } else if let Some(rest) = line.strip_prefix("    prime: ") {
             current_prime = rest.trim() == "true";
+        } else if current_unit_type.is_none() {
+            let trimmed = line.trim();
+            if let Some(talent) = trimmed.strip_prefix("- ") {
+                match talent.trim() {
+                    "infantry" => current_unit_type = Some(TroopUnitType::Infantry),
+                    "cavalry" => current_unit_type = Some(TroopUnitType::Cavalry),
+                    "archer" => current_unit_type = Some(TroopUnitType::Archer),
+                    "engineering" => current_unit_type = Some(TroopUnitType::Siege),
+                    _ => {}
+                }
+            }
         }
     }
 
@@ -180,24 +397,44 @@ fn parse_commanders_yaml(yaml_text: &str) -> std::collections::HashMap<u32, Stri
         } else {
             prev_name
         };
-        map.insert(prev_id, display);
+        name_map.insert(prev_id, display);
+        if let Some(ut) = current_unit_type.take() {
+            type_map.insert(prev_id, ut);
+        }
     }
 
-    map
+    (name_map, type_map)
 }
 
 pub fn get_commander_name(id: u32) -> String {
     if id == 0 {
         return String::new();
     }
-    static COMMANDER_MAP: std::sync::OnceLock<std::collections::HashMap<u32, String>> =
-        std::sync::OnceLock::new();
-    let map = COMMANDER_MAP.get_or_init(|| {
+    static COMMANDER_MAPS: std::sync::OnceLock<(
+        std::collections::HashMap<u32, String>,
+        std::collections::HashMap<u32, TroopUnitType>,
+    )> = std::sync::OnceLock::new();
+    let (name_map, _) = COMMANDER_MAPS.get_or_init(|| {
         parse_commanders_yaml(include_str!("../commanders.yaml"))
     });
-    map.get(&id)
+    name_map
+        .get(&id)
         .cloned()
         .unwrap_or_else(|| format!("Cmdr #{}", id))
+}
+
+pub fn get_commander_troop_type(id: u32) -> Option<TroopUnitType> {
+    if id == 0 {
+        return None;
+    }
+    static COMMANDER_MAPS: std::sync::OnceLock<(
+        std::collections::HashMap<u32, String>,
+        std::collections::HashMap<u32, TroopUnitType>,
+    )> = std::sync::OnceLock::new();
+    let (_, type_map) = COMMANDER_MAPS.get_or_init(|| {
+        parse_commanders_yaml(include_str!("../commanders.yaml"))
+    });
+    type_map.get(&id).copied()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -708,7 +945,7 @@ impl SpeedupUnit {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ItemDrop {
     #[serde(rename = "type")]
     pub itype: u32,
@@ -827,6 +1064,8 @@ pub struct BattleRecord {
     pub severely_wounded_dealt: u64,
     #[serde(default, skip_serializing_if = "is_zero_u64")]
     pub severely_wounded_taken: u64,
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub power_lost: u64,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub raw_header: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
@@ -842,6 +1081,57 @@ impl BattleRecord {
 
     pub fn kills_taken(&self) -> u64 {
         self.dead_taken + self.severely_wounded_taken
+    }
+
+    pub fn inferred_troop_unit_type(&self) -> TroopUnitType {
+        get_commander_troop_type(self.primary_commander_id)
+            .or_else(|| get_commander_troop_type(self.secondary_commander_id))
+            .unwrap_or(TroopUnitType::Infantry)
+    }
+
+    pub fn troop_tier_breakdown(&self) -> (u64, u64) {
+        resolve_troop_tier_split(self.severely_wounded_taken, self.power_lost, self.kp_lost)
+    }
+
+    pub fn compute_healing_cost(&self, healing_speed_bonus: f64, help_count: u32, vip_level: u32) -> HospitalHealingCost {
+        if self.severely_wounded_taken == 0 {
+            return HospitalHealingCost::default();
+        }
+        let (t4, t5) = self.troop_tier_breakdown();
+        let unit_type = self.inferred_troop_unit_type();
+        let cost_t4 = calculate_hospital_cost(t4, TroopTier::T4, unit_type, healing_speed_bonus, 0, vip_level);
+        let cost_t5 = calculate_hospital_cost(t5, TroopTier::T5, unit_type, healing_speed_bonus, 0, vip_level);
+
+        let total_wounded = t4 + t5;
+        let base_healing_time_secs = (t4 * 3 + t5 * 4) as f64;
+        let base_time = if total_wounded == 1 { 3.0 } else { base_healing_time_secs };
+        let buffed_time = if total_wounded == 1 {
+            3.0
+        } else if healing_speed_bonus > 0.0 {
+            base_time / (1.0 + healing_speed_bonus)
+        } else {
+            base_time
+        };
+        let capped_helps = help_count.min(30);
+        let final_healing_time_secs = if capped_helps > 0 {
+            if 0.01 * buffed_time < 180.0 {
+                (buffed_time - (3.0 * capped_helps as f64 * 60.0)).max(0.0)
+            } else {
+                apply_help(capped_helps, buffed_time)
+            }
+        } else {
+            buffed_time
+        };
+
+        HospitalHealingCost {
+            food: cost_t4.food + cost_t5.food,
+            wood: cost_t4.wood + cost_t5.wood,
+            stone: cost_t4.stone + cost_t5.stone,
+            gold: cost_t4.gold + cost_t5.gold,
+            base_healing_time_secs: base_time,
+            buffed_healing_time_secs: buffed_time,
+            final_healing_time_secs,
+        }
     }
 
     pub fn trade_ratio_pct(&self) -> f64 {
@@ -2400,6 +2690,12 @@ pub struct UserCloudSettings {
     pub language: Option<AppLanguage>,
     #[serde(default)]
     pub overlay: Option<OverlayConfig>,
+    #[serde(default)]
+    pub healing_speed_bonus: Option<f64>,
+    #[serde(default)]
+    pub alliance_helps_count: Option<u32>,
+    #[serde(default)]
+    pub vip_level: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2430,6 +2726,20 @@ pub struct AppConfig {
     pub main_account_uids: Vec<String>,
     #[serde(default = "default_true")]
     pub ignore_non_main_reports: bool,
+    #[serde(default = "default_healing_speed_bonus")]
+    pub healing_speed_bonus: f64,
+    #[serde(default = "default_alliance_helps_count")]
+    pub alliance_helps_count: u32,
+    #[serde(default)]
+    pub vip_level: u32,
+}
+
+fn default_healing_speed_bonus() -> f64 {
+    0.85
+}
+
+fn default_alliance_helps_count() -> u32 {
+    30
 }
 
 fn default_autostart_minimized() -> bool {
@@ -2452,6 +2762,9 @@ impl Default for AppConfig {
             cloud_auth: CloudAuthConfig::default(),
             main_account_uids: Vec::new(),
             ignore_non_main_reports: true,
+            healing_speed_bonus: default_healing_speed_bonus(),
+            alliance_helps_count: default_alliance_helps_count(),
+            vip_level: 0,
         }
     }
 }
@@ -2465,6 +2778,9 @@ impl AppConfig {
             theme: Some(self.theme),
             language: Some(self.language),
             overlay: Some(self.overlay.clone()),
+            healing_speed_bonus: Some(self.healing_speed_bonus),
+            alliance_helps_count: Some(self.alliance_helps_count),
+            vip_level: Some(self.vip_level),
         }
     }
 
@@ -2501,6 +2817,25 @@ impl AppConfig {
         if let Some(ref ov) = s.overlay {
             if &self.overlay != ov {
                 self.overlay = ov.clone();
+                changed = true;
+            }
+        }
+        if let Some(bonus) = s.healing_speed_bonus {
+            if (self.healing_speed_bonus - bonus).abs() > f64::EPSILON {
+                self.healing_speed_bonus = bonus;
+                changed = true;
+            }
+        }
+        if let Some(helps) = s.alliance_helps_count {
+            let capped = helps.min(30);
+            if self.alliance_helps_count != capped {
+                self.alliance_helps_count = capped;
+                changed = true;
+            }
+        }
+        if let Some(vip) = s.vip_level {
+            if self.vip_level != vip {
+                self.vip_level = vip;
                 changed = true;
             }
         }
@@ -3946,5 +4281,58 @@ mod tests {
         assert!(FilterMode::PvP.matches("pvp"));
         assert!(!FilterMode::PvP.matches("barbarian"));
         assert!(!FilterMode::AllRewards.matches("pvp"));
+    }
+
+    #[test]
+    fn test_get_time_healing_cost_in_game_formula() {
+        // In-game benchmark from user:
+        // 17,420 T5 troops with 110% healing speed bonus calculates to 33,181 seconds (9h 13m 1s).
+        // After applying 30 alliance helps, applyHelp() reduces it to 24,544 seconds (6h 49m 4s).
+        // Alliance helps are limited to 30 max.
+
+        // Before helps (help_count = 0)
+        let time_before = get_time(17420, 4, 1.10, 0);
+        let rounded_before = time_before.round() as u64;
+        assert_eq!(rounded_before, 33181);
+        assert_eq!(rounded_before / 3600, 9);
+        assert_eq!((rounded_before % 3600) / 60, 13);
+        assert_eq!(rounded_before % 60, 1);
+
+        // After 30 alliance helps (help_count = 30)
+        let time_after = get_time(17420, 4, 1.10, 30);
+        let rounded_after = time_after.round() as u64;
+        assert_eq!(rounded_after, 24544);
+        assert_eq!(rounded_after / 3600, 6);
+        assert_eq!((rounded_after % 3600) / 60, 49);
+        assert_eq!(rounded_after % 60, 4);
+
+        // Capped at 30: 50 helps gives the exact same result as 30
+        let time_capped = get_time(17420, 4, 1.10, 50);
+        assert_eq!(time_capped.round() as u64, 24544);
+
+        // 1 troop edge case
+        assert_eq!(get_time(1, 4, 1.10, 0), 3.0);
+        assert_eq!(get_time(1, 4, 1.10, 30), 0.0);
+
+        // Small batch where 0.01 * final_healing_time < 180s:
+        // 200 T4 troops @ 1.10 bonus: 200 * 3 / 2.10 = 285.71s
+        // 30 helps = 30 * 180s = 5,400s deduction -> covers all (0s)
+        assert_eq!(get_time(200, 3, 1.10, 30), 0.0);
+        assert!((get_time(200, 3, 1.10, 0) - (600.0 / 2.10)).abs() < 1e-4);
+
+        // Test via BattleRecord::compute_healing_cost
+        let rec = BattleRecord {
+            severely_wounded_taken: 17420,
+            power_lost: 17420 * 10, // 10 power per T5 -> 100% T5
+            primary_commander_id: 8,
+            ..Default::default()
+        };
+        let cost_with_helps = rec.compute_healing_cost(1.10, 30, 0);
+        assert_eq!(cost_with_helps.base_healing_time_secs.round() as u64, 69680);
+        assert_eq!(cost_with_helps.buffed_healing_time_secs.round() as u64, 33181);
+        assert_eq!(cost_with_helps.final_healing_time_secs.round() as u64, 24544);
+
+        let cost_no_helps = rec.compute_healing_cost(1.10, 0, 0);
+        assert_eq!(cost_no_helps.final_healing_time_secs.round() as u64, 33181);
     }
 }

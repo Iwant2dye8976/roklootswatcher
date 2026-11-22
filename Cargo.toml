@@ -1,9 +1,8 @@
 [package]
 name = "rok_watcher"
-version = "2.18.12"
+version = "2.20.0"
 edition = "2021"
 description = "Rise of Kingdoms - Loots Watcher & Analyzer for Windows"
-authors = ["Antigravity"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }

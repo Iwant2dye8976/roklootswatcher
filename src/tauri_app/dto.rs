@@ -55,6 +55,12 @@ pub struct AppSnapshotDto {
     pub autostart_minimized: bool,
     pub overlay_config: OverlayConfig,
     pub cloud_status: CloudStatusDto,
+    #[serde(default)]
+    pub healing_speed_bonus: f64,
+    #[serde(default)]
+    pub alliance_helps_count: u32,
+    #[serde(default)]
+    pub vip_level: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -127,10 +133,110 @@ pub struct BattleRecordDto {
     pub severely_wounded_taken: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub raw_header: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub healing_cost: Option<HealingCostDto>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HealingCostDto {
+    pub food: i64,
+    pub wood: i64,
+    pub stone: i64,
+    pub gold: i64,
+    pub total_rss: i64,
+    pub base_speedup_seconds: u64,
+    pub buffed_speedup_seconds: u64,
+    pub final_speedup_seconds: u64,
+    pub troop_tier: String,
+    pub troop_type: String,
+    pub severely_wounded: u64,
+    pub t4_count: u64,
+    pub t5_count: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HealingSummaryDto {
+    pub total_severely_wounded: u64,
+    pub t4_count: u64,
+    pub t5_count: u64,
+    pub food_needed: i64,
+    pub wood_needed: i64,
+    pub stone_needed: i64,
+    pub gold_needed: i64,
+    pub total_rss_needed: i64,
+    pub base_speedup_seconds: u64,
+    pub buffed_speedup_seconds: u64,
+    pub final_speedup_seconds: u64,
+    pub healing_speed_bonus: f64,
+    pub alliance_helps_count: u32,
+    pub vip_level: u32,
+    pub vip_discount_pct: f64,
+    pub farmed_heal_speedup_seconds: i64,
+    pub farmed_univ_speedup_seconds: i64,
+    pub total_farmed_speedup_seconds: i64,
+    pub speedup_coverage_pct: f64,
+    pub net_speedup_seconds: i64,
+    pub farmed_food: i64,
+    pub farmed_wood: i64,
+    pub farmed_stone: i64,
+    pub farmed_gold: i64,
+    pub farmed_total_rss: i64,
+    pub net_food: i64,
+    pub net_wood: i64,
+    pub net_stone: i64,
+    pub net_gold: i64,
+    pub rss_coverage_pct: f64,
+}
+
+impl From<crate::analyzer::HealingSummary> for HealingSummaryDto {
+    fn from(s: crate::analyzer::HealingSummary) -> Self {
+        Self {
+            total_severely_wounded: s.total_severely_wounded,
+            t4_count: s.t4_count,
+            t5_count: s.t5_count,
+            food_needed: s.food_needed,
+            wood_needed: s.wood_needed,
+            stone_needed: s.stone_needed,
+            gold_needed: s.gold_needed,
+            total_rss_needed: s.total_rss_needed,
+            base_speedup_seconds: s.base_speedup_seconds,
+            buffed_speedup_seconds: s.buffed_speedup_seconds,
+            final_speedup_seconds: s.final_speedup_seconds,
+            healing_speed_bonus: s.healing_speed_bonus,
+            alliance_helps_count: s.alliance_helps_count,
+            vip_level: s.vip_level,
+            vip_discount_pct: s.vip_discount_pct,
+            farmed_heal_speedup_seconds: s.farmed_heal_speedup_seconds,
+            farmed_univ_speedup_seconds: s.farmed_univ_speedup_seconds,
+            total_farmed_speedup_seconds: s.total_farmed_speedup_seconds,
+            speedup_coverage_pct: s.speedup_coverage_pct,
+            net_speedup_seconds: s.net_speedup_seconds,
+            farmed_food: s.farmed_food,
+            farmed_wood: s.farmed_wood,
+            farmed_stone: s.farmed_stone,
+            farmed_gold: s.farmed_gold,
+            farmed_total_rss: s.farmed_total_rss,
+            net_food: s.net_food,
+            net_wood: s.net_wood,
+            net_stone: s.net_stone,
+            net_gold: s.net_gold,
+            rss_coverage_pct: s.rss_coverage_pct,
+        }
+    }
 }
 
 impl BattleRecordDto {
     pub fn from_record(r: &BattleRecord, lang: AppLanguage) -> Self {
+        Self::from_record_with_healing(r, lang, 0.85, 30, 0)
+    }
+
+    pub fn from_record_with_healing(
+        r: &BattleRecord,
+        lang: AppLanguage,
+        healing_speed_bonus: f64,
+        help_count: u32,
+        vip_level: u32,
+    ) -> Self {
         let cry = r.crystal_quantity();
         let univ_mins = r.univ_speedup_minutes();
         let train_mins = r.training_speedup_minutes();
@@ -248,6 +354,41 @@ impl BattleRecordDto {
             severely_wounded_dealt: (r.severely_wounded_dealt > 0).then_some(r.severely_wounded_dealt),
             severely_wounded_taken: (r.severely_wounded_taken > 0).then_some(r.severely_wounded_taken),
             raw_header: if r.raw_header.is_empty() { None } else { Some(r.raw_header.clone()) },
+            healing_cost: if r.severely_wounded_taken > 0 {
+                let (t4, t5) = r.troop_tier_breakdown();
+                let unit_type = r.inferred_troop_unit_type();
+                let cost = r.compute_healing_cost(healing_speed_bonus, help_count, vip_level);
+                let tier_str = if t5 > 0 && t4 > 0 {
+                    format!("T4: {} / T5: {}", t4, t5)
+                } else if t5 > 0 {
+                    "T5".to_string()
+                } else {
+                    "T4".to_string()
+                };
+                let type_str = match unit_type {
+                    crate::model::TroopUnitType::Infantry => "Infantry".to_string(),
+                    crate::model::TroopUnitType::Cavalry => "Cavalry".to_string(),
+                    crate::model::TroopUnitType::Archer => "Archer".to_string(),
+                    crate::model::TroopUnitType::Siege => "Siege".to_string(),
+                };
+                Some(HealingCostDto {
+                    food: cost.food,
+                    wood: cost.wood,
+                    stone: cost.stone,
+                    gold: cost.gold,
+                    total_rss: cost.food + cost.wood + cost.stone + cost.gold,
+                    base_speedup_seconds: cost.base_healing_time_secs.round() as u64,
+                    buffed_speedup_seconds: cost.buffed_healing_time_secs.round() as u64,
+                    final_speedup_seconds: cost.final_healing_time_secs.round() as u64,
+                    troop_tier: tier_str,
+                    troop_type: type_str,
+                    severely_wounded: r.severely_wounded_taken,
+                    t4_count: t4,
+                    t5_count: t5,
+                })
+            } else {
+                None
+            },
         }
     }
 }
@@ -372,6 +513,8 @@ pub struct DashboardDto {
     pub latest_battles: Vec<BattleRecordDto>,
     #[serde(default)]
     pub pvp_stats: Option<PvpDashboardDto>,
+    #[serde(default)]
+    pub healing_summary: Option<HealingSummaryDto>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
