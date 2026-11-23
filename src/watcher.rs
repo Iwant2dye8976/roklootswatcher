@@ -751,8 +751,8 @@ impl RoKMailWatcher {
                 }
 
                 match filter {
-                    FilterMode::AllRewards => r.battle_type != "pvp",
-                    FilterMode::AllTargets => !matches!(r.battle_type.as_str(), "gathering" | "pvp"),
+                    FilterMode::AllRewards => r.battle_type != "pvp" && r.battle_type != "fort_combat",
+                    FilterMode::AllTargets => !matches!(r.battle_type.as_str(), "gathering" | "pvp" | "fort_combat"),
                     FilterMode::Fort => r.battle_type == "fort",
                     FilterMode::Motte => r.battle_type == "motte",
                     FilterMode::Barbarian => r.battle_type == "barbarian",

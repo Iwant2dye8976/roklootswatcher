@@ -68,6 +68,7 @@ type BenchmarkSortKey =
   | "ap"
   | "runs"
   | "yield"
+  | "wounded"
   | "covenant"
   | "rating";
 
@@ -605,6 +606,11 @@ export const DashboardView: React.FC = () => {
           cmp =
             (a.speedup_mins_per_1k_ap || 0) -
             (b.speedup_mins_per_1k_ap || 0);
+          break;
+        case "wounded":
+          cmp =
+            (a.avg_severely_wounded || 0) -
+            (b.avg_severely_wounded || 0);
           break;
         case "covenant":
           cmp = (a.covenant_drop_rate || 0) - (b.covenant_drop_rate || 0);
@@ -1824,7 +1830,7 @@ export const DashboardView: React.FC = () => {
                     {renderSortHeader(t("colApCost"), "ap", "center")}
                     {renderSortHeader(t("colRuns"), "runs", "center")}
                     {renderSortHeader(t("colYield1k"), "yield", "right")}
-                    {renderSortHeader(t("colCovenantDrop"), "covenant", "center")}
+                    {renderSortHeader(t("colSeverelyWounded"), "wounded", "center")}
                     {renderSortHeader(t("colRating"), "rating", "right")}
                   </tr>
                 </thead>
@@ -1846,7 +1852,6 @@ export const DashboardView: React.FC = () => {
                       const unitAp = tb.unit_ap_cost || 0;
                       const battleCount = tb.battle_count || 0;
                       const yieldVal = tb.speedup_mins_per_1k_ap || 0;
-                      const covenantRate = tb.covenant_drop_rate || 0;
                       const badge = String(tb.tier_badge || "TIER B");
 
                       return (
@@ -1925,18 +1930,32 @@ export const DashboardView: React.FC = () => {
                             </div>
                           </td>
 
-                          {/* Covenant Drop Rate */}
+                          {/* Severely Wounded (Total | Avg/run + T5/T4 breakdown tooltip) */}
                           <td className="py-2 text-center text-[11px] font-mono">
-                            {covenantRate > 0 ? (
-                              <div className="inline-flex items-center gap-1.5 text-binance-yellow font-medium">
-                                <span className="w-1.5 h-1.5 rounded-full bg-binance-green animate-pulse" />
-                                <span>
-                                  {covenantRate.toFixed(1)}%
-                                </span>
-                              </div>
-                            ) : (
-                              <span className="text-binance-muted/40">-</span>
-                            )}
+                            {(() => {
+                              const totalWounded = tb.severely_wounded_total || 0;
+                              const avgWounded = tb.avg_severely_wounded || 0;
+                              if (totalWounded === 0) {
+                                return <span className="text-binance-muted/40">-</span>;
+                              }
+                              const t4 = tb.severely_wounded_t4 || 0;
+                              const t5 = tb.severely_wounded_t5 || 0;
+                              const t5Pct = totalWounded > 0 ? ((t5 / totalWounded) * 100).toFixed(1) : "0.0";
+                              const t4Pct = totalWounded > 0 ? ((t4 / totalWounded) * 100).toFixed(1) : "0.0";
+                              const tooltipText = `T5: ${t5.toLocaleString()} (${t5Pct}%), T4: ${t4.toLocaleString()} (${t4Pct}%)`;
+
+                              return (
+                                <div
+                                  className="inline-flex items-center justify-center gap-1 text-rose-400 font-medium cursor-help"
+                                  title={tooltipText}
+                                >
+                                  <span>{totalWounded.toLocaleString()}</span>
+                                  <span className="text-binance-muted text-[10px]">
+                                    ({avgWounded >= 10 ? avgWounded.toFixed(0) : avgWounded.toFixed(1)}/run)
+                                  </span>
+                                </div>
+                              );
+                            })()}
                           </td>
 
                           {/* Rating Tier Badge */}

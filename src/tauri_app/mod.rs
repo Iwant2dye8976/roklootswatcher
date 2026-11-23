@@ -177,6 +177,8 @@ pub fn run(
             commands::window_minimize,
             commands::window_maximize,
             commands::window_close,
+            commands::check_for_updates,
+            commands::download_and_install_update,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();

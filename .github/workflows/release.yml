@@ -1,0 +1,69 @@
+name: Release Build & Publish
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build & Release Windows Executable
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: 'ui/package-lock.json'
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Rust Cache
+        uses: swatinem/rust-cache@v2
+
+      - name: Install UI Dependencies & Build Frontend
+        run: |
+          npm --prefix ui ci
+          npm --prefix ui run build
+
+      - name: Build Optimized Release Binary
+        run: |
+          cargo build --release
+
+      - name: Prepare Release Artifacts
+        id: prepare_artifacts
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts
+          Copy-Item .\target\release\rok_watcher.exe .\artifacts\rok_watcher.exe
+
+          # Compute SHA256 checksums
+          cd artifacts
+          $hash = (Get-FileHash -Algorithm SHA256 .\rok_watcher.exe).Hash.ToLower()
+          "$hash  rok_watcher.exe" | Out-File -Encoding utf8 SHA256SUMS.txt
+          cd ..
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/rok_watcher.exe
+            artifacts/SHA256SUMS.txt
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -168,6 +168,10 @@ export interface TargetBenchmark {
   tier_badge: string;
   battle_type?: string;
   level?: number;
+  severely_wounded_total?: number;
+  avg_severely_wounded?: number;
+  severely_wounded_t4?: number;
+  severely_wounded_t5?: number;
 }
 
 export interface ApEconomics {
@@ -396,4 +400,24 @@ export interface AppSnapshotDto {
   healing_speed_bonus?: number;
   alliance_helps_count?: number;
   vip_level?: number;
+}
+
+export interface UpdateInfo {
+  current_version: string;
+  latest_version: string;
+  has_update: boolean;
+  release_notes: string;
+  release_name: string;
+  published_at: string;
+  download_url?: string | null;
+  sha256_url?: string | null;
+  asset_name?: string | null;
+  is_installer: boolean;
+}
+
+export interface UpdateProgress {
+  percent: number;
+  downloaded_bytes: number;
+  total_bytes: number;
+  status: string;
 }

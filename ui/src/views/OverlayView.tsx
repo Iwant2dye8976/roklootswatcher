@@ -308,7 +308,7 @@ export const OverlayView: React.FC = () => {
         {/* Recent Battle Drop Cards (PvE Cards) */}
         {showCards && config.filter !== "pvp" && (
           <div className="space-y-1">
-            {records.length === 0 ? (
+            {records.filter((r) => r.battle_type !== "fort_combat" && !r.target?.toLowerCase().includes("fort combat")).length === 0 ? (
               <div
                 className="relative rounded-md overflow-hidden px-4 py-3 pe-10 text-center text-[0.88em] font-mono italic text-slate-700 min-h-[48px] flex items-center justify-center"
                 style={{
@@ -321,7 +321,10 @@ export const OverlayView: React.FC = () => {
                 <span>Awaiting combat reports...</span>
               </div>
             ) : (
-              records.slice(0, maxCards).map((rec, idx) => {
+              records
+                .filter((r) => r.battle_type !== "fort_combat" && !r.target?.toLowerCase().includes("fort combat"))
+                .slice(0, maxCards)
+                .map((rec, idx) => {
                 const isPvp = rec.battle_type === "pvp";
                 const pvpKills =
                   rec.kills_dealt ?? Math.round(rec.kp_gained ?? 0);

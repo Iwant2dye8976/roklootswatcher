@@ -347,3 +347,39 @@ export async function updateHealingConfig(
   });
 }
 
+export async function checkForUpdates(): Promise<import("../types").UpdateInfo> {
+  if (!isTauri()) {
+    return {
+      current_version: "2.21.0",
+      latest_version: "2.21.0",
+      has_update: false,
+      release_notes: "Mock release notes",
+      release_name: "v2.21.0",
+      published_at: "2026-11-23",
+      is_installer: false,
+    };
+  }
+  return await invoke<import("../types").UpdateInfo>("check_for_updates");
+}
+
+export async function downloadAndInstallUpdate(
+  downloadUrl: string,
+  isInstaller: boolean
+): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("download_and_install_update", {
+    downloadUrl,
+    isInstaller,
+  });
+}
+
+export function onUpdateProgress(
+  callback: (progress: import("../types").UpdateProgress) => void
+): Promise<UnlistenFn> {
+  if (!isTauri()) return Promise.resolve(() => {});
+  return listen<import("../types").UpdateProgress>("updater://progress", (e) =>
+    callback(e.payload)
+  );
+}
+
+

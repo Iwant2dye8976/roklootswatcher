@@ -426,6 +426,14 @@ pub struct TargetRoiBenchmark {
     pub battle_type: String,
     #[serde(default)]
     pub level: u32,
+    #[serde(default)]
+    pub severely_wounded_total: u64,
+    #[serde(default)]
+    pub avg_severely_wounded: f64,
+    #[serde(default)]
+    pub severely_wounded_t4: u64,
+    #[serde(default)]
+    pub severely_wounded_t5: u64,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -446,6 +454,18 @@ pub fn compute_ap_economics(active_records: &[BattleRecord], vault_records: &[Ba
     let mut total_speedup_mins = 0i64;
     let mut total_gems = 0i64;
 
+    // Index available fort_combat records from vault (and active) for correlating severely wounded troops to fort loot reports
+    let mut fort_combats: Vec<&BattleRecord> = vault_records
+        .iter()
+        .chain(active_records.iter())
+        .filter(|r| r.battle_type == "fort_combat" && r.severely_wounded_taken > 0)
+        .collect();
+    // Sort by time_raw for fast matching
+    fort_combats.sort_by_key(|r| r.time_raw);
+    fort_combats.dedup_by_key(|r| (&r.mail_id, r.time_raw));
+
+    let mut matched_combat_indices = std::collections::HashSet::new();
+
     struct TargetAccumulator {
         battle_type: String,
         level: u32,
@@ -455,6 +475,9 @@ pub fn compute_ap_economics(active_records: &[BattleRecord], vault_records: &[Ba
         speedup_mins: i64,
         gems: i64,
         covenant_battles: usize,
+        severely_wounded_total: u64,
+        severely_wounded_t4: u64,
+        severely_wounded_t5: u64,
     }
 
     let mut target_map: HashMap<(String, u32), TargetAccumulator> = HashMap::new();
@@ -476,6 +499,44 @@ pub fn compute_ap_economics(active_records: &[BattleRecord], vault_records: &[Ba
         total_gems += gems;
 
         let has_covenant = r.items.iter().any(|it| it.itype == 2 && it.sub_type == 109);
+        let (wounded, (t4, t5)) = if r.battle_type == "fort" && r.severely_wounded_taken == 0 {
+            // Find paired fort_combat record with closest time within +/- 10 seconds (10,000,000 micros)
+            let mut best_match: Option<(usize, &BattleRecord)> = None;
+            let mut best_diff = i64::MAX;
+
+            for (idx, fc) in fort_combats.iter().enumerate() {
+                if matched_combat_indices.contains(&idx) {
+                    continue;
+                }
+                let clean_r_acc = r.account_id.strip_prefix("player_").unwrap_or(&r.account_id).trim();
+                let clean_fc_acc = fc.account_id.strip_prefix("player_").unwrap_or(&fc.account_id).trim();
+                if !clean_r_acc.is_empty() && !clean_fc_acc.is_empty() && clean_r_acc != clean_fc_acc {
+                    continue;
+                }
+
+                if r.time_raw > 0 && fc.time_raw > 0 {
+                    let diff = (r.time_raw - fc.time_raw).abs();
+                    if diff <= 10_000_000 && diff < best_diff {
+                        best_diff = diff;
+                        best_match = Some((idx, fc));
+                    }
+                } else if !r.time_vn.is_empty() && r.time_vn == fc.time_vn {
+                    best_match = Some((idx, fc));
+                    break;
+                }
+            }
+
+            if let Some((idx, fc)) = best_match {
+                matched_combat_indices.insert(idx);
+                (fc.severely_wounded_taken, fc.troop_tier_breakdown())
+            } else {
+                (0, (0, 0))
+            }
+        } else if r.severely_wounded_taken > 0 {
+            (r.severely_wounded_taken, r.troop_tier_breakdown())
+        } else {
+            (0, (0, 0))
+        };
 
         let key = (r.battle_type.clone(), lvl);
         let entry = target_map.entry(key).or_insert_with(|| {
@@ -509,12 +570,18 @@ pub fn compute_ap_economics(active_records: &[BattleRecord], vault_records: &[Ba
                 speedup_mins: 0,
                 gems: 0,
                 covenant_battles: 0,
+                severely_wounded_total: 0,
+                severely_wounded_t4: 0,
+                severely_wounded_t5: 0,
             }
         });
 
         entry.count += 1;
         entry.speedup_mins += spd;
         entry.gems += gems;
+        entry.severely_wounded_total += wounded;
+        entry.severely_wounded_t4 += t4;
+        entry.severely_wounded_t5 += t5;
         if has_covenant {
             entry.covenant_battles += 1;
         }
@@ -595,6 +662,7 @@ pub fn compute_ap_economics(active_records: &[BattleRecord], vault_records: &[Ba
             };
             let covenant_rate = (g.covenant_battles as f64 / g.count as f64) * 100.0;
             let avg_gems = g.gems as f64 / g.count as f64;
+            let avg_wounded = g.severely_wounded_total as f64 / g.count as f64;
 
             let tier_badge = if spd_per_1k >= 1000.0 {
                 "TIER S+"
@@ -617,6 +685,10 @@ pub fn compute_ap_economics(active_records: &[BattleRecord], vault_records: &[Ba
                 tier_badge: tier_badge.to_string(),
                 battle_type: g.battle_type,
                 level: g.level,
+                severely_wounded_total: g.severely_wounded_total,
+                avg_severely_wounded: avg_wounded,
+                severely_wounded_t4: g.severely_wounded_t4,
+                severely_wounded_t5: g.severely_wounded_t5,
             }
         })
         .collect();
@@ -1773,7 +1845,7 @@ mod tests {
             sprites: vec![],
         };
 
-        let make_battle = |btype: &str, lvl: &str, spd_5m: i64, ap_50: i64, covenant: i64, gems_10: i64| {
+        let make_battle = |btype: &str, lvl: &str, spd_5m: i64, ap_50: i64, covenant: i64, gems_10: i64, wounded: u64, power_lost: u64| {
             let mut items = Vec::new();
             if spd_5m > 0 {
                 items.push(mk_item(2, 58, spd_5m));
@@ -1804,14 +1876,16 @@ mod tests {
                 items,
                 item_totals: HashMap::new(),
                 content: "".into(),
+                severely_wounded_taken: wounded,
+                power_lost,
             ..Default::default()
             }
         };
 
-        let r1 = make_battle("fort", "5", 10, 1, 1, 3);
-        let r2 = make_battle("fort", "5", 10, 1, 0, 2);
+        let r1 = make_battle("fort", "5", 10, 1, 1, 3, 100, 1000); // 100 T5 wounded (1000 power)
+        let r2 = make_battle("fort", "5", 10, 1, 0, 2, 50, 200);   // 50 T4 wounded (200 power)
 
-        let r3 = make_battle("barbarian", "25", 2, 0, 0, 1);
+        let r3 = make_battle("barbarian", "25", 2, 0, 0, 1, 0, 0);
 
         let records = vec![r1, r2, r3];
         let econ = compute_ap_economics(&records, &records);
@@ -1833,6 +1907,22 @@ mod tests {
         assert_eq!(fort_bm.covenant_drop_rate, 50.0);
         assert_eq!(fort_bm.battle_type, "fort");
         assert_eq!(fort_bm.level, 5);
+        assert_eq!(fort_bm.severely_wounded_total, 150);
+        assert_eq!(fort_bm.avg_severely_wounded, 75.0);
+        assert_eq!(fort_bm.severely_wounded_t4, 50);
+        assert_eq!(fort_bm.severely_wounded_t5, 100);
+
+        // Test fort loot correlation with separate fort_combat record
+        let fort_loot = make_battle("fort", "6", 10, 0, 1, 0, 0, 0); // severely_wounded_taken = 0
+        let mut fort_combat = make_battle("fort_combat", "", 0, 0, 0, 0, 200, 2000); // 200 T5 wounded
+        fort_combat.time_raw = fort_loot.time_raw + 500; // 500 micros apart
+        fort_combat.mail_id = "fc_test_mail".into();
+
+        let econ_correlated = compute_ap_economics(&[fort_loot], &[fort_combat]);
+        let fort6_bm = econ_correlated.target_benchmarks.iter().find(|b| b.target_name == "Fort Lvl 6").unwrap();
+        assert_eq!(fort6_bm.severely_wounded_total, 200);
+        assert_eq!(fort6_bm.avg_severely_wounded, 200.0);
+        assert_eq!(fort6_bm.severely_wounded_t5, 200);
     }
 
     #[test]

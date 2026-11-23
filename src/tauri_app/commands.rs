@@ -433,7 +433,7 @@ pub fn get_overlay_payload_internal(
     let today_records: Vec<BattleRecord> = watcher
         .get_today_vault_records(overlay_cfg.filter)
         .into_iter()
-        .filter(|r| matches_account_filter(r, &main_uids, selected_account))
+        .filter(|r| r.battle_type != "fort_combat" && matches_account_filter(r, &main_uids, selected_account))
         .collect();
 
     let recent_source: Vec<BattleRecord> = if !today_records.is_empty() {
@@ -442,7 +442,7 @@ pub fn get_overlay_payload_internal(
         watcher
             .get_latest_vault_records(overlay_cfg.filter, 50)
             .into_iter()
-            .filter(|r| matches_account_filter(r, &main_uids, selected_account))
+            .filter(|r| r.battle_type != "fort_combat" && matches_account_filter(r, &main_uids, selected_account))
             .collect()
     };
 
@@ -2318,6 +2318,21 @@ pub fn window_maximize(app: AppHandle) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+#[tauri::command]
+pub fn check_for_updates() -> Result<crate::updater::UpdateInfo, String> {
+    let current_version = env!("CARGO_PKG_VERSION");
+    crate::updater::check_for_updates(current_version)
+}
+
+#[tauri::command]
+pub fn download_and_install_update(
+    app: AppHandle,
+    download_url: String,
+    is_installer: bool,
+) -> Result<(), String> {
+    crate::updater::download_and_apply_update(&app, &download_url, is_installer)
 }
 
 #[tauri::command]

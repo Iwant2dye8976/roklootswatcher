@@ -12,6 +12,7 @@ mod loot_catalog;
 mod model;
 pub mod overlay_tracker;
 mod single_instance;
+pub mod updater;
 mod vault;
 mod vault_migrate;
 pub mod watcher;

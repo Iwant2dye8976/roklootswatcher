@@ -7,6 +7,7 @@ import { CommandPalette } from "./components/CommandPalette";
 import { InspectorDrawer } from "./components/InspectorDrawer";
 import { ToastContainer } from "./components/ToastContainer";
 import { ConfirmDialogProvider } from "./components/ConfirmDialog";
+import * as api from "./api/tauri";
 
 import { DashboardView } from "./views/DashboardView";
 
@@ -31,7 +32,51 @@ const ViewLoadingFallback: React.FC = () => (
 );
 
 const MainLayout: React.FC = () => {
-  const { tab } = useAppStore();
+  const { tab, language } = useAppStore();
+  const [updateInfo, setUpdateInfo] = useState<import("./types").UpdateInfo | null>(null);
+  const [updateModalOpen, setUpdateModalOpen] = useState(false);
+  const [updateProgress, setUpdateProgress] = useState<import("./types").UpdateProgress | null>(null);
+  const [isUpdating, setIsUpdating] = useState(false);
+
+  // Check for updates on startup (debounced 3.5s)
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    api.onUpdateProgress((p) => {
+      setUpdateProgress(p);
+    }).then((un) => {
+      unlisten = un;
+    });
+
+    const timer = setTimeout(async () => {
+      try {
+        const info = await api.checkForUpdates();
+        if (info.has_update) {
+          setUpdateInfo(info);
+          setUpdateModalOpen(true);
+        }
+      } catch {
+        // Silent ignore on startup
+      }
+    }, 3500);
+
+    return () => {
+      clearTimeout(timer);
+      if (unlisten) unlisten();
+    };
+  }, []);
+
+  const handlePerformUpdate = async () => {
+    if (!updateInfo?.download_url) return;
+    setIsUpdating(true);
+    try {
+      await api.downloadAndInstallUpdate(
+        updateInfo.download_url,
+        updateInfo.is_installer
+      );
+    } catch {
+      setIsUpdating(false);
+    }
+  };
 
   const renderActiveView = () => {
     switch (tab) {
@@ -79,6 +124,26 @@ const MainLayout: React.FC = () => {
 
       <CommandPalette />
       <ToastContainer />
+      {updateModalOpen && updateInfo && (
+        <Suspense fallback={null}>
+          {React.createElement(
+            lazy(() =>
+              import("./components/UpdateModal").then((m) => ({
+                default: m.UpdateModal,
+              }))
+            ),
+            {
+              isOpen: updateModalOpen,
+              onClose: () => setUpdateModalOpen(false),
+              updateInfo,
+              progress: updateProgress,
+              isUpdating,
+              onInstall: handlePerformUpdate,
+              language,
+            }
+          )}
+        </Suspense>
+      )}
     </div>
   );
 };
