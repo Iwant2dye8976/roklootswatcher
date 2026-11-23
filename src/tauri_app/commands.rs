@@ -1337,8 +1337,7 @@ pub fn get_dashboard_data(state: State<'_, TauriAppState>) -> Result<DashboardDt
         (cfg.healing_speed_bonus, cfg.alliance_helps_count, cfg.vip_level)
     };
     let current_mode = state.watcher.get_mode();
-    let is_pvp_filter = current_mode == crate::model::FilterMode::PvP;
-    let healing_records = state.watcher.get_filtered_healing_records(is_pvp_filter);
+    let healing_records = state.watcher.get_filtered_healing_records(current_mode);
     let healing_summary = crate::analyzer::compute_healing_summary(&healing_records, bonus, helps, vip);
 
     let latest_raw = crate::analyzer::get_latest_records(&active_records, 5);
@@ -1623,10 +1622,10 @@ pub fn get_clipboard_summary(state: State<'_, TauriAppState>) -> Result<String, 
     let summary = match lang {
         AppLanguage::Vietnamese => format!(
             "=== RoK Loot Watcher ({}) ===\n\
-             Tổng số trận: {}\n\
+             Số báo cáo: {}\n\
              Pha lê: {} | Đá quý: {}\n\
-             Sách giao ước: {} | Mũi tên kháng cự: {}\n\
-             Tăng tốc tổng: {} (Chung: {} | Lính: {} | Trị: {})\n\
+             Sách giao ước: {} | Mũi tên chống trả: {}\n\
+             Tăng tốc tổng: {} (Chung: {} | Huấn luyện: {} | Chữa lành: {})\n\
              Tài nguyên quy đổi: {} (Ngô: {} | Gỗ: {} | Đá: {} | Vàng: {})\n\
              Kinh tế AP: Tiêu hao ~{} AP | Hồi lại {} AP (Ròng: {} AP)",
             date_label,
@@ -1653,7 +1652,7 @@ pub fn get_clipboard_summary(state: State<'_, TauriAppState>) -> Result<String, 
              Total Battles: {}\n\
              Crystals: {} | Gems: {}\n\
              Books of Covenant: {} | Arrows of Resistance: {}\n\
-             Total Speedups: {} (Univ: {} | Train: {} | Heal: {})\n\
+             Total Speedups: {} (Univ: {} | Training: {} | Healing: {})\n\
              Converted Resources: {} (Food: {} | Wood: {} | Stone: {} | Gold: {})\n\
              AP Economics: Est. Spent ~{} AP | Returned {} AP (Net: {} AP)",
             date_label,
@@ -1678,8 +1677,7 @@ pub fn get_clipboard_summary(state: State<'_, TauriAppState>) -> Result<String, 
     };
 
     let current_mode = state.watcher.get_mode();
-    let is_pvp_filter = current_mode == crate::model::FilterMode::PvP;
-    let healing_records = state.watcher.get_filtered_healing_records(is_pvp_filter);
+    let healing_records = state.watcher.get_filtered_healing_records(current_mode);
     let healing = crate::analyzer::compute_healing_summary(
         &healing_records,
         cfg.healing_speed_bonus,
@@ -1691,9 +1689,9 @@ pub fn get_clipboard_summary(state: State<'_, TauriAppState>) -> Result<String, 
         match lang {
             AppLanguage::Vietnamese => {
                 final_summary.push_str(&format!(
-                    "\nViện Quân Y: {} trọng thương (T4: {} | T5: {})\n\
-                     Chi phí trị: {} (Ngô: {} | Gỗ: {} | Đá: {} | Vàng: {})\n\
-                     Tăng tốc trị cần: {} (Bao phủ loot: {}%)",
+                    "\nBác sĩ trả về: {} trọng thương (T4: {} | T5: {})\n\
+                     Chi phí chữa lành: {} (Ngô: {} | Gỗ: {} | Đá: {} | Vàng: {})\n\
+                     Tăng tốc chữa lành cần: {} (Bao phủ: {}%)",
                     format_num(healing.total_severely_wounded as i64),
                     format_num(healing.t4_count as i64),
                     format_num(healing.t5_count as i64),
@@ -1708,7 +1706,7 @@ pub fn get_clipboard_summary(state: State<'_, TauriAppState>) -> Result<String, 
             }
             AppLanguage::English => {
                 final_summary.push_str(&format!(
-                    "\nHospital Healing: {} Severely Wounded (T4: {} | T5: {})\n\
+                    "\nHospital: {} Severely Wounded (T4: {} | T5: {})\n\
                      Healing Cost: {} (Food: {} | Wood: {} | Stone: {} | Gold: {})\n\
                      Healing Speedup: {} (Loot Coverage: {}%)",
                     format_num(healing.total_severely_wounded as i64),

@@ -812,7 +812,7 @@ impl RoKMailWatcher {
         }
     }
 
-    pub fn get_filtered_healing_records(&self, is_pvp: bool) -> Vec<BattleRecord> {
+    pub fn get_filtered_healing_records(&self, mode: FilterMode) -> Vec<BattleRecord> {
         let all = self.get_or_load_all_records();
         let s = *self.start_date.read().unwrap_or_else(|e| e.into_inner());
         let e_date = *self.end_date.read().unwrap_or_else(|e| e.into_inner());
@@ -838,11 +838,18 @@ impl RoKMailWatcher {
         };
 
         let iter = all.iter().filter(|r| {
-            if is_pvp {
-                r.battle_type == "pvp" && matches_acc(r)
-            } else {
-                // PvE healing: barbarian, motte, fort, fort_combat (and any non-pvp combat reports)
-                r.battle_type != "pvp" && matches_acc(r)
+            if !matches_acc(r) {
+                return false;
+            }
+            match mode {
+                FilterMode::PvP => r.battle_type == "pvp",
+                FilterMode::Motte => r.battle_type == "motte",
+                FilterMode::Barbarian => r.battle_type == "barbarian",
+                FilterMode::Fort => r.battle_type == "fort" || r.battle_type == "fort_combat",
+                FilterMode::AllForts => matches!(r.battle_type.as_str(), "motte" | "fort" | "fort_combat"),
+                FilterMode::AllTargets => matches!(r.battle_type.as_str(), "motte" | "fort" | "fort_combat" | "barbarian"),
+                FilterMode::AllRewards => r.battle_type != "pvp",
+                FilterMode::Gathering => false,
             }
         });
 

@@ -147,7 +147,7 @@ const HospitalHealingCard: React.FC<{
   language: import("../types").AppLanguage;
   speedupUnit: import("../types").SpeedupUnit;
   onUpdateConfig: (bonus?: number, helps?: number, vip?: number) => void;
-  context?: "pvp" | "pve";
+  context?: string;
 }> = ({ healing, language, speedupUnit, onUpdateConfig, context }) => {
   const { t } = useI18n(language);
 
@@ -1295,7 +1295,17 @@ export const DashboardView: React.FC = () => {
           language={language}
           speedupUnit={speedupUnit}
           onUpdateConfig={handleUpdateHealingConfig}
-          context="pve"
+          context={
+            mode === "motte"
+              ? "MOTTE"
+              : mode === "fort"
+              ? "FORT"
+              : mode === "all-forts"
+              ? "FORTS"
+              : mode === "barbarian"
+              ? "BARB"
+              : "PVE"
+          }
         />
       )}
 
