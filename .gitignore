@@ -37,3 +37,4 @@ tasks/
 *.db
 *.db-*
 *.migrated
+.ps1
