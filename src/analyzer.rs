@@ -418,6 +418,8 @@ pub struct TargetRoiBenchmark {
     pub unit_ap_cost: i64,
     pub battle_count: usize,
     pub avg_speedup_mins: f64,
+    #[serde(default)]
+    pub total_speedup_mins: i64,
     pub speedup_mins_per_1k_ap: f64,
     pub covenant_drop_rate: f64,
     pub avg_gems: f64,
@@ -679,6 +681,7 @@ pub fn compute_ap_economics(active_records: &[BattleRecord], vault_records: &[Ba
                 unit_ap_cost: g.unit_ap,
                 battle_count: g.count,
                 avg_speedup_mins: avg_speedup,
+                total_speedup_mins: g.speedup_mins,
                 speedup_mins_per_1k_ap: spd_per_1k,
                 covenant_drop_rate: covenant_rate,
                 avg_gems,
@@ -1904,6 +1907,7 @@ mod tests {
         assert_eq!(fort_bm.battle_count, 2);
         assert_eq!(fort_bm.unit_ap_cost, 150);
         assert_eq!(fort_bm.avg_speedup_mins, 50.0);
+        assert_eq!(fort_bm.total_speedup_mins, 100);
         assert_eq!(fort_bm.covenant_drop_rate, 50.0);
         assert_eq!(fort_bm.battle_type, "fort");
         assert_eq!(fort_bm.level, 5);

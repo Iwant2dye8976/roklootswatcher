@@ -33,12 +33,9 @@ import {
   OverlayConfig,
   OverlayDisplayMode,
   PinnedItemKey,
-  UpdateInfo,
-  UpdateProgress,
 } from "../types";
 import { ResourceIcon } from "../components/ResourceIcon";
 import { CommanderCardPair } from "../components/CommanderCardPair";
-import { UpdateModal } from "../components/UpdateModal";
 import * as api from "../api/tauri";
 
 interface PinnedPreset {
@@ -287,6 +284,9 @@ export const SettingsView: React.FC = () => {
     addToast,
     refreshSnapshot,
     refreshDashboard,
+    checkingUpdate,
+    isUpdating,
+    checkForUpdates,
   } = useAppStore();
   const { t } = useI18n(language);
   const { confirm } = useConfirm();
@@ -324,85 +324,6 @@ export const SettingsView: React.FC = () => {
   const [vipLevel, setVipLevel] = useState<number>(
     snapshot?.vip_level ?? 0
   );
-
-  // Update checking state
-  const [checkingUpdate, setCheckingUpdate] = useState(false);
-  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
-  const [updateModalOpen, setUpdateModalOpen] = useState(false);
-  const [updateProgress, setUpdateProgress] = useState<UpdateProgress | null>(null);
-  const [isUpdating, setIsUpdating] = useState(false);
-
-  useEffect(() => {
-    let unlisten: (() => void) | undefined;
-    api.onUpdateProgress((p) => {
-      setUpdateProgress(p);
-    }).then((un) => {
-      unlisten = un;
-    });
-    return () => {
-      if (unlisten) unlisten();
-    };
-  }, []);
-
-  const handleCheckUpdate = async (silent = false) => {
-    setCheckingUpdate(true);
-    try {
-      const info = await api.checkForUpdates();
-      setUpdateInfo(info);
-      if (info.has_update) {
-        setUpdateModalOpen(true);
-      } else if (!silent) {
-        addToast({
-          type: "success",
-          text:
-            language === "vi"
-              ? `Phiên bản hiện tại (v${info.current_version}) là mới nhất!`
-              : `You are on the latest version (v${info.current_version})!`,
-        });
-      }
-    } catch (e) {
-      if (!silent) {
-        addToast({
-          type: "error",
-          text:
-            language === "vi"
-              ? `Không thể kiểm tra cập nhật: ${String(e)}`
-              : `Failed to check for updates: ${String(e)}`,
-        });
-      }
-    } finally {
-      setCheckingUpdate(false);
-    }
-  };
-
-  const handlePerformUpdate = async () => {
-    if (!updateInfo?.download_url) {
-      addToast({
-        type: "error",
-        text:
-          language === "vi"
-            ? "Không tìm thấy đường dẫn tải bản cập nhật."
-            : "No download URL available for update.",
-      });
-      return;
-    }
-    setIsUpdating(true);
-    try {
-      await api.downloadAndInstallUpdate(
-        updateInfo.download_url,
-        updateInfo.is_installer
-      );
-    } catch (e) {
-      setIsUpdating(false);
-      addToast({
-        type: "error",
-        text:
-          language === "vi"
-            ? `Cập nhật thất bại: ${String(e)}`
-            : `Update failed: ${String(e)}`,
-      });
-    }
-  };
 
   const [autoScroll, setAutoScroll] = useState(true);
   const logContainerRef = useRef<HTMLDivElement>(null);
@@ -2444,7 +2365,7 @@ export const SettingsView: React.FC = () => {
 
         <div className="flex items-center gap-2">
           <button
-            onClick={() => handleCheckUpdate(false)}
+            onClick={() => checkForUpdates(false)}
             disabled={checkingUpdate || isUpdating}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-binance-elevated hover:bg-binance-hairline/80 border border-binance-hairline text-xs font-medium text-binance-body transition disabled:opacity-50"
           >
@@ -2457,17 +2378,6 @@ export const SettingsView: React.FC = () => {
           </button>
         </div>
       </div>
-
-      {/* Update Modal */}
-      <UpdateModal
-        isOpen={updateModalOpen}
-        onClose={() => setUpdateModalOpen(false)}
-        updateInfo={updateInfo}
-        progress={updateProgress}
-        isUpdating={isUpdating}
-        onInstall={handlePerformUpdate}
-        language={language}
-      />
     </div>
   );
 };

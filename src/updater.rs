@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs::{self, File};
 use std::io::{Read, Write};
+use std::path::Path;
 use std::process::Command;
 use tauri::{AppHandle, Emitter};
 
@@ -159,11 +160,94 @@ pub fn check_for_updates(current_version: &str) -> Result<UpdateInfo, String> {
     })
 }
 
-/// Download an update file with progress reporting and apply it.
+/// Parses SHA256SUMS file content to extract the hash matching the target asset name
+pub fn parse_sha256_from_content(content: &str, asset_name: Option<&str>) -> Option<String> {
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let parts: Vec<&str> = trimmed.split_whitespace().collect();
+        if parts.is_empty() {
+            continue;
+        }
+        let candidate_hash = parts[0].trim().to_lowercase();
+        if candidate_hash.len() == 64 && candidate_hash.chars().all(|c| c.is_ascii_hexdigit()) {
+            if let Some(target) = asset_name {
+                let target_lower = target.to_lowercase();
+                if parts.len() > 1 {
+                    let file_part = parts[1].trim_start_matches('*').to_lowercase();
+                    if file_part.contains(&target_lower) || target_lower.contains(&file_part) {
+                        return Some(candidate_hash);
+                    }
+                } else if content.lines().filter(|l| !l.trim().is_empty()).count() == 1 {
+                    return Some(candidate_hash);
+                }
+            } else {
+                return Some(candidate_hash);
+            }
+        }
+    }
+    // Fallback: search for any standalone 64-hex token
+    for word in content.split_whitespace() {
+        let clean = word.trim().to_lowercase();
+        if clean.len() == 64 && clean.chars().all(|c| c.is_ascii_hexdigit()) {
+            return Some(clean);
+        }
+    }
+    None
+}
+
+/// Computes SHA256 checksum of a file on disk
+pub fn compute_file_sha256(path: &Path) -> Result<String, String> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        let output = Command::new("certutil")
+            .args(["-hashfile", &path.to_string_lossy(), "SHA256"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+            .map_err(|e| format!("Failed to run certutil: {}", e))?;
+
+        if !output.status.success() {
+            return Err("certutil command failed to compute SHA256".to_string());
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines() {
+            let trimmed = line.trim().replace(' ', "").to_lowercase();
+            if trimmed.len() == 64 && trimmed.chars().all(|c| c.is_ascii_hexdigit()) {
+                return Ok(trimmed);
+            }
+        }
+        Err("Unable to parse SHA256 hash from certutil output".to_string())
+    }
+    #[cfg(not(windows))]
+    {
+        let output = Command::new("sha256sum")
+            .arg(path)
+            .output()
+            .or_else(|_| Command::new("shasum").args(["-a", "256"]).arg(path).output())
+            .map_err(|e| format!("Failed to execute sha256sum: {}", e))?;
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let hash = stdout.split_whitespace().next().unwrap_or("").to_lowercase();
+        if hash.len() == 64 && hash.chars().all(|c| c.is_ascii_hexdigit()) {
+            Ok(hash)
+        } else {
+            Err("Unable to parse SHA256 from sha256sum output".to_string())
+        }
+    }
+}
+
+/// Download an update file with progress reporting, verify SHA256 integrity, and apply it.
 pub fn download_and_apply_update(
     app: &AppHandle,
     download_url: &str,
     is_installer: bool,
+    sha256_url: Option<&str>,
+    asset_name: Option<&str>,
 ) -> Result<(), String> {
     let current_exe = env::current_exe()
         .map_err(|e| format!("Failed to get current executable path: {}", e))?;
@@ -233,6 +317,43 @@ pub fn download_and_apply_update(
     out_file.flush().map_err(|e| format!("Flush failed: {}", e))?;
     drop(out_file);
 
+    // Verify SHA256 integrity if checksum asset is available
+    if let Some(sha_url) = sha256_url {
+        let _ = app.emit(
+            "updater://progress",
+            UpdateProgress {
+                percent: 100.0,
+                downloaded_bytes,
+                total_bytes: downloaded_bytes,
+                status: "verifying_checksum".to_string(),
+            },
+        );
+
+        match ureq::get(sha_url)
+            .set("User-Agent", "roklootswatcher-updater")
+            .timeout(std::time::Duration::from_secs(10))
+            .call()
+        {
+            Ok(sha_resp) => {
+                if let Ok(content) = sha_resp.into_string() {
+                    if let Some(expected_hash) = parse_sha256_from_content(&content, asset_name) {
+                        let actual_hash = compute_file_sha256(&temp_download_path)?;
+                        if !actual_hash.eq_ignore_ascii_case(&expected_hash) {
+                            let _ = fs::remove_file(&temp_download_path);
+                            return Err(format!(
+                                "SHA256 checksum mismatch! Expected: {}, Computed: {}. Update aborted.",
+                                expected_hash, actual_hash
+                            ));
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("[!] Warning: Could not download SHA256SUMS file: {}", e);
+            }
+        }
+    }
+
     let _ = app.emit(
         "updater://progress",
         UpdateProgress {
@@ -259,6 +380,7 @@ pub fn download_and_apply_update(
         let bat_script = format!(
             "@echo off\r\n\
              setlocal\r\n\
+             cd /d \"{work_dir}\"\r\n\
              :wait_loop\r\n\
              tasklist /FI \"PID eq {pid}\" 2>NUL | find /I \"{pid}\" >NUL\r\n\
              if not errorlevel 1 (\r\n\
@@ -275,6 +397,7 @@ pub fn download_and_apply_update(
              start \"\" \"{target_exe}\"\r\n\
              del /F /Q \"%~f0\" >NUL 2>&1\r\n\
              exit\r\n",
+            work_dir = exe_dir.to_string_lossy(),
             pid = current_pid,
             temp_exe = temp_download_path.to_string_lossy(),
             target_exe = current_exe.to_string_lossy(),
@@ -289,6 +412,7 @@ pub fn download_and_apply_update(
             use std::os::windows::process::CommandExt;
             const CREATE_NO_WINDOW: u32 = 0x08000000;
             Command::new("cmd")
+                .current_dir(exe_dir)
                 .args(["/C", &bat_path.to_string_lossy()])
                 .creation_flags(CREATE_NO_WINDOW)
                 .spawn()
@@ -297,6 +421,7 @@ pub fn download_and_apply_update(
         #[cfg(not(windows))]
         {
             Command::new("sh")
+                .current_dir(exe_dir)
                 .args(["-c", &bat_path.to_string_lossy()])
                 .spawn()
                 .map_err(|e| format!("Failed to execute updater script: {}", e))?;
@@ -328,5 +453,33 @@ mod tests {
         assert!(!is_newer_version("2.21.0", "2.21.0"));
         assert!(!is_newer_version("2.21.1", "2.21.0"));
         assert!(!is_newer_version("3.0.0", "2.25.0"));
+    }
+
+    #[test]
+    fn test_parse_sha256_from_content() {
+        let sample = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  rok_watcher.exe\n\
+                      1111111111111111111111111111111111111111111111111111111111111111  rok_setup.exe\n";
+        assert_eq!(
+            parse_sha256_from_content(sample, Some("rok_watcher.exe")),
+            Some("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855".to_string())
+        );
+        assert_eq!(
+            parse_sha256_from_content(sample, Some("rok_setup.exe")),
+            Some("1111111111111111111111111111111111111111111111111111111111111111".to_string())
+        );
+        assert_eq!(
+            parse_sha256_from_content("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", None),
+            Some("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855".to_string())
+        );
+    }
+
+    #[test]
+    fn test_compute_file_sha256() {
+        let manifest_path = std::path::PathBuf::from("Cargo.toml");
+        if manifest_path.exists() {
+            let hash = compute_file_sha256(&manifest_path).expect("Should compute SHA256 of Cargo.toml");
+            assert_eq!(hash.len(), 64);
+            assert!(hash.chars().all(|c| c.is_ascii_hexdigit()));
+        }
     }
 }

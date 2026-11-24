@@ -1531,6 +1531,29 @@ impl ResourceTotals {
     }
 }
 
+/// Calculate estimated resource breakdown from Level 2 Resource Packs (itype: 2, sub_type: 7006).
+/// Pattern repeats every 4 packs:
+/// Pack 1: 10,000 Food
+/// Pack 2: 10,000 Wood
+/// Pack 3: 7,500 Stone
+/// Pack 4: 5,000 Gold
+/// Returns (food, wood, stone, gold, total_rss).
+pub fn calculate_lvl2_resource_pack_breakdown(count: i64) -> (i64, i64, i64, i64, i64) {
+    if count <= 0 {
+        return (0, 0, 0, 0, 0);
+    }
+    let full = count / 4;
+    let rem = count % 4;
+
+    let food = full * 10_000 + if rem >= 1 { 10_000 } else { 0 };
+    let wood = full * 10_000 + if rem >= 2 { 10_000 } else { 0 };
+    let stone = full * 7_500 + if rem >= 3 { 7_500 } else { 0 };
+    let gold = full * 5_000;
+    let total = food + wood + stone + gold;
+
+    (food, wood, stone, gold, total)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MaterialKind {
     Leather,
@@ -4334,5 +4357,32 @@ mod tests {
 
         let cost_no_helps = rec.compute_healing_cost(1.10, 0, 0);
         assert_eq!(cost_no_helps.final_healing_time_secs.round() as u64, 33181);
+    }
+
+    #[test]
+    fn test_lvl2_resource_pack_breakdown() {
+        assert_eq!(calculate_lvl2_resource_pack_breakdown(0), (0, 0, 0, 0, 0));
+        assert_eq!(calculate_lvl2_resource_pack_breakdown(-5), (0, 0, 0, 0, 0));
+        
+        // 1 pack: 10,000 Food
+        assert_eq!(calculate_lvl2_resource_pack_breakdown(1), (10_000, 0, 0, 0, 10_000));
+        
+        // 2 packs: 10k Food + 10k Wood
+        assert_eq!(calculate_lvl2_resource_pack_breakdown(2), (10_000, 10_000, 0, 0, 20_000));
+        
+        // 3 packs: 10k Food + 10k Wood + 7.5k Stone
+        assert_eq!(calculate_lvl2_resource_pack_breakdown(3), (10_000, 10_000, 7_500, 0, 27_500));
+        
+        // 4 packs: 10k Food + 10k Wood + 7.5k Stone + 5k Gold = 32.5k total
+        assert_eq!(calculate_lvl2_resource_pack_breakdown(4), (10_000, 10_000, 7_500, 5_000, 32_500));
+        
+        // 5 packs: 20k Food + 10k Wood + 7.5k Stone + 5k Gold = 42.5k total
+        assert_eq!(calculate_lvl2_resource_pack_breakdown(5), (20_000, 10_000, 7_500, 5_000, 42_500));
+        
+        // 8 packs: 2 full cycles (20k Food, 20k Wood, 15k Stone, 10k Gold = 65k total)
+        assert_eq!(calculate_lvl2_resource_pack_breakdown(8), (20_000, 20_000, 15_000, 10_000, 65_000));
+
+        // 10 packs: 2 full cycles + 2 rem (30k Food, 30k Wood, 15k Stone, 10k Gold = 85k total)
+        assert_eq!(calculate_lvl2_resource_pack_breakdown(10), (30_000, 30_000, 15_000, 10_000, 85_000));
     }
 }

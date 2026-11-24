@@ -111,7 +111,20 @@ pub(crate) fn process_loopback_token_request(
         .and_then(|path| path.split_once('?').map(|(_, q)| q))
         .unwrap_or("");
 
-    let params = parse_params(query_str);
+    let mut params = parse_params(query_str);
+    if !params.contains_key("access_token") {
+        if let Some((_, body)) = req_str.split_once("\r\n\r\n") {
+            let body_params = parse_params(body.trim());
+            for (k, v) in body_params {
+                params.entry(k).or_insert(v);
+            }
+        } else if let Some((_, body)) = req_str.split_once("\n\n") {
+            let body_params = parse_params(body.trim());
+            for (k, v) in body_params {
+                params.entry(k).or_insert(v);
+            }
+        }
+    }
     let received_state = params
         .get("app_state")
         .or_else(|| params.get("state"))
@@ -192,8 +205,12 @@ pub(crate) fn render_oauth_callback_html() -> &'static str {
     const hash = window.location.hash ? window.location.hash.substring(1) : '';
     const search = window.location.search ? window.location.search.substring(1) : '';
     const fullParams = (hash && search) ? (hash + '&' + search) : (hash || search);
-    const url = fullParams ? ('/token?' + fullParams) : '/token?error=empty_callback';
-    fetch(url)
+    const bodyStr = fullParams || 'error=empty_callback';
+    fetch('/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: bodyStr
+    })
       .then(async res => {
         if (!res.ok) {
           const txt = await res.text();
@@ -302,7 +319,7 @@ pub fn start_google_login(
             let _ = stream.write_all(resp.as_bytes());
             let _ = stream.flush();
             return Err("Đã hủy đăng nhập Google".to_string());
-        } else if req_str.starts_with("GET /token") {
+        } else if req_str.starts_with("GET /token") || req_str.starts_with("POST /token") {
             match process_loopback_token_request(&req_str, &expected_state) {
                 LoopbackTokenOutcome::Success { access_token: at, refresh_token: rt } => {
                     let resp = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 2\r\nConnection: close\r\n\r\nOK";
@@ -1461,6 +1478,19 @@ mod tests {
             LoopbackTokenOutcome::Success {
                 access_token: "at_abc".to_string(),
                 refresh_token: "rt_xyz".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn test_process_loopback_token_request_post_body_success() {
+        let req = "POST /token HTTP/1.1\r\nOrigin: null\r\nContent-Type: application/x-www-form-urlencoded\r\n\r\napp_state=safe_state_123&access_token=at_post&refresh_token=rt_post";
+        let res = process_loopback_token_request(req, "safe_state_123");
+        assert_eq!(
+            res,
+            LoopbackTokenOutcome::Success {
+                access_token: "at_post".to_string(),
+                refresh_token: "rt_post".to_string(),
             }
         );
     }

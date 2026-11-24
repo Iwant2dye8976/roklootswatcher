@@ -156,10 +156,20 @@ export const InventoryView: React.FC = () => {
               <Coins className="w-4 h-4" />
               {t("rssSummary")}
             </span>
-            <span className="font-mono text-binance-white font-bold">
-              {(resources.total_val / 1_000_000).toFixed(2)}M RSS (
-              {resources.total_val.toLocaleString()})
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-binance-white font-bold">
+                {(resources.total_val / 1_000_000).toFixed(2)}M RSS (
+                {resources.total_val.toLocaleString()})
+              </span>
+              {(resources.est_lvl2_total ?? 0) > 0 && (
+                <span
+                  className="font-mono text-binance-yellow text-[11px] bg-binance-yellow/10 px-1.5 py-0.5 rounded border border-binance-yellow/20"
+                  title={`${t("rssEstimatedBreakdown")}: +${(resources.est_lvl2_total || 0).toLocaleString()} (${t("rssPatternTooltip")})`}
+                >
+                  +{((resources.est_lvl2_total || 0) / 1_000_000).toFixed(2)}M {t("rssEstimatedTotal")}
+                </span>
+              )}
+            </div>
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 text-xs">
@@ -168,8 +178,15 @@ export const InventoryView: React.FC = () => {
                 <ResourceIcon resource="food" size="lg" />
                 <span className="text-base font-bold font-mono text-binance-white">{t("rssFood")}</span>
               </div>
-              <div className="text-base font-bold font-mono text-binance-white my-0.5">
-                {(resources.food_val / 1_000_000).toFixed(2)}M
+              <div className="my-0.5">
+                <div className="text-base font-bold font-mono text-binance-white">
+                  {(resources.food_val / 1_000_000).toFixed(2)}M
+                </div>
+                {(resources.est_lvl2_food ?? 0) > 0 && (
+                  <div className="text-[11px] font-mono text-binance-yellow/90 font-medium">
+                    +{((resources.est_lvl2_food || 0) / 1_000_000).toFixed(2)}M {t("rssEstimatedTotal")}
+                  </div>
+                )}
               </div>
               <div className="text-[10px] text-binance-muted font-mono">
                 {resources.food_packs.toLocaleString()} {t("lblPacks")}
@@ -181,8 +198,15 @@ export const InventoryView: React.FC = () => {
                 <ResourceIcon resource="wood" size="lg" />
                 <span className="text-base font-bold font-mono text-binance-white">{t("rssWood")}</span>
               </div>
-              <div className="text-base font-bold font-mono text-binance-white my-0.5">
-                {(resources.wood_val / 1_000_000).toFixed(2)}M
+              <div className="my-0.5">
+                <div className="text-base font-bold font-mono text-binance-white">
+                  {(resources.wood_val / 1_000_000).toFixed(2)}M
+                </div>
+                {(resources.est_lvl2_wood ?? 0) > 0 && (
+                  <div className="text-[11px] font-mono text-binance-yellow/90 font-medium">
+                    +{((resources.est_lvl2_wood || 0) / 1_000_000).toFixed(2)}M {t("rssEstimatedTotal")}
+                  </div>
+                )}
               </div>
               <div className="text-[10px] text-binance-muted font-mono">
                 {resources.wood_packs.toLocaleString()} {t("lblPacks")}
@@ -194,8 +218,15 @@ export const InventoryView: React.FC = () => {
                 <ResourceIcon resource="stone" size="lg" />
                 <span className="text-base font-bold font-mono text-binance-white">{t("rssStone")}</span>
               </div>
-              <div className="text-base font-bold font-mono text-binance-white my-0.5">
-                {(resources.stone_val / 1_000_000).toFixed(2)}M
+              <div className="my-0.5">
+                <div className="text-base font-bold font-mono text-binance-white">
+                  {(resources.stone_val / 1_000_000).toFixed(2)}M
+                </div>
+                {(resources.est_lvl2_stone ?? 0) > 0 && (
+                  <div className="text-[11px] font-mono text-binance-yellow/90 font-medium">
+                    +{((resources.est_lvl2_stone || 0) / 1_000_000).toFixed(2)}M {t("rssEstimatedTotal")}
+                  </div>
+                )}
               </div>
               <div className="text-[10px] text-binance-muted font-mono">
                 {resources.stone_packs.toLocaleString()} {t("lblPacks")}
@@ -207,8 +238,15 @@ export const InventoryView: React.FC = () => {
                 <ResourceIcon resource="gold" size="lg" />
                 <span className="text-base font-bold font-mono text-binance-white">{t("rssGold")}</span>
               </div>
-              <div className="text-base font-bold font-mono text-binance-white my-0.5">
-                {(resources.gold_val / 1_000_000).toFixed(2)}M
+              <div className="my-0.5">
+                <div className="text-base font-bold font-mono text-binance-white">
+                  {(resources.gold_val / 1_000_000).toFixed(2)}M
+                </div>
+                {(resources.est_lvl2_gold ?? 0) > 0 && (
+                  <div className="text-[11px] font-mono text-binance-yellow/90 font-medium">
+                    +{((resources.est_lvl2_gold || 0) / 1_000_000).toFixed(2)}M {t("rssEstimatedTotal")}
+                  </div>
+                )}
               </div>
               <div className="text-[10px] text-binance-muted font-mono">
                 {resources.gold_packs.toLocaleString()} {t("lblPacks")}
@@ -220,8 +258,10 @@ export const InventoryView: React.FC = () => {
                 <ResourceIcon resource="gems" size="lg" />
                 <span className="text-base font-bold font-mono text-binance-white">{t("rssGems")}</span>
               </div>
-              <div className="text-base font-bold font-mono text-binance-white my-0.5">
-                {resources.gem_val.toLocaleString()}
+              <div className="my-0.5">
+                <div className="text-base font-bold font-mono text-binance-white">
+                  {resources.gem_val.toLocaleString()}
+                </div>
               </div>
               <div className="text-[10px] text-binance-muted font-mono">
                 {resources.gem_packs.toLocaleString()} {t("lblDrops")}
@@ -230,8 +270,18 @@ export const InventoryView: React.FC = () => {
 
             <div className="p-2.5 rounded-md bg-binance-canvas border border-binance-hairline flex flex-col justify-between">
               <div className="text-binance-muted font-medium">{t("rssChoicePacks")}</div>
-              <div className="text-base font-bold font-mono text-binance-body my-0.5">
-                {resources.choice_packs.toLocaleString()}
+              <div className="my-0.5">
+                <div className="text-base font-bold font-mono text-binance-body">
+                  {resources.choice_packs.toLocaleString()}
+                </div>
+                {(resources.lvl2_choice_packs ?? 0) > 0 && (
+                  <div
+                    className="text-[10px] font-mono text-binance-yellow truncate"
+                    title={`${resources.lvl2_choice_packs} ${t("rssLvl2ChoicePacks")} (${t("rssPatternTooltip")})`}
+                  >
+                    {resources.lvl2_choice_packs} {t("rssLvl2ChoicePacks")}
+                  </div>
+                )}
               </div>
               <div className="text-[10px] text-binance-muted font-mono">
                 {t("lblPacks")}

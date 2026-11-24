@@ -364,12 +364,16 @@ export async function checkForUpdates(): Promise<import("../types").UpdateInfo> 
 
 export async function downloadAndInstallUpdate(
   downloadUrl: string,
-  isInstaller: boolean
+  isInstaller: boolean,
+  sha256Url?: string | null,
+  assetName?: string | null
 ): Promise<void> {
   if (!isTauri()) return;
   await invoke("download_and_install_update", {
     downloadUrl,
     isInstaller,
+    sha256Url,
+    assetName,
   });
 }
 

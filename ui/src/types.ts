@@ -163,6 +163,8 @@ export interface TargetBenchmark {
   target_name: string;
   unit_ap_cost: number;
   battle_count: number;
+  avg_speedup_mins?: number;
+  total_speedup_mins?: number;
   speedup_mins_per_1k_ap: number;
   covenant_drop_rate: number;
   tier_badge: string;
@@ -216,6 +218,12 @@ export interface ResourceSummaryDto {
   gold_packs: number;
   gem_packs: number;
   choice_packs: number;
+  lvl2_choice_packs?: number;
+  est_lvl2_food?: number;
+  est_lvl2_wood?: number;
+  est_lvl2_stone?: number;
+  est_lvl2_gold?: number;
+  est_lvl2_total?: number;
 }
 
 export interface MaterialsSummaryDto {
@@ -277,6 +285,8 @@ export interface DashboardDto {
   speedup_train_mins: number;
   speedup_heal_mins: number;
   total_resources: number;
+  est_lvl2_total_rss?: number;
+  lvl2_choice_packs?: number;
   motte_count: number;
   fort_count: number;
   barb_count: number;

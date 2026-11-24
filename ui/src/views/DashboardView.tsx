@@ -522,9 +522,7 @@ export const DashboardView: React.FC = () => {
   const [pvpZoomCenter, setPvpZoomCenter] = useState<number | undefined>(
     undefined
   );
-  const [bmTypeFilter, setBmTypeFilter] = useState<
-    "all" | "fort" | "motte" | "barbarian"
-  >("all");
+  const [hoveredLvlIdx, setHoveredLvlIdx] = useState<number | null>(null);
   const [bmSearch, setBmSearch] = useState("");
   const [bmSortKey, setBmSortKey] = useState<BenchmarkSortKey>("yield");
   const [bmSortDir, setBmSortDir] = useState<"asc" | "desc">("desc");
@@ -573,9 +571,6 @@ export const DashboardView: React.FC = () => {
 
   const filteredBenchmarks = useMemo(() => {
     let list = ap.target_benchmarks || [];
-    if (bmTypeFilter !== "all") {
-      list = list.filter((b) => getTargetType(b) === bmTypeFilter);
-    }
     if (bmSearch.trim()) {
       const q = bmSearch.toLowerCase().trim();
       list = list.filter((b) => {
@@ -630,7 +625,7 @@ export const DashboardView: React.FC = () => {
       }
       return bmSortDir === "desc" ? -cmp : cmp;
     });
-  }, [ap.target_benchmarks, bmTypeFilter, bmSearch, bmSortKey, bmSortDir]);
+  }, [ap.target_benchmarks, bmSearch, bmSortKey, bmSortDir]);
 
   const dailyTimeline = ap.daily_timeline || [];
 
@@ -750,6 +745,109 @@ export const DashboardView: React.FC = () => {
     const last = comboChartPoints[comboChartPoints.length - 1];
     return `${comboLinePath} L ${last.x} ${chartBaselineY} L ${first.x} ${chartBaselineY} Z`;
   }, [comboLinePath, comboChartPoints]);
+
+  // Aggregated level breakdown for speedups by target level (respects global filter)
+  const speedupsByLevelData = useMemo(() => {
+    const list = ap.target_benchmarks || [];
+
+    const levelMap = new Map<
+      number,
+      {
+        level: number;
+        levelLabel: string;
+        totalMins: number;
+        totalBattles: number;
+        targetNames: string[];
+      }
+    >();
+
+    for (const b of list) {
+      const lvl = getTargetLevel(b);
+      const totalMins =
+        b.total_speedup_mins !== undefined && b.total_speedup_mins !== null
+          ? b.total_speedup_mins
+          : Math.round((b.avg_speedup_mins || 0) * (b.battle_count || 0));
+      const battles = b.battle_count || 0;
+      const name = b.target_name || (lvl > 0 ? `Lvl ${lvl}` : "-");
+
+      const existing = levelMap.get(lvl);
+      if (existing) {
+        existing.totalMins += totalMins;
+        existing.totalBattles += battles;
+        if (!existing.targetNames.includes(name)) {
+          existing.targetNames.push(name);
+        }
+      } else {
+        levelMap.set(lvl, {
+          level: lvl,
+          levelLabel: lvl > 0 ? `Lvl ${lvl}` : t("typeAll"),
+          totalMins,
+          totalBattles: battles,
+          targetNames: [name],
+        });
+      }
+    }
+
+    return Array.from(levelMap.values()).sort((a, b) => a.level - b.level);
+  }, [ap.target_benchmarks, t]);
+
+  const maxLvlSpeedupMins = useMemo(() => {
+    if (speedupsByLevelData.length === 0) return 60;
+    return Math.max(1, ...speedupsByLevelData.map((d) => d.totalMins));
+  }, [speedupsByLevelData]);
+
+  const lvlSvgViewWidth = 700;
+  const lvlSvgViewHeight = 160;
+  const lvlPadLeft = 46;
+  const lvlPadRight = 46;
+  const lvlBaselineY = 132;
+  const lvlTopY = 16;
+  const lvlAvailH = lvlBaselineY - lvlTopY;
+  const lvlPlotWidth = lvlSvgViewWidth - lvlPadLeft - lvlPadRight;
+
+  const lvlChartPoints = useMemo(() => {
+    if (speedupsByLevelData.length === 0) return [];
+    const count = speedupsByLevelData.length;
+    // When there are few levels (e.g. 2 levels), cap the max distance between bars
+    // and center the group in the plot area so bars don't stretch to the far edges.
+    const maxSpacing = 100;
+    const naturalStep = count > 1 ? lvlPlotWidth / (count - 1) : 0;
+    const actualStep = count > 1 ? Math.min(maxSpacing, naturalStep) : 0;
+    const groupWidth = (count - 1) * actualStep;
+    const groupStartX = (lvlSvgViewWidth - groupWidth) / 2;
+
+    return speedupsByLevelData.map((item, idx) => {
+      const x = count > 1 ? groupStartX + idx * actualStep : lvlSvgViewWidth / 2;
+      const barH = Math.max(
+        4,
+        (item.totalMins / maxLvlSpeedupMins) * lvlAvailH
+      );
+      const barY = lvlBaselineY - barH;
+      const barWidth = Math.max(
+        18,
+        Math.min(36, (lvlPlotWidth / Math.max(count, 4)) * 0.45)
+      );
+      const avgMins =
+        item.totalBattles > 0 ? item.totalMins / item.totalBattles : 0;
+
+      return {
+        idx,
+        item,
+        x,
+        barY,
+        barH,
+        barWidth,
+        avgMins,
+      };
+    });
+  }, [
+    speedupsByLevelData,
+    maxLvlSpeedupMins,
+    lvlPlotWidth,
+    lvlAvailH,
+    lvlBaselineY,
+    lvlSvgViewWidth,
+  ]);
 
   const visibleApPointCount = apRange.end - apRange.start;
   const canZoomInAp =
@@ -1277,12 +1375,25 @@ export const DashboardView: React.FC = () => {
             </div>
           </div>
           <div className="my-1.5">
-            <div className="text-xl sm:text-2xl font-bold font-mono text-binance-body tracking-tight">
-              {((d.total_resources || 0) / 1_000_000).toFixed(2)}M
+            <div className="text-xl sm:text-2xl font-bold font-mono text-binance-body tracking-tight flex items-baseline gap-1.5 flex-wrap">
+              <span>{((d.total_resources || 0) / 1_000_000).toFixed(2)}M</span>
+              {(d.est_lvl2_total_rss ?? 0) > 0 && (
+                <span
+                  className="text-xs font-mono text-binance-yellow font-normal"
+                  title={`${t("rssEstimatedBreakdown")}: +${(d.est_lvl2_total_rss || 0).toLocaleString()} (${d.lvl2_choice_packs || 0} ${t("rssLvl2ChoicePacks")})`}
+                >
+                  (+{((d.est_lvl2_total_rss || 0) / 1_000_000).toFixed(2)}M)
+                </span>
+              )}
             </div>
           </div>
           <div className="text-[10px] text-binance-muted font-mono truncate">
             {(d.total_resources || 0).toLocaleString()} RSS
+            {(d.est_lvl2_total_rss ?? 0) > 0 && (
+              <span className="text-binance-yellow ml-1">
+                (+{(d.est_lvl2_total_rss || 0).toLocaleString()})
+              </span>
+            )}
           </div>
         </div>
       </div>
@@ -1744,6 +1855,176 @@ export const DashboardView: React.FC = () => {
             </div>
           </div>
 
+          {/* Speedups Breakdown by Level */}
+          <div className="p-3.5 rounded-md bg-binance-card border border-binance-hairline space-y-3">
+            <div className="flex items-center justify-between text-xs pb-2 border-b border-binance-hairline flex-wrap gap-2">
+              <div className="flex items-center gap-2">
+                <Clock className="w-4 h-4 text-binance-yellow" />
+                <span className="font-semibold text-binance-body">
+                  {t("speedupBreakdownByLevel")}
+                </span>
+                <span className="text-[11px] text-binance-muted font-normal hidden sm:inline">
+                  — {t("speedupBreakdownByLevelSubtitle")}
+                </span>
+              </div>
+            </div>
+
+            {/* SVG Bar Chart by Level */}
+            <div className="w-full relative py-1">
+              {lvlChartPoints.length === 0 ? (
+                <div className="h-36 w-full flex flex-col items-center justify-center text-xs font-mono text-binance-muted gap-2">
+                  <Zap className="w-7 h-7 text-binance-muted/30 stroke-1" />
+                  <span>{t("noBenchmarkMatches")}</span>
+                </div>
+              ) : (
+                <div className="relative h-40 w-full select-none">
+                  <ResponsiveChartSvg
+                    className="w-full h-full overflow-visible"
+                    viewBox={`0 0 ${lvlSvgViewWidth} ${lvlSvgViewHeight}`}
+                  >
+                    <defs>
+                      <linearGradient id="lvlSpdGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#f59e0b" stopOpacity="0.9" />
+                        <stop offset="100%" stopColor="#d97706" stopOpacity="0.3" />
+                      </linearGradient>
+                      <linearGradient id="lvlSpdHoverGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#fcd535" stopOpacity="1" />
+                        <stop offset="100%" stopColor="#f59e0b" stopOpacity="0.5" />
+                      </linearGradient>
+                    </defs>
+
+                    {/* Reference Grid Lines */}
+                    {[0.0, 0.33, 0.66, 1.0].map((frac, idx) => {
+                      const y = lvlBaselineY - frac * lvlAvailH;
+                      const valMins = frac * maxLvlSpeedupMins;
+                      return (
+                        <g key={idx}>
+                          <line
+                            x1={lvlPadLeft}
+                            y1={y}
+                            x2={lvlSvgViewWidth - lvlPadRight}
+                            y2={y}
+                            stroke="#2b313a"
+                            strokeWidth="0.8"
+                            strokeDasharray={frac === 0 ? undefined : "3,3"}
+                            strokeOpacity={frac === 0 ? 0.8 : 0.45}
+                          />
+                          <text
+                            x={lvlPadLeft - 8}
+                            y={y + 3}
+                            fill="#848e9c"
+                            fontSize="8"
+                            fontFamily="monospace"
+                            textAnchor="end"
+                          >
+                            {(valMins / 60).toFixed(1)}h
+                          </text>
+                        </g>
+                      );
+                    })}
+
+                    {/* Bars & X Labels */}
+                    {lvlChartPoints.map((pt) => {
+                      const isHovered = hoveredLvlIdx === pt.idx;
+                      return (
+                        <g key={pt.idx}>
+                          {/* Hover Track / Hit Area */}
+                          <rect
+                            x={pt.x - pt.barWidth}
+                            y={lvlTopY}
+                            width={pt.barWidth * 2}
+                            height={lvlBaselineY - lvlTopY + 22}
+                            fill="transparent"
+                            className="cursor-pointer"
+                            onMouseEnter={() => setHoveredLvlIdx(pt.idx)}
+                            onMouseLeave={() => setHoveredLvlIdx(null)}
+                          />
+
+                          {/* Level Bar */}
+                          <rect
+                            x={pt.x - pt.barWidth / 2}
+                            y={pt.barY}
+                            width={pt.barWidth}
+                            height={pt.barH}
+                            fill={isHovered ? "url(#lvlSpdHoverGrad)" : "url(#lvlSpdGrad)"}
+                            rx={3}
+                            ry={3}
+                            className="transition-all duration-200 pointer-events-none"
+                            stroke={isHovered ? "#fcd535" : "transparent"}
+                            strokeWidth="1"
+                          />
+
+                          {/* Value Tag on Top of Bar */}
+                          <text
+                            x={pt.x}
+                            y={pt.barY - 4}
+                            fill={isHovered ? "#fcd535" : "#848e9c"}
+                            fontSize="8"
+                            fontFamily="monospace"
+                            fontWeight={isHovered ? "bold" : "normal"}
+                            textAnchor="middle"
+                            className="pointer-events-none select-none"
+                          >
+                            {(pt.item.totalMins / 60).toFixed(1)}h
+                          </text>
+
+                          {/* Level X-Axis Label */}
+                          <text
+                            x={pt.x}
+                            y={lvlBaselineY + 14}
+                            fill={isHovered ? "#fcd535" : "#eaecef"}
+                            fontSize="9"
+                            fontFamily="monospace"
+                            fontWeight={isHovered ? "bold" : "500"}
+                            textAnchor="middle"
+                            className="pointer-events-none select-none"
+                          >
+                            {pt.item.levelLabel}
+                          </text>
+                        </g>
+                      );
+                    })}
+                  </ResponsiveChartSvg>
+
+                  {/* Interactive Tooltip Card */}
+                  {hoveredLvlIdx !== null && lvlChartPoints[hoveredLvlIdx] && (() => {
+                    const pt = lvlChartPoints[hoveredLvlIdx];
+                    const leftPct = (pt.x / lvlSvgViewWidth) * 100;
+                    return (
+                      <div
+                        style={{
+                          left: `${Math.max(10, Math.min(82, leftPct))}%`,
+                          top: "-10px",
+                          transform: "translateX(-50%)",
+                        }}
+                        className="absolute z-20 pointer-events-none bg-binance-elevated/95 backdrop-blur-md border border-binance-hairline rounded-md px-3 py-2 shadow-xl font-mono text-[11px] whitespace-nowrap min-w-[170px]"
+                      >
+                        <div className="flex items-center justify-between gap-3 font-semibold text-binance-body border-b border-binance-hairline/60 pb-1 mb-1">
+                          <span className="text-amber-400 font-bold">{pt.item.levelLabel}</span>
+                          <span className="text-binance-muted text-[10px] font-normal">
+                            {pt.item.totalBattles.toLocaleString()} {t("colRuns")}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between gap-3 text-binance-muted text-[10px]">
+                          <span>{t("colSpeedupTotal")}:</span>
+                          <span className="text-binance-yellow font-bold font-mono">
+                            {formatSpeedup(pt.item.totalMins)}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between gap-3 text-binance-muted text-[10px]">
+                          <span>{t("avgSpeedupPerRun")}:</span>
+                          <span className="text-binance-green font-bold font-mono">
+                            {formatSpeedup(Math.round(pt.avgMins))}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+            </div>
+          </div>
+
           {/* Target Efficiency Benchmarks Table */}
           <div className="p-3.5 rounded-md bg-binance-card border border-binance-hairline space-y-3">
             <div className="flex items-center justify-between text-xs pb-1 border-b border-binance-hairline">
@@ -1761,55 +2042,8 @@ export const DashboardView: React.FC = () => {
               </span>
             </div>
 
-            {/* Filter Tabs & Quick Search Toolbar */}
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-1 bg-binance-elevated/70 p-0.5 rounded-md border border-binance-hairline text-[11px]">
-                <button
-                  onClick={() => setBmTypeFilter("all")}
-                  className={`px-2.5 py-1 rounded transition font-medium ${
-                    bmTypeFilter === "all"
-                      ? "bg-binance-yellowSolid text-binance-ink font-semibold shadow-xs"
-                      : "text-binance-muted hover:text-binance-body"
-                  }`}
-                >
-                  {t("typeAll")}
-                </button>
-                <button
-                  onClick={() => setBmTypeFilter("fort")}
-                  className={`flex items-center gap-1 px-2.5 py-1 rounded transition font-medium ${
-                    bmTypeFilter === "fort"
-                      ? "bg-indigo-500 text-white font-semibold shadow-xs"
-                      : "text-binance-muted hover:text-indigo-400"
-                  }`}
-                >
-                  <Shield className="w-3 h-3" />
-                  <span>{t("typeForts")}</span>
-                </button>
-                <button
-                  onClick={() => setBmTypeFilter("motte")}
-                  className={`flex items-center gap-1 px-2.5 py-1 rounded transition font-medium ${
-                    bmTypeFilter === "motte"
-                      ? "bg-amber-500 text-binance-ink font-semibold shadow-xs"
-                      : "text-binance-muted hover:text-amber-400"
-                  }`}
-                >
-                  <Crosshair className="w-3 h-3" />
-                  <span>{t("typeMotte")}</span>
-                </button>
-                <button
-                  onClick={() => setBmTypeFilter("barbarian")}
-                  className={`flex items-center gap-1 px-2.5 py-1 rounded transition font-medium ${
-                    bmTypeFilter === "barbarian"
-                      ? "bg-rose-500 text-white font-semibold shadow-xs"
-                      : "text-binance-muted hover:text-rose-400"
-                  }`}
-                >
-                  <Swords className="w-3 h-3" />
-                  <span>{t("typeBarbarians")}</span>
-                </button>
-              </div>
-
-              {/* Quick Search */}
+            {/* Quick Search Toolbar */}
+            <div className="flex items-center justify-end">
               <div className="relative flex items-center text-xs">
                 <Search className="w-3.5 h-3.5 absolute left-2 text-binance-muted pointer-events-none" />
                 <input

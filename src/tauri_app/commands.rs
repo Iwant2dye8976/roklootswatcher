@@ -947,6 +947,14 @@ pub fn query_inventory_from_stats(
         .map(|it| it.total_quantity)
         .sum();
 
+    let lvl2_packs: i64 = stats
+        .item_stats
+        .get("2_7006")
+        .map(|it| it.total_quantity)
+        .unwrap_or(0);
+    let (est_food, est_wood, est_stone, est_gold, est_total) =
+        crate::model::calculate_lvl2_resource_pack_breakdown(lvl2_packs);
+
     let res_dto = ResourceSummaryDto {
         total_val: res.total_rss_val(),
         food_val: res.food_val,
@@ -960,6 +968,12 @@ pub fn query_inventory_from_stats(
         gold_packs: res.gold_packs,
         gem_packs,
         choice_packs: res.choice_packs,
+        lvl2_choice_packs: lvl2_packs,
+        est_lvl2_food: est_food,
+        est_lvl2_wood: est_wood,
+        est_lvl2_stone: est_stone,
+        est_lvl2_gold: est_gold,
+        est_lvl2_total: est_total,
     };
 
     let mats_dto = MaterialsSummaryDto {
@@ -1352,6 +1366,14 @@ pub fn get_dashboard_data(state: State<'_, TauriAppState>) -> Result<DashboardDt
     let pvp_stats_dto = PvpDashboardDto::from_stats(pvp_stats);
     let pvp_count = pvp_records.len();
 
+    let lvl2_packs: i64 = stats
+        .item_stats
+        .get("2_7006")
+        .map(|it| it.total_quantity)
+        .unwrap_or(0);
+    let (_, _, _, _, est_lvl2_total_rss) =
+        crate::model::calculate_lvl2_resource_pack_breakdown(lvl2_packs);
+
     Ok(DashboardDto {
         total_battles: stats.total_battles,
         total_crystals: crystals,
@@ -1361,6 +1383,8 @@ pub fn get_dashboard_data(state: State<'_, TauriAppState>) -> Result<DashboardDt
         speedup_train_mins: train_spd,
         speedup_heal_mins: heal_spd,
         total_resources: res.total_rss_val(),
+        est_lvl2_total_rss,
+        lvl2_choice_packs: lvl2_packs,
         motte_count,
         fort_count,
         barb_count,
@@ -2329,8 +2353,16 @@ pub fn download_and_install_update(
     app: AppHandle,
     download_url: String,
     is_installer: bool,
+    sha256_url: Option<String>,
+    asset_name: Option<String>,
 ) -> Result<(), String> {
-    crate::updater::download_and_apply_update(&app, &download_url, is_installer)
+    crate::updater::download_and_apply_update(
+        &app,
+        &download_url,
+        is_installer,
+        sha256_url.as_deref(),
+        asset_name.as_deref(),
+    )
 }
 
 #[tauri::command]

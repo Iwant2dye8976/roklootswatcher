@@ -30,7 +30,7 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
   const isReady = progress && progress.percent >= 100;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 select-none">
       <div className="relative w-full max-w-lg rounded-xl bg-binance-card border border-binance-hairline shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-binance-hairline bg-binance-elevated/50">
@@ -39,7 +39,7 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
               <Sparkles className="w-4 h-4" />
             </div>
             <div>
-              <h3 className="text-sm font-semibold text-binance-body tracking-tight">
+              <h3 className="text-sm font-semibold text-white tracking-tight">
                 {title}
               </h3>
               <p className="text-xs text-binance-muted font-mono">
@@ -50,7 +50,7 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
           {!isUpdating && (
             <button
               onClick={onClose}
-              className="p-1 rounded-lg text-binance-muted hover:text-binance-body hover:bg-binance-elevated transition"
+              className="p-1 rounded-lg text-binance-muted hover:text-white hover:bg-binance-elevated transition"
             >
               <X className="w-4 h-4" />
             </button>
@@ -60,7 +60,7 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
         {/* Release Notes */}
         <div className="flex-1 overflow-y-auto p-5 space-y-3 font-sans text-xs text-binance-body">
           <div className="flex items-center justify-between text-binance-muted font-mono text-[11px] pb-1 border-b border-binance-hairline/50">
-            <span>{updateInfo.release_name}</span>
+            <span className="font-medium text-binance-body">{updateInfo.release_name}</span>
             <span>{updateInfo.published_at.slice(0, 10)}</span>
           </div>
 
@@ -103,27 +103,29 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
         )}
 
         {/* Footer Actions */}
-        <div className="flex items-center justify-end gap-2.5 px-5 py-3 border-t border-binance-hairline bg-binance-elevated/30">
+        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-binance-hairline bg-binance-elevated/40">
           {!isUpdating ? (
             <>
               <button
+                type="button"
                 onClick={onClose}
-                className="px-3.5 py-1.5 rounded-lg text-xs font-medium text-binance-muted hover:text-binance-body hover:bg-binance-elevated transition"
+                className="px-5 py-2.5 rounded-lg text-xs font-semibold text-binance-body bg-binance-card hover:bg-binance-elevated border border-binance-hairline hover:border-binance-hairline/80 active:scale-[0.98] transition shadow-sm cursor-pointer"
               >
                 {isEn ? "Later" : "Để sau"}
               </button>
               <button
+                type="button"
                 onClick={onInstall}
-                className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-semibold bg-binance-primary text-black hover:opacity-90 transition shadow-sm"
+                className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-xs font-bold bg-binance-yellowSolid text-binance-ink hover:bg-binance-yellowHover active:scale-[0.98] transition shadow-lg shadow-binance-yellowSolid/20 hover:shadow-binance-yellowSolid/30 cursor-pointer"
               >
-                <Download className="w-3.5 h-3.5" />
+                <Download className="w-4 h-4 stroke-[2.5]" />
                 <span>{isEn ? "Update & Restart" : "Cập nhật & Khởi động lại"}</span>
               </button>
             </>
           ) : (
-            <div className="flex items-center gap-2 text-xs text-binance-muted font-mono py-1">
-              <RefreshCw className="w-3.5 h-3.5 animate-spin text-binance-primary" />
-              <span>{isEn ? "Please wait..." : "Vui lòng đợi..."}</span>
+            <div className="flex items-center gap-2.5 text-xs text-binance-body font-mono py-1.5 font-medium">
+              <RefreshCw className="w-4 h-4 animate-spin text-binance-yellowSolid" />
+              <span>{isEn ? "Downloading update, please wait..." : "Đang tải bản cập nhật, vui lòng đợi..."}</span>
             </div>
           )}
         </div>

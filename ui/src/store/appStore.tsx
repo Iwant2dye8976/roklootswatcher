@@ -65,6 +65,15 @@ interface AppStoreContextType {
   rescan: () => Promise<void>;
   togglePause: () => Promise<void>;
   clearLogs: () => void;
+  // Update state & controls
+  updateInfo: import("../types").UpdateInfo | null;
+  updateModalOpen: boolean;
+  setUpdateModalOpen: (open: boolean) => void;
+  updateProgress: import("../types").UpdateProgress | null;
+  isUpdating: boolean;
+  checkingUpdate: boolean;
+  checkForUpdates: (silent?: boolean) => Promise<void>;
+  performUpdate: () => Promise<void>;
 }
 
 const AppStoreContext = createContext<AppStoreContextType | null>(null);
@@ -99,6 +108,14 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({
   const [selectedBattle, setSelectedBattle] = useState<BattleRecord | null>(null);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState<boolean>(false);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
+
+  // In-app auto-update state (centralized)
+  const [updateInfo, setUpdateInfo] = useState<import("../types").UpdateInfo | null>(null);
+  const [updateModalOpen, setUpdateModalOpen] = useState<boolean>(false);
+  const [updateProgress, setUpdateProgress] = useState<import("../types").UpdateProgress | null>(null);
+  const [isUpdating, setIsUpdating] = useState<boolean>(false);
+  const [checkingUpdate, setCheckingUpdate] = useState<boolean>(false);
+  const startupCheckDoneRef = useRef<boolean>(false);
 
   const pendingManualScanRef = useRef<boolean>(false);
   const languageRef = useRef<AppLanguage>(language);
@@ -368,6 +385,29 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({
         refreshSnapshot();
         refreshDashboard();
       }).then(register);
+
+      // Listen for auto-update download progress
+      api.onUpdateProgress((p) => {
+        setUpdateProgress(p);
+      }).then(register);
+
+      // Single auto-update check on startup (debounced 3.5s)
+      if (!startupCheckDoneRef.current) {
+        startupCheckDoneRef.current = true;
+        const timer = setTimeout(async () => {
+          if (!isMounted) return;
+          try {
+            const info = await api.checkForUpdates();
+            setUpdateInfo(info);
+            if (info.has_update) {
+              setUpdateModalOpen(true);
+            }
+          } catch {
+            // Silently ignore startup network failure
+          }
+        }, 3500);
+        cleanups.push(() => clearTimeout(timer));
+      }
     }
 
     init();
@@ -377,6 +417,71 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({
       cleanups.forEach((fn) => fn());
     };
   }, [refreshDashboard, refreshSnapshot, addToast]);
+
+  const checkForUpdates = useCallback(
+    async (silent = false) => {
+      setCheckingUpdate(true);
+      try {
+        const info = await api.checkForUpdates();
+        setUpdateInfo(info);
+        if (info.has_update) {
+          setUpdateModalOpen(true);
+        } else if (!silent) {
+          addToast({
+            type: "success",
+            text:
+              languageRef.current === "vi"
+                ? `Phiên bản hiện tại (v${info.current_version}) là mới nhất!`
+                : `You are on the latest version (v${info.current_version})!`,
+          });
+        }
+      } catch (e) {
+        if (!silent) {
+          addToast({
+            type: "error",
+            text:
+              languageRef.current === "vi"
+                ? `Không thể kiểm tra cập nhật: ${String(e)}`
+                : `Failed to check for updates: ${String(e)}`,
+          });
+        }
+      } finally {
+        setCheckingUpdate(false);
+      }
+    },
+    [addToast]
+  );
+
+  const performUpdate = useCallback(async () => {
+    if (!updateInfo?.download_url) {
+      addToast({
+        type: "error",
+        text:
+          languageRef.current === "vi"
+            ? "Không tìm thấy đường dẫn tải bản cập nhật."
+            : "No download URL available for update.",
+      });
+      return;
+    }
+    setIsUpdating(true);
+    try {
+      await api.downloadAndInstallUpdate(
+        updateInfo.download_url,
+        updateInfo.is_installer,
+        updateInfo.sha256_url,
+        updateInfo.asset_name
+      );
+    } catch (e) {
+      setIsUpdating(false);
+      addToast({
+        type: "error",
+        text:
+          languageRef.current === "vi"
+            ? `Cập nhật thất bại: ${String(e)}`
+            : `Update failed: ${String(e)}`,
+      });
+    }
+  }, [updateInfo, addToast]);
 
   return (
     <AppStoreContext.Provider
@@ -412,6 +517,14 @@ export const AppStoreProvider: React.FC<{ children: React.ReactNode }> = ({
         rescan,
         togglePause,
         clearLogs,
+        updateInfo,
+        updateModalOpen,
+        setUpdateModalOpen,
+        updateProgress,
+        isUpdating,
+        checkingUpdate,
+        checkForUpdates,
+        performUpdate,
       }}
     >
       {children}

@@ -471,6 +471,18 @@ pub struct ResourceSummaryDto {
     pub gold_packs: i64,
     pub gem_packs: i64,
     pub choice_packs: i64,
+    #[serde(default)]
+    pub lvl2_choice_packs: i64,
+    #[serde(default)]
+    pub est_lvl2_food: i64,
+    #[serde(default)]
+    pub est_lvl2_wood: i64,
+    #[serde(default)]
+    pub est_lvl2_stone: i64,
+    #[serde(default)]
+    pub est_lvl2_gold: i64,
+    #[serde(default)]
+    pub est_lvl2_total: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -502,6 +514,10 @@ pub struct DashboardDto {
     pub speedup_train_mins: i64,
     pub speedup_heal_mins: i64,
     pub total_resources: i64,
+    #[serde(default)]
+    pub est_lvl2_total_rss: i64,
+    #[serde(default)]
+    pub lvl2_choice_packs: i64,
     pub motte_count: usize,
     pub fort_count: usize,
     pub barb_count: usize,
