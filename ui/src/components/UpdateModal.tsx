@@ -27,7 +27,10 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
   const title = isEn ? "New Update Available" : "Có Bản Cập Nhật Mới";
   const curVer = updateInfo.current_version;
   const newVer = updateInfo.latest_version;
-  const isReady = progress && progress.percent >= 100;
+  const pct = progress ? Math.min(100, Math.max(0, progress.percent)) : 0;
+  const isReady = progress?.status === "ready_to_install" || pct >= 100;
+  const isVerifying = progress?.status === "verifying_checksum";
+  const formatMb = (bytes: number) => `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 select-none">
@@ -35,22 +38,22 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-binance-hairline bg-binance-elevated/50">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-binance-primary/15 border border-binance-primary/30 flex items-center justify-center text-binance-primary">
+            <div className="w-8 h-8 rounded-lg bg-binance-yellow/15 border border-binance-yellow/30 flex items-center justify-center text-binance-yellow">
               <Sparkles className="w-4 h-4" />
             </div>
             <div>
-              <h3 className="text-sm font-semibold text-white tracking-tight">
+              <h3 className="text-sm font-semibold text-binance-body tracking-tight">
                 {title}
               </h3>
               <p className="text-xs text-binance-muted font-mono">
-                v{curVer} → <span className="text-binance-primary font-bold">v{newVer}</span>
+                v{curVer} → <span className="text-binance-yellow font-bold">v{newVer}</span>
               </p>
             </div>
           </div>
           {!isUpdating && (
             <button
               onClick={onClose}
-              className="p-1 rounded-lg text-binance-muted hover:text-white hover:bg-binance-elevated transition"
+              className="p-1 rounded-lg text-binance-muted hover:text-binance-body hover:bg-binance-elevated transition"
             >
               <X className="w-4 h-4" />
             </button>
@@ -81,23 +84,40 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
         </div>
 
         {/* Progress Bar (when updating) */}
-        {isUpdating && progress && (
-          <div className="px-5 py-3 border-t border-binance-hairline bg-binance-elevated/20 space-y-2">
-            <div className="flex justify-between text-[11px] font-mono text-binance-muted">
+        {isUpdating && (
+          <div className="px-5 py-3 border-t border-binance-hairline bg-binance-elevated/30 space-y-2">
+            <div className="flex justify-between items-center text-[11px] font-mono text-binance-muted gap-2">
               <span>
                 {isReady
                   ? (isEn ? "Ready to restart and install" : "Đang chuẩn bị khởi động lại...")
-                  : (isEn ? "Downloading update..." : "Đang tải bản cập nhật...")}
+                  : isVerifying
+                  ? (isEn ? "Verifying SHA256 checksum..." : "Đang kiểm tra mã SHA256...")
+                  : progress
+                  ? (isEn ? "Downloading update..." : "Đang tải bản cập nhật...")
+                  : (isEn ? "Connecting to release server..." : "Đang kết nối máy chủ...")}
               </span>
-              <span className="text-binance-primary font-bold">
-                {progress.percent.toFixed(0)}%
-              </span>
+              <div className="flex items-center gap-2 shrink-0">
+                {progress && progress.downloaded_bytes > 0 && (
+                  <span className="text-binance-muted">
+                    {progress.total_bytes > 0
+                      ? `${formatMb(progress.downloaded_bytes)} / ${formatMb(progress.total_bytes)}`
+                      : formatMb(progress.downloaded_bytes)}
+                  </span>
+                )}
+                <span className="text-binance-yellow font-bold">
+                  {pct.toFixed(0)}%
+                </span>
+              </div>
             </div>
-            <div className="w-full h-2 rounded-full bg-binance-elevated overflow-hidden border border-binance-hairline">
-              <div
-                className="h-full bg-gradient-to-r from-binance-primary to-binance-turquoise transition-all duration-200"
-                style={{ width: `${Math.min(100, Math.max(0, progress.percent))}%` }}
-              />
+            <div className="w-full h-2.5 rounded-full bg-binance-elevated overflow-hidden border border-binance-hairline">
+              {progress && progress.total_bytes === 0 && !isReady ? (
+                <div className="h-full w-1/3 rounded-full bg-gradient-to-r from-binance-yellowSolid to-binance-turquoise animate-pulse" />
+              ) : (
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-binance-yellowSolid to-binance-turquoise transition-all duration-150"
+                  style={{ width: `${pct}%` }}
+                />
+              )}
             </div>
           </div>
         )}

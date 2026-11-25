@@ -24,6 +24,8 @@ import {
   Check,
   AlertCircle,
   Activity,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 import { useAppStore } from "../store/appStore";
 import { useConfirm } from "../components/ConfirmDialog";
@@ -781,10 +783,75 @@ export const SettingsView: React.FC = () => {
     { id: "Hidden", label: "Hidden" },
   ];
 
+  const [openGroups, setOpenGroups] = useState<{
+    dataCloud: boolean;
+    overlay: boolean;
+    diagnostics: boolean;
+  }>({
+    dataCloud: true,
+    overlay: false,
+    diagnostics: false,
+  });
+
+  const toggleGroup = (key: keyof typeof openGroups) =>
+    setOpenGroups((prev) => ({ ...prev, [key]: !prev[key] }));
+
+  const allExpanded = Object.values(openGroups).every(Boolean);
+  const setAllGroups = (expanded: boolean) =>
+    setOpenGroups({
+      dataCloud: expanded,
+      overlay: expanded,
+      diagnostics: expanded,
+    });
+
   return (
     <div className="flex-1 overflow-y-auto p-5 select-none space-y-4">
-      {/* 2-Column Bento Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      {/* Top Controls: Expand / Collapse All */}
+      <div className="flex items-center justify-between border-b border-binance-hairline pb-3">
+        <div className="flex items-center gap-2">
+          <Sliders className="w-4 h-4 text-binance-yellow" />
+          <h2 className="text-xs sm:text-sm font-bold tracking-wider uppercase font-mono text-binance-body">
+            {t("navSettings")}
+          </h2>
+        </div>
+        <button
+          type="button"
+          onClick={() => setAllGroups(!allExpanded)}
+          className="px-2.5 py-1 rounded bg-binance-card hover:bg-binance-elevated border border-binance-hairline text-[11px] font-mono text-binance-muted hover:text-binance-body transition"
+        >
+          {allExpanded
+            ? language === "vi"
+              ? "Thu gọn tất cả"
+              : "Collapse All"
+            : language === "vi"
+            ? "Mở rộng tất cả"
+            : "Expand All"}
+        </button>
+      </div>
+
+      {/* Group 1: Data, Accounts & Cloud */}
+      <div className="rounded-lg bg-binance-card/40 border border-binance-hairline overflow-hidden">
+        <button
+          type="button"
+          aria-expanded={openGroups.dataCloud}
+          onClick={() => toggleGroup("dataCloud")}
+          className="w-full px-4 py-3 flex items-center justify-between bg-binance-card hover:bg-binance-elevated/60 transition text-left"
+        >
+          <div className="flex items-center gap-2.5">
+            <Database className="w-4 h-4 text-binance-turquoise" />
+            <span className="text-xs font-bold uppercase font-mono tracking-wider text-binance-body">
+              {language === "vi" ? "Dữ liệu, Tài khoản & Cloud" : "Data, Accounts & Cloud"}
+            </span>
+          </div>
+          {openGroups.dataCloud ? (
+            <ChevronDown className="w-4 h-4 text-binance-muted" />
+          ) : (
+            <ChevronRight className="w-4 h-4 text-binance-muted" />
+          )}
+        </button>
+
+        {openGroups.dataCloud && (
+          <div className="p-4 border-t border-binance-hairline grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Card 1: Mailcache Directory */}
         <div className="p-4 rounded-lg bg-binance-card border border-binance-hairline space-y-3">
           <div className="flex items-center justify-between border-b border-binance-hairline pb-2">
@@ -1368,7 +1435,34 @@ export const SettingsView: React.FC = () => {
         </div>
 
         {/* Card 6: HUD Overlay Configuration & D-Pad */}
-        <div className="p-4 rounded-lg bg-binance-card border border-binance-hairline space-y-4 lg:col-span-2">
+          </div>
+        )}
+      </div>
+
+      {/* Group 2: In-Game Overlay (HUD) */}
+      <div className="rounded-lg bg-binance-card/40 border border-binance-hairline overflow-hidden">
+        <button
+          type="button"
+          aria-expanded={openGroups.overlay}
+          onClick={() => toggleGroup("overlay")}
+          className="w-full px-4 py-3 flex items-center justify-between bg-binance-card hover:bg-binance-elevated/60 transition text-left"
+        >
+          <div className="flex items-center gap-2.5">
+            <Sliders className="w-4 h-4 text-binance-yellow" />
+            <span className="text-xs font-bold uppercase font-mono tracking-wider text-binance-body">
+              {t("settingsOverlayTitle")}
+            </span>
+          </div>
+          {openGroups.overlay ? (
+            <ChevronDown className="w-4 h-4 text-binance-muted" />
+          ) : (
+            <ChevronRight className="w-4 h-4 text-binance-muted" />
+          )}
+        </button>
+
+        {openGroups.overlay && (
+          <div className="p-4 border-t border-binance-hairline">
+        <div className="p-4 rounded-lg bg-binance-card border border-binance-hairline space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-binance-hairline pb-2">
             <div className="flex items-center gap-2">
               <Sliders className="w-4 h-4 text-binance-yellow" />
@@ -1904,7 +1998,7 @@ export const SettingsView: React.FC = () => {
                     className={`px-2 py-0.5 rounded transition-all ${
                       !isPvpPreview
                         ? "bg-binance-elevated text-binance-yellow font-bold shadow-xs border border-binance-yellow/40"
-                        : "text-binance-muted hover:text-slate-200"
+                        : "text-binance-muted hover:text-binance-body"
                     }`}
                   >
                     {language === "vi" ? "PvE Rơi đồ" : "PvE Drops"}
@@ -1915,7 +2009,7 @@ export const SettingsView: React.FC = () => {
                     className={`px-2 py-0.5 rounded transition-all ${
                       isPvpPreview
                         ? "bg-binance-elevated text-binance-yellow font-bold shadow-xs border border-binance-yellow/40"
-                        : "text-binance-muted hover:text-slate-200"
+                        : "text-binance-muted hover:text-binance-body"
                     }`}
                   >
                     {language === "vi" ? "PvP Chiến báo" : "PvP Reports"}
@@ -2275,8 +2369,33 @@ export const SettingsView: React.FC = () => {
             </div>
           </div>
         </div>
+          </div>
+        )}
       </div>
 
+      {/* Group 3: Diagnostics & Updates */}
+      <div className="rounded-lg bg-binance-card/40 border border-binance-hairline overflow-hidden">
+        <button
+          type="button"
+          aria-expanded={openGroups.diagnostics}
+          onClick={() => toggleGroup("diagnostics")}
+          className="w-full px-4 py-3 flex items-center justify-between bg-binance-card hover:bg-binance-elevated/60 transition text-left"
+        >
+          <div className="flex items-center gap-2.5">
+            <Terminal className="w-4 h-4 text-binance-muted" />
+            <span className="text-xs font-bold uppercase font-mono tracking-wider text-binance-body">
+              {language === "vi" ? "Nhật ký & Cập nhật" : "Diagnostics & Updates"}
+            </span>
+          </div>
+          {openGroups.diagnostics ? (
+            <ChevronDown className="w-4 h-4 text-binance-muted" />
+          ) : (
+            <ChevronRight className="w-4 h-4 text-binance-muted" />
+          )}
+        </button>
+
+        {openGroups.diagnostics && (
+          <div className="p-4 border-t border-binance-hairline space-y-4">
       {/* Console Logs Terminal Card */}
       <div className="p-4 rounded-lg bg-binance-card border border-binance-hairline space-y-2">
         <div className="flex items-center justify-between border-b border-binance-hairline pb-2">
@@ -2377,6 +2496,9 @@ export const SettingsView: React.FC = () => {
             </span>
           </button>
         </div>
+      </div>
+          </div>
+        )}
       </div>
     </div>
   );

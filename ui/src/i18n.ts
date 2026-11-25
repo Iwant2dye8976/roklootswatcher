@@ -131,6 +131,11 @@ export const translations = {
     pvpSwitchToPvp: "Xem Chiến Đấu PvP",
     pvpViewAllTime: "Xem Toàn Bộ Thời Gian",
     pvpViewBattles: "Mở Tab Trận Đánh",
+    // Gathering Dashboard
+    gatheringTotalTrips: "Số Lần Thu Thập",
+    gatheringTotalRss: "Tổng Tài Nguyên Thu Thập",
+    gatheringRecentLogs: "Nhật Ký Thu Thập Gần Đây",
+    gatheringNoLogs: "Chưa có báo cáo thu thập nào trong khoảng thời gian này.",
     // Battles
     battlesSearch: "Tìm kiếm mục tiêu, thời gian, tên người chơi, ID...",
     matchingCount: "Khớp:",
@@ -307,7 +312,7 @@ export const translations = {
     appSubtitle: "Loot Watcher",
     navSection: "Navigation",
     navDashboard: "Dashboard",
-    navBattles: "Battles",
+    navBattles: "Reports",
     navInventory: "Inventory",
     navSettings: "Settings",
     collapseNav: "Collapse navigation",
@@ -431,7 +436,12 @@ export const translations = {
     pvpFilterNotice: "Active filter is set to PvE mode ({mode}). Click to switch to PvP mode.",
     pvpSwitchToPvp: "Switch to PvP Mode",
     pvpViewAllTime: "Show All Time",
-    pvpViewBattles: "View Battles Tab",
+    pvpViewBattles: "View Reports Tab",
+    // Gathering Dashboard
+    gatheringTotalTrips: "Gathering Trips",
+    gatheringTotalRss: "Total Resources Gathered",
+    gatheringRecentLogs: "Recent Gathering Logs",
+    gatheringNoLogs: "No gathering reports found in this period.",
     // Battles
     battlesSearch: "Search targets, time, player, mail IDs...",
     matchingCount: "Matching:",

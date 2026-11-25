@@ -3,24 +3,27 @@
 @tailwind utilities;
 
 :root {
-  --bg-main: #f0f2f5;
-  --card-bg: #f8fafc;
-  --card-border: #cbd5e1;
-  --text-main: #1e293b;
-  --text-muted: #64748b;
-  --hover-bg: #e2e8f0;
-  --active-bg: #cbd5e1;
+  --bg-main: #f2efe9;
+  --card-bg: #fffdf9;
+  --card-border: #cfc6b8;
+  --text-main: #1c1917;
+  --text-muted: #57534e;
+  --hover-bg: #e7e1d7;
+  --active-bg: #dcd4c7;
 
-  --bn-canvas: 240 242 245;
-  --bn-card: 248 250 252;
-  --bn-elevated: 226 232 240;
-  --bn-hairline: 203 213 225;
-  --bn-body: 30 41 59;
-  --bn-muted: 100 116 139;
-  --bn-yellow: 180 120 0;
-  --bn-green: 13 148 94;
-  --bn-red: 205 43 70;
-  --bn-info: 29 90 220;
+  --bn-canvas: 242 239 233;
+  --bn-card: 255 253 249;
+  --bn-elevated: 231 225 215;
+  --bn-hairline: 207 198 184;
+  --bn-body: 28 25 23;
+  --bn-muted: 87 83 78;
+  --bn-yellow: 180 83 9;
+  --bn-yellow-solid: 234 179 8;
+  --bn-yellow-hover: 202 138 4;
+  --bn-ink: 28 25 23;
+  --bn-green: 21 128 61;
+  --bn-red: 190 18 60;
+  --bn-info: 29 78 216;
 }
 
 .dark {
@@ -39,6 +42,9 @@
   --bn-body: 234 236 239;
   --bn-muted: 112 122 138;
   --bn-yellow: 252 213 53;
+  --bn-yellow-solid: 252 213 53;
+  --bn-yellow-hover: 240 185 11;
+  --bn-ink: 24 26 32;
   --bn-green: 14 203 129;
   --bn-red: 246 70 93;
   --bn-info: 59 130 246;

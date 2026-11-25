@@ -504,6 +504,16 @@ pub struct ApBottlesSummaryDto {
     pub total_points: i64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct GatheringSummaryDto {
+    pub food: i64,
+    pub wood: i64,
+    pub stone: i64,
+    pub gold: i64,
+    pub gems: i64,
+    pub total_rss: i64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DashboardDto {
     pub total_battles: usize,
@@ -531,6 +541,8 @@ pub struct DashboardDto {
     pub pvp_stats: Option<PvpDashboardDto>,
     #[serde(default)]
     pub healing_summary: Option<HealingSummaryDto>,
+    #[serde(default)]
+    pub gathering_summary: Option<GatheringSummaryDto>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

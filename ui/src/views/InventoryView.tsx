@@ -157,7 +157,7 @@ export const InventoryView: React.FC = () => {
               {t("rssSummary")}
             </span>
             <div className="flex items-center gap-2">
-              <span className="font-mono text-binance-white font-bold">
+              <span className="font-mono text-binance-body font-bold">
                 {(resources.total_val / 1_000_000).toFixed(2)}M RSS (
                 {resources.total_val.toLocaleString()})
               </span>
@@ -176,10 +176,10 @@ export const InventoryView: React.FC = () => {
             <div className="p-2.5 rounded-md bg-binance-canvas border border-binance-hairline flex flex-col justify-between">
               <div className="flex items-center gap-1.5 text-binance-muted">
                 <ResourceIcon resource="food" size="lg" />
-                <span className="text-base font-bold font-mono text-binance-white">{t("rssFood")}</span>
+                <span className="text-base font-bold font-mono text-binance-body">{t("rssFood")}</span>
               </div>
               <div className="my-0.5">
-                <div className="text-base font-bold font-mono text-binance-white">
+                <div className="text-base font-bold font-mono text-binance-body">
                   {(resources.food_val / 1_000_000).toFixed(2)}M
                 </div>
                 {(resources.est_lvl2_food ?? 0) > 0 && (
@@ -196,10 +196,10 @@ export const InventoryView: React.FC = () => {
             <div className="p-2.5 rounded-md bg-binance-canvas border border-binance-hairline flex flex-col justify-between">
               <div className="flex items-center gap-1.5 text-binance-muted">
                 <ResourceIcon resource="wood" size="lg" />
-                <span className="text-base font-bold font-mono text-binance-white">{t("rssWood")}</span>
+                <span className="text-base font-bold font-mono text-binance-body">{t("rssWood")}</span>
               </div>
               <div className="my-0.5">
-                <div className="text-base font-bold font-mono text-binance-white">
+                <div className="text-base font-bold font-mono text-binance-body">
                   {(resources.wood_val / 1_000_000).toFixed(2)}M
                 </div>
                 {(resources.est_lvl2_wood ?? 0) > 0 && (
@@ -216,10 +216,10 @@ export const InventoryView: React.FC = () => {
             <div className="p-2.5 rounded-md bg-binance-canvas border border-binance-hairline flex flex-col justify-between">
               <div className="flex items-center gap-1.5 text-binance-muted">
                 <ResourceIcon resource="stone" size="lg" />
-                <span className="text-base font-bold font-mono text-binance-white">{t("rssStone")}</span>
+                <span className="text-base font-bold font-mono text-binance-body">{t("rssStone")}</span>
               </div>
               <div className="my-0.5">
-                <div className="text-base font-bold font-mono text-binance-white">
+                <div className="text-base font-bold font-mono text-binance-body">
                   {(resources.stone_val / 1_000_000).toFixed(2)}M
                 </div>
                 {(resources.est_lvl2_stone ?? 0) > 0 && (
@@ -236,10 +236,10 @@ export const InventoryView: React.FC = () => {
             <div className="p-2.5 rounded-md bg-binance-canvas border border-binance-hairline flex flex-col justify-between">
               <div className="flex items-center gap-1.5 text-binance-muted">
                 <ResourceIcon resource="gold" size="lg" />
-                <span className="text-base font-bold font-mono text-binance-white">{t("rssGold")}</span>
+                <span className="text-base font-bold font-mono text-binance-body">{t("rssGold")}</span>
               </div>
               <div className="my-0.5">
-                <div className="text-base font-bold font-mono text-binance-white">
+                <div className="text-base font-bold font-mono text-binance-body">
                   {(resources.gold_val / 1_000_000).toFixed(2)}M
                 </div>
                 {(resources.est_lvl2_gold ?? 0) > 0 && (
@@ -256,10 +256,10 @@ export const InventoryView: React.FC = () => {
             <div className="p-2.5 rounded-md bg-binance-canvas border border-binance-hairline flex flex-col justify-between">
               <div className="flex items-center gap-1.5 text-binance-muted">
                 <ResourceIcon resource="gems" size="lg" />
-                <span className="text-base font-bold font-mono text-binance-white">{t("rssGems")}</span>
+                <span className="text-base font-bold font-mono text-binance-body">{t("rssGems")}</span>
               </div>
               <div className="my-0.5">
-                <div className="text-base font-bold font-mono text-binance-white">
+                <div className="text-base font-bold font-mono text-binance-body">
                   {resources.gem_val.toLocaleString()}
                 </div>
               </div>
@@ -296,7 +296,12 @@ export const InventoryView: React.FC = () => {
         {materials && materials.total_converted > 0 && (
           <div className="p-3.5 rounded-md bg-binance-card border border-binance-hairline space-y-2">
             <div className="text-xs font-semibold text-binance-body flex items-center gap-1.5 font-mono uppercase">
-              <Hammer className="w-3.5 h-3.5 text-binance-green" />
+              <ResourceIcon
+                resource="img_icon_item_mat_34.png"
+                size="md"
+                className="w-4 h-4 object-contain"
+                fallback={<Hammer className="w-3.5 h-3.5 text-binance-green" />}
+              />
               {t("matsSummary")}
             </div>
             <div className="text-[11px] font-mono text-binance-body space-y-1">
@@ -337,7 +342,12 @@ export const InventoryView: React.FC = () => {
         {apBottles && apBottles.total_bottles > 0 && (
           <div className="p-3.5 rounded-md bg-binance-card border border-binance-hairline space-y-2">
             <div className="text-xs font-semibold text-binance-body flex items-center gap-1.5 font-mono uppercase">
-              <Zap className="w-3.5 h-3.5 text-binance-yellow" />
+              <ResourceIcon
+                resource="img_icon_item_3.png"
+                size="md"
+                className="w-4 h-4 object-contain"
+                fallback={<Zap className="w-3.5 h-3.5 text-binance-yellow" />}
+              />
               {t("apSummary")}
             </div>
             <div className="text-[11px] font-mono text-binance-body space-y-1">
@@ -444,15 +454,15 @@ export const InventoryView: React.FC = () => {
                       <span className="w-1.5 h-1.5 rounded-xs bg-binance-yellowSolid shrink-0" />
                     }
                   />
-                  <span className="text-sm font-bold font-mono text-binance-white">
+                  <span className="text-sm font-bold font-mono text-binance-body">
                     {it.display_name ||
                       (language === "vi" ? it.name_vi : it.name_en)}
                   </span>
                 </div>
-                <div className="col-span-2 text-right font-bold text-binance-white">
+                <div className="col-span-2 text-right font-bold text-binance-body">
                   {it.total_quantity.toLocaleString()}
                 </div>
-                <div className="col-span-2 text-center text-binance-white text-[11px] truncate">
+                <div className="col-span-2 text-center text-binance-body text-[11px] truncate">
                   {it.converted_value || "-"}
                 </div>
                 <div className="col-span-1 text-center text-binance-muted">

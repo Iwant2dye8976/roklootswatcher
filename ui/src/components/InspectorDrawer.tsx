@@ -79,10 +79,10 @@ export const InspectorDrawer: React.FC = () => {
               <span
                 className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase border ${
                   b.pvp_combat_type === "rally"
-                    ? "bg-rose-500/20 text-rose-300 border-rose-500/40"
+                    ? "bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/40"
                     : b.pvp_combat_type === "garrison"
-                    ? "bg-sky-500/20 text-sky-300 border-sky-500/40"
-                    : "bg-fuchsia-500/20 text-fuchsia-400 border-fuchsia-500/40"
+                    ? "bg-sky-500/15 text-sky-700 dark:text-sky-300 border-sky-500/40"
+                    : "bg-fuchsia-500/15 text-fuchsia-700 dark:text-fuchsia-400 border-fuchsia-500/40"
                 }`}
               >
                 {b.pvp_combat_type}
@@ -178,7 +178,7 @@ export const InspectorDrawer: React.FC = () => {
                   {(b.dead_taken || 0).toLocaleString()}
                 </div>
                 {b.kp_gained != null && b.kp_gained > 0 && (
-                  <div className="text-slate-400 text-[10px]">
+                  <div className="text-binance-muted text-[10px]">
                     KP: +{Math.round(b.kp_gained).toLocaleString()} / -
                     {Math.round(b.kp_lost || 0).toLocaleString()}
                   </div>
@@ -297,12 +297,12 @@ export const InspectorDrawer: React.FC = () => {
 
               {/* Speedup Time */}
               <div className="flex items-center justify-between p-1.5 rounded bg-rose-500/10 border border-rose-500/20 text-[11px] font-mono">
-                <div className="flex items-center gap-1.5 text-rose-300">
+                <div className="flex items-center gap-1.5 text-rose-700 dark:text-rose-300">
                   <Clock className="w-3.5 h-3.5" />
                   <span>{t("hospitalSpeedupNeeded")}:</span>
                 </div>
                 <div className="text-right">
-                  <div className="font-bold text-rose-300">
+                  <div className="font-bold text-rose-700 dark:text-rose-300">
                     {formatSpeedupSeconds(b.healing_cost.final_speedup_seconds, speedupUnit, language)}
                   </div>
                   {b.healing_cost.buffed_speedup_seconds > b.healing_cost.final_speedup_seconds && (

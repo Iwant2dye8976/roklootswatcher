@@ -236,15 +236,78 @@ pub(crate) fn render_oauth_cancel_html() -> &'static str {
     r#"<!DOCTYPE html><html><head><meta charset="utf-8"><title>RoK Loot Watcher</title></head><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;text-align:center;padding:60px 20px;background:#1e1e2e;color:#cdd6f4;line-height:1.6;"><div style="max-width:440px;margin:0 auto;background:#25273a;border:1px solid #363a4f;border-radius:12px;padding:32px 24px;box-shadow:0 8px 24px rgba(0,0,0,0.3);"><h2 style="color:#f38ba8;margin:0 0 12px 0;">RoK Loot Watcher</h2><p style="font-size:16px;margin:0 0 6px 0;">Đã hủy đăng nhập.</p><p style="font-size:13px;color:#a6adc8;margin:0;">Bạn có thể đóng tab này và quay lại ứng dụng.</p></div></body></html>"#
 }
 
+fn read_http_request<R: Read>(stream: &mut R) -> String {
+    let mut data = Vec::with_capacity(4096);
+    let mut chunk = [0u8; 4096];
+    let mut header_end: Option<usize> = None;
+    let mut content_length: usize = 0;
+    const MAX_REQ_BYTES: usize = 65536;
+
+    while data.len() < MAX_REQ_BYTES {
+        match stream.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(n) => {
+                data.extend_from_slice(&chunk[..n]);
+                if header_end.is_none() {
+                    if let Some(pos) = data.windows(4).position(|w| w == b"\r\n\r\n") {
+                        let end = pos + 4;
+                        header_end = Some(end);
+                        let headers = String::from_utf8_lossy(&data[..pos]);
+                        for line in headers.lines() {
+                            if let Some((k, v)) = line.split_once(':') {
+                                if k.trim().eq_ignore_ascii_case("content-length") {
+                                    content_length = v.trim().parse::<usize>().unwrap_or(0);
+                                }
+                            }
+                        }
+                    } else if let Some(pos) = data.windows(2).position(|w| w == b"\n\n") {
+                        let end = pos + 2;
+                        header_end = Some(end);
+                        let headers = String::from_utf8_lossy(&data[..pos]);
+                        for line in headers.lines() {
+                            if let Some((k, v)) = line.split_once(':') {
+                                if k.trim().eq_ignore_ascii_case("content-length") {
+                                    content_length = v.trim().parse::<usize>().unwrap_or(0);
+                                }
+                            }
+                        }
+                    }
+                }
+                if let Some(end) = header_end {
+                    if data.len() >= end.saturating_add(content_length) {
+                        break;
+                    }
+                }
+            }
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock || e.kind() == std::io::ErrorKind::TimedOut => {
+                break;
+            }
+            Err(_) => break,
+        }
+    }
+
+    String::from_utf8_lossy(&data).into_owned()
+}
+
+pub(crate) fn validate_supabase_credentials(supabase_url: &str, anon_key: &str) -> Result<(), String> {
+    let trimmed_url = supabase_url.trim();
+    let trimmed_key = anon_key.trim();
+    if trimmed_url.is_empty() || trimmed_key.is_empty() {
+        return Err("Chưa cấu hình Supabase URL hoặc Anon Key (thiếu thông tin kết nối Cloud).".to_string());
+    }
+    if !trimmed_url.starts_with("https://") && !trimmed_url.starts_with("http://") {
+        return Err("Chưa cấu hình Supabase URL hợp lệ (Supabase URL must use http or https scheme).".to_string());
+    }
+    Ok(())
+}
+
 pub fn start_google_login(
     supabase_url: &str,
     anon_key: &str,
     cancel_signal: Option<&std::sync::atomic::AtomicBool>,
 ) -> Result<CloudAuthResult, String> {
-    let trimmed_url = supabase_url.trim();
-    if !trimmed_url.starts_with("https://") && !trimmed_url.starts_with("http://") {
-        return Err("Supabase URL must use http or https scheme".to_string());
-    }
+    validate_supabase_credentials(supabase_url, anon_key)?;
+    let base_url = supabase_url.trim().trim_end_matches('/');
 
     if let Some(cancel) = cancel_signal {
         if cancel.load(std::sync::atomic::Ordering::SeqCst) {
@@ -263,7 +326,7 @@ pub fn start_google_login(
     let redirect_uri = format!("http://127.0.0.1:{}/callback?app_state={}", port, expected_state);
     let auth_url = format!(
         "{}/auth/v1/authorize?provider=google&redirect_to={}&state={}&prompt=consent&access_type=offline",
-        supabase_url.trim_end_matches('/'),
+        base_url,
         redirect_uri,
         expected_state
     );
@@ -296,9 +359,7 @@ pub fn start_google_login(
         let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
         let _ = stream.set_nonblocking(false);
 
-        let mut buf = [0u8; 16384];
-        let bytes_read = stream.read(&mut buf).unwrap_or(0);
-        let req_str = String::from_utf8_lossy(&buf[..bytes_read]);
+        let req_str = read_http_request(&mut stream);
 
         if req_str.starts_with("GET /callback") {
             let html = render_oauth_callback_html();
@@ -348,7 +409,7 @@ pub fn start_google_login(
         return Err("Không nhận được access_token từ Google OAuth".to_string());
     }
 
-    let user_url = format!("{}/auth/v1/user", supabase_url.trim_end_matches('/'));
+    let user_url = format!("{}/auth/v1/user", base_url);
     let user_resp: serde_json::Value = ureq::get(&user_url)
         .set("apikey", anon_key)
         .set("Authorization", &format!("Bearer {}", access_token))
@@ -388,6 +449,7 @@ pub fn refresh_session(
     refresh_token: &str,
     timeout: Option<Duration>,
 ) -> Result<(String, String), String> {
+    validate_supabase_credentials(supabase_url, anon_key)?;
     let url = format!("{}/auth/v1/token?grant_type=refresh_token", supabase_url.trim_end_matches('/'));
     let effective_timeout = timeout.unwrap_or(Duration::from_secs(15));
     let agent = ureq::builder()
@@ -552,6 +614,8 @@ pub(crate) fn is_retryable_error(err: &str) -> bool {
         || lower.contains("403")
         || lower.contains("404")
         || lower.contains("chưa đăng nhập")
+        || lower.contains("chưa cấu hình")
+        || lower.contains("invalidurl")
         || lower.contains("không khớp")
         || lower.contains("hết hạn")
         || lower.contains("từ chối")
@@ -601,6 +665,7 @@ pub fn upload_report_records_batch(
     if records.is_empty() {
         return Ok(0);
     }
+    validate_supabase_credentials(supabase_url, anon_key)?;
 
     let payloads: Vec<serde_json::Value> = records
         .iter()
@@ -641,6 +706,7 @@ pub fn delete_report_records_batch(
     if dedup_keys.is_empty() {
         return Ok(0);
     }
+    validate_supabase_credentials(supabase_url, anon_key)?;
     let effective_timeout = timeout.unwrap_or(Duration::from_secs(15));
     let agent = ureq::builder()
         .timeout_connect(Duration::from_secs(10))
@@ -683,6 +749,7 @@ pub fn fetch_report_records_page(
     offset: usize,
     timeout: Option<Duration>,
 ) -> Result<(Vec<BattleRecord>, bool), String> {
+    validate_supabase_credentials(supabase_url, anon_key)?;
     let url = format!(
         "{}/rest/v1/report_records?user_id=eq.{}&select=data&order=time_raw.asc,dedup_key.asc&limit={}&offset={}",
         supabase_url.trim_end_matches('/'),
@@ -739,6 +806,7 @@ pub fn check_legacy_user_vault(
     access_token: &str,
     timeout: Option<Duration>,
 ) -> Result<Option<Vec<BattleRecord>>, String> {
+    validate_supabase_credentials(supabase_url, anon_key)?;
     let url = format!("{}/rest/v1/user_vaults?select=vault_data", supabase_url.trim_end_matches('/'));
     let effective_timeout = timeout.unwrap_or(Duration::from_secs(15));
     let agent = ureq::builder()
@@ -855,6 +923,7 @@ fn perform_delta_sync(
     flush_all: bool,
 ) -> Result<usize, String> {
     let (url, anon_key) = config.get_credentials();
+    validate_supabase_credentials(&url, &anon_key)?;
     let user_id = match &config.user_id {
         Some(uid) if !uid.is_empty() => uid.clone(),
         _ => return Err("Chưa cấu hình user_id tài khoản Cloud".to_string()),
@@ -1010,6 +1079,7 @@ fn perform_restore(
     state: &Arc<RwLock<SyncWorkerState>>,
 ) -> Result<usize, String> {
     let (url, anon_key) = config.get_credentials();
+    validate_supabase_credentials(&url, &anon_key)?;
     let user_id = match &config.user_id {
         Some(uid) if !uid.is_empty() => uid.clone(),
         _ => return Err("Chưa cấu hình user_id tài khoản Cloud".to_string()),
@@ -2593,5 +2663,62 @@ mod tests {
         let fetched = fetch_user_settings(&url, "anon_key", "test_tok", Some(Duration::from_secs(2))).unwrap();
         assert_eq!(fetched, Some(settings));
         handle.join().unwrap();
+    }
+
+    #[test]
+    fn test_validate_supabase_credentials_rejects_empty_and_invalid_scheme() {
+        let err_empty = validate_supabase_credentials("", "anon").unwrap_err();
+        assert!(err_empty.contains("Chưa cấu hình"));
+        assert!(!is_retryable_error(&err_empty));
+
+        let err_key = validate_supabase_credentials("https://example.supabase.co", "").unwrap_err();
+        assert!(err_key.contains("Chưa cấu hình"));
+        assert!(!is_retryable_error(&err_key));
+
+        let err_scheme = validate_supabase_credentials("ftp://example.supabase.co", "anon").unwrap_err();
+        assert!(err_scheme.contains("Chưa cấu hình"));
+        assert!(!is_retryable_error(&err_scheme));
+
+        assert!(validate_supabase_credentials("https://example.supabase.co", "anon").is_ok());
+    }
+
+    #[test]
+    fn test_read_http_request_handles_split_post_body() {
+        struct ChunkedReader {
+            chunks: Vec<&'static [u8]>,
+            idx: usize,
+        }
+        impl std::io::Read for ChunkedReader {
+            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+                if self.idx >= self.chunks.len() {
+                    return Ok(0);
+                }
+                let c = self.chunks[self.idx];
+                self.idx += 1;
+                let n = c.len().min(buf.len());
+                buf[..n].copy_from_slice(&c[..n]);
+                Ok(n)
+            }
+        }
+
+        let body = "app_state=safe_state_123&access_token=at_chunked&refresh_token=rt_chunked";
+        let headers = format!(
+            "POST /token HTTP/1.1\r\nOrigin: http://127.0.0.1:8080\r\nContent-Length: {}\r\n\r\n",
+            body.len()
+        );
+        let headers_static: &'static [u8] = Box::leak(headers.into_bytes().into_boxed_slice());
+        let mut reader = ChunkedReader {
+            chunks: vec![headers_static, &body.as_bytes()[..20], &body.as_bytes()[20..]],
+            idx: 0,
+        };
+        let req = read_http_request(&mut reader);
+        let outcome = process_loopback_token_request(&req, "safe_state_123");
+        assert_eq!(
+            outcome,
+            LoopbackTokenOutcome::Success {
+                access_token: "at_chunked".to_string(),
+                refresh_token: "rt_chunked".to_string(),
+            }
+        );
     }
 }

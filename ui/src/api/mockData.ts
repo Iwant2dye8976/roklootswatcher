@@ -85,6 +85,14 @@ export function getMockDashboard(): DashboardDto {
     barb_count: 55,
     gathering_count: 10,
     pvp_count: 8,
+    gathering_summary: {
+      food: 12500000,
+      wood: 10800000,
+      stone: 9100000,
+      gold: 8200000,
+      gems: 420,
+      total_rss: 40600000,
+    },
     top_items: [
       {
         itype: 1,

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useCallback } from "react";
 import {
   Swords,
   Sparkles,
@@ -17,10 +17,6 @@ import {
   Search,
   Zap,
   X,
-  ChevronLeft,
-  ZoomIn,
-  ZoomOut,
-  RotateCcw,
   Plus,
   Minus,
 } from "lucide-react";
@@ -30,6 +26,14 @@ import { useI18n, formatSpeedupMinutes, formatSpeedupSeconds } from "../i18n";
 import { BattleRecord } from "../types";
 import { ResourceIcon } from "../components/ResourceIcon";
 import { CommanderCardPair } from "@/components/CommanderCardPair";
+import {
+  ChartZoomControls,
+  useChartZoom,
+  getChartRange as getPvpChartRange,
+} from "../components/ChartZoomControls";
+import { GatheringDashboardSection } from "../components/GatheringDashboardSection";
+
+export { getPvpChartRange };
 
 const formatKp = (val: number) => {
   if (val >= 1_000_000_000) return `${(val / 1_000_000_000).toFixed(2)}B`;
@@ -109,38 +113,11 @@ export const ResponsiveChartSvg: React.FC<
 export const PvpChartNode: React.FC<
   React.SVGProps<SVGCircleElement> & { hasEngagement: boolean }
 > = ({ hasEngagement, ...props }) => (
-  <circle {...props} stroke={hasEngagement ? "#a855f7" : "#0b0e11"} />
+  <circle
+    {...props}
+    stroke={hasEngagement ? "#a855f7" : "rgb(var(--bn-canvas))"}
+  />
 );
-
-const PVP_CHART_MIN_VISIBLE_POINTS = 3;
-const PVP_CHART_MAX_ZOOM = 8;
-
-export const getPvpChartRange = (
-  pointCount: number,
-  zoom: number,
-  centerIndex = (pointCount - 1) / 2
-): { start: number; end: number } => {
-  const count = Math.max(0, Math.floor(pointCount));
-  if (count === 0) return { start: 0, end: 0 };
-
-  const safeZoom = Number.isFinite(zoom)
-    ? Math.min(PVP_CHART_MAX_ZOOM, Math.max(1, zoom))
-    : 1;
-  const visibleCount = Math.min(
-    count,
-    Math.max(Math.min(PVP_CHART_MIN_VISIBLE_POINTS, count), Math.ceil(count / safeZoom))
-  );
-  const safeCenter = Number.isFinite(centerIndex)
-    ? Math.min(count - 1, Math.max(0, centerIndex))
-    : (count - 1) / 2;
-  const maxStart = count - visibleCount;
-  const start = Math.min(
-    maxStart,
-    Math.max(0, Math.round(safeCenter - visibleCount / 2))
-  );
-
-  return { start, end: start + visibleCount };
-};
 
 const HospitalHealingCard: React.FC<{
   healing: import("../types").HealingSummaryDto;
@@ -187,15 +164,15 @@ const HospitalHealingCard: React.FC<{
                 <span
                   className={`text-[10px] px-1.5 py-0.2 rounded font-mono font-bold border ${
                     context === "pvp"
-                      ? "bg-purple-500/15 text-purple-300 border-purple-500/30"
-                      : "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
+                      ? "bg-purple-500/15 text-purple-700 dark:text-purple-300 border-purple-500/30"
+                      : "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30"
                   }`}
                 >
                   {context.toUpperCase()}
                 </span>
               )}
               {healing.vip_discount_pct > 0 && (
-                <span className="text-[10px] px-1.5 py-0.2 rounded font-mono font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                <span className="text-[10px] px-1.5 py-0.2 rounded font-mono font-bold bg-amber-500/15 text-amber-800 dark:text-amber-300 border border-amber-500/30">
                   VIP {healing.vip_discount_pct}% OFF
                 </span>
               )}
@@ -271,7 +248,7 @@ const HospitalHealingCard: React.FC<{
               onClick={() => handleVipChange(16)}
               className={`px-1.5 py-0.5 rounded transition ${
                 vipLvl >= 16 && vipLvl < 18
-                  ? "bg-binance-card text-amber-300 font-bold shadow-xs"
+                  ? "bg-binance-card text-amber-800 dark:text-amber-300 font-bold shadow-xs"
                   : "text-binance-muted hover:text-binance-body"
               }`}
               title="VIP 16 (10% RSS discount)"
@@ -283,7 +260,7 @@ const HospitalHealingCard: React.FC<{
               onClick={() => handleVipChange(18)}
               className={`px-1.5 py-0.5 rounded transition ${
                 vipLvl >= 18
-                  ? "bg-binance-card text-amber-400 font-bold shadow-xs"
+                  ? "bg-binance-card text-amber-800 dark:text-amber-400 font-bold shadow-xs"
                   : "text-binance-muted hover:text-binance-body"
               }`}
               title="VIP 18 (15% RSS discount)"
@@ -300,18 +277,17 @@ const HospitalHealingCard: React.FC<{
         <div className="p-2.5 rounded bg-binance-elevated border border-binance-hairline flex flex-col justify-between">
           <div className="flex items-center justify-between text-[11px] text-binance-muted">
             <span className="font-medium">{t("hospitalSeverelyWounded")}</span>
-            <Activity className="w-3.5 h-3.5 text-rose-400" />
           </div>
           <div className="my-1">
-            <div className="text-xl font-bold font-mono text-rose-400 tracking-tight">
+            <div className="text-xl font-bold font-mono text-rose-700 dark:text-rose-400 tracking-tight">
               {healing.total_severely_wounded.toLocaleString()}
             </div>
           </div>
           <div className="flex items-center gap-1.5 text-[10px] font-mono">
-            <span className="px-1.5 py-0.5 rounded bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 font-semibold">
+            <span className="px-1.5 py-0.5 rounded bg-cyan-500/15 text-cyan-800 dark:text-cyan-300 border border-cyan-500/30 font-semibold">
               T4: {healing.t4_count.toLocaleString()}
             </span>
-            <span className="px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 font-semibold">
+            <span className="px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-800 dark:text-amber-300 border border-amber-500/30 font-semibold">
               T5: {healing.t5_count.toLocaleString()}
             </span>
           </div>
@@ -321,10 +297,10 @@ const HospitalHealingCard: React.FC<{
         <div className="p-2.5 rounded bg-binance-elevated border border-binance-hairline flex flex-col justify-between">
           <div className="flex items-center justify-between text-[11px] text-binance-muted">
             <span className="font-medium">{t("hospitalSpeedupNeeded")}</span>
-            <Clock className="w-3.5 h-3.5 text-rose-400" />
+            <ResourceIcon resource="img_icon_item_11.png" size="md" className="w-4 h-4 object-contain" />
           </div>
           <div className="my-1">
-            <div className="text-xl font-bold font-mono text-rose-300 tracking-tight flex items-baseline gap-2 flex-wrap">
+            <div className="text-xl font-bold font-mono text-rose-700 dark:text-rose-300 tracking-tight flex items-baseline gap-2 flex-wrap">
               <span>
                 {formatSpeedupSeconds(
                   healing.final_speedup_seconds,
@@ -380,10 +356,10 @@ const HospitalHealingCard: React.FC<{
           <div className="flex items-center justify-between text-[11px] text-binance-muted">
             <span className="font-medium">{t("hospitalRssNeeded")}</span>
             <div className="flex items-center -space-x-1 shrink-0">
-              <ResourceIcon resource="food" size="xs" />
-              <ResourceIcon resource="wood" size="xs" />
-              <ResourceIcon resource="stone" size="xs" />
-              <ResourceIcon resource="gold" size="xs" />
+              <ResourceIcon resource="food" size="md" />
+              <ResourceIcon resource="wood" size="md" />
+              <ResourceIcon resource="stone" size="md" />
+              <ResourceIcon resource="gold" size="md" />
             </div>
           </div>
           <div className="my-1">
@@ -417,7 +393,7 @@ const HospitalHealingCard: React.FC<{
           <div className="grid grid-cols-2 gap-1.5 text-[10px] font-mono">
             <div className="flex items-center justify-between p-1 rounded bg-binance-card border border-binance-hairline">
               <div className="flex items-center gap-1">
-                <ResourceIcon resource="food" size="xs" />
+                <ResourceIcon resource="food" size="md" />
                 <span className="text-binance-muted">Food</span>
               </div>
               <span className="text-binance-body font-semibold">
@@ -511,18 +487,17 @@ export const DashboardView: React.FC = () => {
   } = useAppStore();
   const { t } = useI18n(language);
   const isPvpMode = mode === "pvp";
+  const isGatheringMode = mode === "gathering";
+  const isPveCombatMode = !isPvpMode && !isGatheringMode;
 
   const [hoveredDayIdx, setHoveredDayIdx] = useState<number | null>(null);
   const [hoveredPvpIdx, setHoveredPvpIdx] = useState<number | null>(null);
   const [apViewMode, setApViewMode] = useState<"daily" | "weekly">("daily");
-  const [apZoom, setApZoom] = useState(1);
-  const [apZoomCenter, setApZoomCenter] = useState<number | undefined>(undefined);
   const [pvpViewMode, setPvpViewMode] = useState<"auto" | "hourly" | "daily" | "weekly">("auto");
-  const [pvpZoom, setPvpZoom] = useState(1);
-  const [pvpZoomCenter, setPvpZoomCenter] = useState<number | undefined>(
-    undefined
-  );
   const [hoveredLvlIdx, setHoveredLvlIdx] = useState<number | null>(null);
+  const clearDayHover = useCallback(() => setHoveredDayIdx(null), []);
+  const clearLvlHover = useCallback(() => setHoveredLvlIdx(null), []);
+  const clearPvpHover = useCallback(() => setHoveredPvpIdx(null), []);
   const [bmSearch, setBmSearch] = useState("");
   const [bmSortKey, setBmSortKey] = useState<BenchmarkSortKey>("yield");
   const [bmSortDir, setBmSortDir] = useState<"asc" | "desc">("desc");
@@ -655,11 +630,8 @@ export const DashboardView: React.FC = () => {
     return dailyTimeline;
   }, [dailyTimeline, apViewMode]);
 
-  const apRange = getPvpChartRange(
-    processedApTimeline.length,
-    apZoom,
-    apZoomCenter
-  );
+  const apZoomState = useChartZoom(processedApTimeline.length, clearDayHover);
+  const apRange = apZoomState.range;
 
   const visibleApTimeline = useMemo(
     () => processedApTimeline.slice(apRange.start, apRange.end),
@@ -749,6 +721,7 @@ export const DashboardView: React.FC = () => {
   // Aggregated level breakdown for speedups by target level (respects global filter)
   const speedupsByLevelData = useMemo(() => {
     const list = ap.target_benchmarks || [];
+    type TargetTypeKey = "fort" | "motte" | "barbarian" | "other";
 
     const levelMap = new Map<
       number,
@@ -758,11 +731,13 @@ export const DashboardView: React.FC = () => {
         totalMins: number;
         totalBattles: number;
         targetNames: string[];
+        byType: Map<TargetTypeKey, { mins: number; battles: number }>;
       }
     >();
 
     for (const b of list) {
       const lvl = getTargetLevel(b);
+      const tType = getTargetType(b);
       const totalMins =
         b.total_speedup_mins !== undefined && b.total_speedup_mins !== null
           ? b.total_speedup_mins
@@ -777,24 +752,47 @@ export const DashboardView: React.FC = () => {
         if (!existing.targetNames.includes(name)) {
           existing.targetNames.push(name);
         }
+        const prevType = existing.byType.get(tType) || { mins: 0, battles: 0 };
+        existing.byType.set(tType, {
+          mins: prevType.mins + totalMins,
+          battles: prevType.battles + battles,
+        });
       } else {
+        const byType = new Map<TargetTypeKey, { mins: number; battles: number }>();
+        byType.set(tType, { mins: totalMins, battles });
         levelMap.set(lvl, {
           level: lvl,
           levelLabel: lvl > 0 ? `Lvl ${lvl}` : t("typeAll"),
           totalMins,
           totalBattles: battles,
           targetNames: [name],
+          byType,
         });
       }
     }
 
-    return Array.from(levelMap.values()).sort((a, b) => a.level - b.level);
+    return Array.from(levelMap.values())
+      .map((entry) => ({
+        ...entry,
+        typeBreakdown: Array.from(entry.byType.entries())
+          .map(([type, stats]) => ({ type, ...stats }))
+          .sort((a, b) => b.mins - a.mins),
+      }))
+      .sort((a, b) => a.level - b.level);
   }, [ap.target_benchmarks, t]);
 
+  const lvlZoomState = useChartZoom(speedupsByLevelData.length, clearLvlHover);
+  const lvlRange = lvlZoomState.range;
+
+  const visibleSpeedupsByLevel = useMemo(
+    () => speedupsByLevelData.slice(lvlRange.start, lvlRange.end),
+    [speedupsByLevelData, lvlRange.start, lvlRange.end]
+  );
+
   const maxLvlSpeedupMins = useMemo(() => {
-    if (speedupsByLevelData.length === 0) return 60;
-    return Math.max(1, ...speedupsByLevelData.map((d) => d.totalMins));
-  }, [speedupsByLevelData]);
+    if (visibleSpeedupsByLevel.length === 0) return 60;
+    return Math.max(1, ...visibleSpeedupsByLevel.map((d) => d.totalMins));
+  }, [visibleSpeedupsByLevel]);
 
   const lvlSvgViewWidth = 700;
   const lvlSvgViewHeight = 160;
@@ -806,8 +804,8 @@ export const DashboardView: React.FC = () => {
   const lvlPlotWidth = lvlSvgViewWidth - lvlPadLeft - lvlPadRight;
 
   const lvlChartPoints = useMemo(() => {
-    if (speedupsByLevelData.length === 0) return [];
-    const count = speedupsByLevelData.length;
+    if (visibleSpeedupsByLevel.length === 0) return [];
+    const count = visibleSpeedupsByLevel.length;
     // When there are few levels (e.g. 2 levels), cap the max distance between bars
     // and center the group in the plot area so bars don't stretch to the far edges.
     const maxSpacing = 100;
@@ -816,7 +814,7 @@ export const DashboardView: React.FC = () => {
     const groupWidth = (count - 1) * actualStep;
     const groupStartX = (lvlSvgViewWidth - groupWidth) / 2;
 
-    return speedupsByLevelData.map((item, idx) => {
+    return visibleSpeedupsByLevel.map((item, idx) => {
       const x = count > 1 ? groupStartX + idx * actualStep : lvlSvgViewWidth / 2;
       const barH = Math.max(
         4,
@@ -841,48 +839,13 @@ export const DashboardView: React.FC = () => {
       };
     });
   }, [
-    speedupsByLevelData,
+    visibleSpeedupsByLevel,
     maxLvlSpeedupMins,
     lvlPlotWidth,
     lvlAvailH,
     lvlBaselineY,
     lvlSvgViewWidth,
   ]);
-
-  const visibleApPointCount = apRange.end - apRange.start;
-  const canZoomInAp =
-    visibleApPointCount >
-    Math.min(PVP_CHART_MIN_VISIBLE_POINTS, processedApTimeline.length);
-  const apEffectiveZoom =
-    visibleApPointCount > 0
-      ? processedApTimeline.length / visibleApPointCount
-      : 1;
-  const canPanApPrevious = apRange.start > 0;
-  const canPanApNext = apRange.end < processedApTimeline.length;
-
-  const zoomApChart = (factor: number) => {
-    const nextZoom = Math.min(
-      PVP_CHART_MAX_ZOOM,
-      Math.max(1, apZoom * factor)
-    );
-    const currentCenter = (apRange.start + apRange.end) / 2;
-    setApZoom(nextZoom);
-    setApZoomCenter(currentCenter);
-    setHoveredDayIdx(null);
-  };
-
-  const panApChart = (direction: -1 | 1) => {
-    const shift = Math.max(1, Math.floor(visibleApPointCount * 0.75));
-    const currentCenter = (apRange.start + apRange.end) / 2;
-    setApZoomCenter(currentCenter + direction * shift);
-    setHoveredDayIdx(null);
-  };
-
-  const resetApChartZoom = () => {
-    setApZoom(1);
-    setApZoomCenter(undefined);
-    setHoveredDayIdx(null);
-  };
 
   const pvpStats = dashboard?.pvp_stats;
   const rawPvpTimeline = useMemo(() => pvpStats?.timeline || [], [pvpStats]);
@@ -1020,11 +983,8 @@ export const DashboardView: React.FC = () => {
     return rawPvpTimeline;
   }, [rawPvpTimeline, pvpViewMode, isActuallyHourly]);
 
-  const pvpRange = getPvpChartRange(
-    processedPvpTimeline.length,
-    pvpZoom,
-    pvpZoomCenter
-  );
+  const pvpZoomState = useChartZoom(processedPvpTimeline.length, clearPvpHover);
+  const pvpRange = pvpZoomState.range;
   const visiblePvpTimeline = useMemo(
     () => processedPvpTimeline.slice(pvpRange.start, pvpRange.end),
     [processedPvpTimeline, pvpRange.start, pvpRange.end]
@@ -1124,41 +1084,6 @@ export const DashboardView: React.FC = () => {
       ? 3
       : Math.max(1, Math.ceil(pvpChartPoints.length / 10));
 
-  const visiblePvpPointCount = pvpRange.end - pvpRange.start;
-  const canZoomIn =
-    visiblePvpPointCount >
-    Math.min(PVP_CHART_MIN_VISIBLE_POINTS, processedPvpTimeline.length);
-  const pvpEffectiveZoom =
-    visiblePvpPointCount > 0
-      ? processedPvpTimeline.length / visiblePvpPointCount
-      : 1;
-  const canPanPvpPrevious = pvpRange.start > 0;
-  const canPanPvpNext = pvpRange.end < processedPvpTimeline.length;
-
-  const zoomPvpChart = (factor: number) => {
-    const nextZoom = Math.min(
-      PVP_CHART_MAX_ZOOM,
-      Math.max(1, pvpZoom * factor)
-    );
-    const currentCenter = (pvpRange.start + pvpRange.end) / 2;
-    setPvpZoom(nextZoom);
-    setPvpZoomCenter(currentCenter);
-    setHoveredPvpIdx(null);
-  };
-
-  const panPvpChart = (direction: -1 | 1) => {
-    const shift = Math.max(1, Math.floor(visiblePvpPointCount * 0.75));
-    const currentCenter = (pvpRange.start + pvpRange.end) / 2;
-    setPvpZoomCenter(currentCenter + direction * shift);
-    setHoveredPvpIdx(null);
-  };
-
-  const resetPvpChartZoom = () => {
-    setPvpZoom(1);
-    setPvpZoomCenter(undefined);
-    setHoveredPvpIdx(null);
-  };
-
   if (!dashboard) {
     return (
       <div className="flex-1 flex items-center justify-center p-8 text-binance-muted font-mono text-xs">
@@ -1238,44 +1163,41 @@ export const DashboardView: React.FC = () => {
       {/* 1. View Header */}
       <div className="flex items-center justify-between border-b border-binance-hairline pb-3">
         <div className="flex items-center gap-2.5">
-          <div className="w-2.5 h-2.5 rounded-xs bg-binance-yellowSolid shadow-sm shadow-binance-yellow/40" />
-          <div>
-            <h1 className="text-xs sm:text-sm font-bold tracking-wider text-binance-body uppercase font-mono flex items-center gap-2">
-              <span>{t("dashTitle")}</span>
-              <span className="text-[10px] text-binance-muted font-normal normal-case border border-binance-hairline px-1.5 py-0.2 rounded-xs bg-binance-card">
-                {t("liveTelemetry")}
-              </span>
-            </h1>
-            <p className="text-[11px] text-binance-muted mt-0.5 font-sans">
-              {t("dashSubtitle")}
-            </p>
-          </div>
+          <div className="w-2 h-2 rounded-xs bg-binance-yellowSolid" />
+          <h1 className="text-xs sm:text-sm font-bold tracking-wider text-binance-body uppercase font-mono">
+            {t("dashTitle")}
+          </h1>
         </div>
 
         <div className="flex items-center gap-2 text-[11px] font-mono text-binance-muted">
           <Activity className="w-3.5 h-3.5 text-binance-green" />
           <span className="hidden sm:inline">
-            {isPvpMode ? t("pvpTotalBattles") : t("vaultEncounters")}
+            {isPvpMode
+              ? t("pvpTotalBattles")
+              : isGatheringMode
+              ? t("gatheringTotalTrips")
+              : t("vaultEncounters")}
           </span>
-          <span className="text-binance-yellow font-bold">
+          <span className="text-binance-yellow font-bold tabular-nums">
             {(isPvpMode
               ? (pvpStats?.total_battles || 0)
+              : isGatheringMode
+              ? (d.gathering_count || 0)
               : (d.total_battles || 0)
             ).toLocaleString()}
           </span>
         </div>
       </div>
 
-      {/* 2. Primary 6-Metric Ribbon (PvE Only) */}
-      {!isPvpMode && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-2.5">
-        <div className="p-3 rounded-md bg-binance-card border border-binance-hairline flex flex-col justify-between hover:border-binance-yellow/40 transition">
+      {/* 2. Primary 6-Metric Ribbon (PvE Combat Only) */}
+      {isPveCombatMode && (
+        <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3">
+        <div className="p-3.5 rounded-md bg-binance-card border border-binance-hairline flex flex-col justify-between hover:border-binance-yellow/40 transition">
           <div className="flex items-center justify-between text-[11px] text-binance-muted">
             <span className="font-medium">{t("cardBattles")}</span>
-            <Swords className="w-3.5 h-3.5 text-binance-yellow" />
           </div>
           <div className="my-1.5">
-            <div className="text-xl sm:text-2xl font-bold font-mono text-binance-yellow tracking-tight">
+            <div className="text-xl sm:text-2xl font-bold font-mono tabular-nums text-binance-yellow tracking-tight">
               {(d.total_battles || 0).toLocaleString()}
             </div>
           </div>
@@ -1285,20 +1207,20 @@ export const DashboardView: React.FC = () => {
           </div>
         </div>
 
-        <div className="p-3 rounded-md bg-binance-card border border-binance-hairline flex flex-col justify-between hover:border-binance-red/40 transition">
+        <div className="p-3.5 rounded-md bg-binance-card border border-binance-hairline flex flex-col justify-between hover:border-binance-red/40 transition">
           <div className="flex items-center justify-between text-[11px] text-binance-muted">
             <span className="font-medium">{t("apConsumed")}</span>
             <span className="flex items-center gap-1">
-                <ResourceIcon
-                  resource="img_icon_item_3.png"
-                  size="sm"
-                  className="w-4 h-4 object-contain"
-                />
-                <ArrowDownRight className="w-3.5 h-3.5 text-binance-red" />
+              <ResourceIcon
+                resource="img_icon_item_3.png"
+                size="md"
+                className="w-4 h-4 object-contain"
+              />
+              <ArrowDownRight className="w-3.5 h-3.5 text-binance-red" />
             </span>
           </div>
           <div className="my-1.5">
-            <div className="text-xl sm:text-2xl font-bold font-mono text-binance-red tracking-tight">
+            <div className="text-xl sm:text-2xl font-bold font-mono tabular-nums text-binance-red tracking-tight">
               {(ap.total_ap_consumed || 0).toLocaleString()}
             </div>
           </div>
@@ -1307,20 +1229,20 @@ export const DashboardView: React.FC = () => {
           </div>
         </div>
 
-        <div className="p-3 rounded-md bg-binance-card border border-binance-hairline flex flex-col justify-between hover:border-binance-green/40 transition">
+        <div className="p-3.5 rounded-md bg-binance-card border border-binance-hairline flex flex-col justify-between hover:border-binance-green/40 transition">
           <div className="flex items-center justify-between text-[11px] text-binance-muted">
             <span className="font-medium">{t("apRecovered")}</span>
             <span className="flex items-center gap-1">
-                <ResourceIcon
-                  resource="img_icon_item_3.png"
-                  size="sm"
-                  className="w-4 h-4 object-contain"
-                />
-                <ArrowUpRight className="w-3.5 h-3.5 text-binance-green" />
+              <ResourceIcon
+                resource="img_icon_item_3.png"
+                size="md"
+                className="w-4 h-4 object-contain"
+              />
+              <ArrowUpRight className="w-3.5 h-3.5 text-binance-green" />
             </span>
           </div>
           <div className="my-1.5">
-            <div className="text-xl sm:text-2xl font-bold font-mono text-binance-green tracking-tight">
+            <div className="text-xl sm:text-2xl font-bold font-mono tabular-nums text-binance-green tracking-tight">
               +{(ap.total_ap_recovered || 0).toLocaleString()}
             </div>
           </div>
@@ -1329,13 +1251,17 @@ export const DashboardView: React.FC = () => {
           </div>
         </div>
 
-        <div className="p-3 rounded-md bg-binance-card border border-binance-hairline flex flex-col justify-between hover:border-binance-yellow/40 transition">
+        <div className="p-3.5 rounded-md bg-binance-card border border-binance-hairline flex flex-col justify-between hover:border-binance-yellow/40 transition">
           <div className="flex items-center justify-between text-[11px] text-binance-muted">
             <span className="font-medium">{t("cardSpeedups")}</span>
-            <Clock className="w-3.5 h-3.5 text-binance-yellow" />
+            <ResourceIcon
+                resource="img_icon_item_9.png"
+                size="md"
+                className="w-4 h-4 object-contain"
+              />
           </div>
           <div className="my-1.5">
-            <div className="text-xl sm:text-2xl font-bold font-mono text-binance-body tracking-tight">
+            <div className="text-xl sm:text-2xl font-bold font-mono tabular-nums text-binance-body tracking-tight">
               {formatSpeedup(d.speedup_total_mins || 0)}
             </div>
           </div>
@@ -1344,18 +1270,18 @@ export const DashboardView: React.FC = () => {
           </div>
         </div>
 
-        <div className="p-3 rounded-md bg-binance-card border border-binance-hairline flex flex-col justify-between hover:border-binance-yellow/40 transition">
+        <div className="p-3.5 rounded-md bg-binance-card border border-binance-hairline flex flex-col justify-between hover:border-binance-yellow/40 transition">
           <div className="flex items-center justify-between text-[11px] text-binance-muted">
             <span className="font-medium">{t("cardCrystals")}</span>
             <ResourceIcon
               resource="crystals"
-              size="sm"
+              size="md"
               className="w-4 h-4 object-contain"
               fallback={<Sparkles className="w-3.5 h-3.5 text-binance-yellow" />}
             />
           </div>
           <div className="my-1.5">
-            <div className="text-xl sm:text-2xl font-bold font-mono text-binance-info tracking-tight">
+            <div className="text-xl sm:text-2xl font-bold font-mono tabular-nums text-binance-info tracking-tight">
               {(d.total_crystals || 0).toLocaleString()}
             </div>
           </div>
@@ -1364,18 +1290,13 @@ export const DashboardView: React.FC = () => {
           </div>
         </div>
 
-        <div className="p-3 rounded-md bg-binance-card border border-binance-hairline flex flex-col justify-between hover:border-binance-yellow/40 transition">
+        <div className="p-3.5 rounded-md bg-binance-card border border-binance-hairline flex flex-col justify-between hover:border-binance-yellow/40 transition">
           <div className="flex items-center justify-between text-[11px] text-binance-muted">
             <span className="font-medium">{t("cardResources")}</span>
-            <div className="flex items-center -space-x-1 shrink-0" title="RoK Resources (Food, Wood, Stone, Gold)">
-              <ResourceIcon resource="food" size="xs" className="w-3.5 h-3.5 object-contain" />
-              <ResourceIcon resource="wood" size="xs" className="w-3.5 h-3.5 object-contain" />
-              <ResourceIcon resource="stone" size="xs" className="w-3.5 h-3.5 object-contain" />
-              <ResourceIcon resource="gold" size="xs" className="w-3.5 h-3.5 object-contain" />
-            </div>
+            <ResourceIcon resource="gold" size="md" className="w-4 h-4 object-contain" />
           </div>
           <div className="my-1.5">
-            <div className="text-xl sm:text-2xl font-bold font-mono text-binance-body tracking-tight flex items-baseline gap-1.5 flex-wrap">
+            <div className="text-xl sm:text-2xl font-bold font-mono tabular-nums text-binance-body tracking-tight flex items-baseline gap-1.5 flex-wrap">
               <span>{((d.total_resources || 0) / 1_000_000).toFixed(2)}M</span>
               {(d.est_lvl2_total_rss ?? 0) > 0 && (
                 <span
@@ -1399,8 +1320,8 @@ export const DashboardView: React.FC = () => {
       </div>
       )}
 
-      {/* Hospital Healing Summary Card (PvE) */}
-      {!isPvpMode && d.healing_summary && (
+      {/* Hospital Healing Summary Card (PvE Combat Only) */}
+      {isPveCombatMode && d.healing_summary && (
         <HospitalHealingCard
           healing={d.healing_summary}
           language={language}
@@ -1420,8 +1341,8 @@ export const DashboardView: React.FC = () => {
         />
       )}
 
-      {/* 3. Target Encounter Distribution (PvE Only) */}
-      {!isPvpMode && (
+      {/* 3. Target Encounter Distribution (Only when multiple combat types are active) */}
+      {isPveCombatMode && (mode === "all-targets" || mode === "all-forts") && (
       <div className="p-3 rounded-md bg-binance-card border border-binance-hairline space-y-2">
         <div className="flex items-center justify-between text-xs">
           <span className="font-semibold text-binance-body tracking-wide">
@@ -1504,8 +1425,8 @@ export const DashboardView: React.FC = () => {
       </div>
       )}
 
-      {/* 4. Main 8 / 4 Statistical Matrix (PvE Only: AP Combo Chart, Target Benchmarks Table, Top Items, Latest Battles) */}
-      {!isPvpMode && (
+      {/* 4. Main 8 / 4 Statistical Matrix (PvE Combat Only) */}
+      {isPveCombatMode && (
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
         <div className="lg:col-span-8 space-y-4">
           {/* AP Timeline Card */}
@@ -1527,9 +1448,7 @@ export const DashboardView: React.FC = () => {
                       type="button"
                       onClick={() => {
                         setApViewMode(vm);
-                        setApZoom(1);
-                        setApZoomCenter(undefined);
-                        setHoveredDayIdx(null);
+                        apZoomState.reset();
                       }}
                       className={`px-2 py-0.5 rounded transition-all capitalize ${
                         apViewMode === vm
@@ -1542,79 +1461,27 @@ export const DashboardView: React.FC = () => {
                   ))}
                 </div>
 
-                {/* AP Chart Zoom & Pan Controls */}
-                <div
-                  role="group"
-                  aria-label={t("apChartZoomControls")}
-                  className="flex items-center gap-0.5 rounded border border-binance-hairline bg-binance-elevated/50 px-1 py-0.5"
-                >
-                  <button
-                    type="button"
-                    onClick={() => panApChart(-1)}
-                    disabled={!canPanApPrevious}
-                    aria-label={t("apChartPreviousRange")}
-                    title={t("apChartPreviousRange")}
-                    className="p-1 rounded text-binance-muted hover:text-binance-body hover:bg-binance-elevated disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-binance-yellow"
-                  >
-                    <ChevronLeft className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => zoomApChart(0.5)}
-                    disabled={apZoom <= 1}
-                    aria-label={t("apChartZoomOut")}
-                    title={t("apChartZoomOut")}
-                    className="p-1 rounded text-binance-muted hover:text-binance-body hover:bg-binance-elevated disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-binance-yellow"
-                  >
-                    <ZoomOut className="w-3.5 h-3.5" />
-                  </button>
-                  <span
-                    aria-live="polite"
-                    className="min-w-9 text-center text-[10px] font-mono text-binance-muted font-semibold"
-                  >
-                    {Math.round(apEffectiveZoom * 100)}%
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => zoomApChart(2)}
-                    disabled={!canZoomInAp}
-                    aria-label={t("apChartZoomIn")}
-                    title={t("apChartZoomIn")}
-                    className="p-1 rounded text-binance-muted hover:text-binance-body hover:bg-binance-elevated disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-binance-yellow"
-                  >
-                    <ZoomIn className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={resetApChartZoom}
-                    disabled={apZoom <= 1}
-                    aria-label={t("apChartZoomReset")}
-                    title={t("apChartZoomReset")}
-                    className="p-1 rounded text-binance-muted hover:text-binance-body hover:bg-binance-elevated disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-binance-yellow"
-                  >
-                    <RotateCcw className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => panApChart(1)}
-                    disabled={!canPanApNext}
-                    aria-label={t("apChartNextRange")}
-                    title={t("apChartNextRange")}
-                    className="p-1 rounded text-binance-muted hover:text-binance-body hover:bg-binance-elevated disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-binance-yellow"
-                  >
-                    <ChevronRight className="w-3.5 h-3.5" />
-                  </button>
-                </div>
+                <ChartZoomControls
+                  zoomState={apZoomState}
+                  labels={{
+                    controls: t("apChartZoomControls"),
+                    previous: t("apChartPreviousRange"),
+                    zoomOut: t("apChartZoomOut"),
+                    zoomIn: t("apChartZoomIn"),
+                    reset: t("apChartZoomReset"),
+                    next: t("apChartNextRange"),
+                  }}
+                />
               </div>
 
               {/* Legend Indicators */}
               <div className="flex items-center gap-3 text-[10px] font-mono">
-                <span className="flex items-center gap-1.5 text-emerald-400 font-medium">
-                  <span className="w-2.5 h-2 rounded-xs bg-emerald-500/50 border border-emerald-400" />{" "}
+                <span className="flex items-center gap-1.5 text-emerald-700 dark:text-emerald-400 font-medium">
+                  <span className="w-2.5 h-2 rounded-xs bg-emerald-500/50 border border-emerald-500 dark:border-emerald-400" />{" "}
                   {t("apConsumed")} (Left Y)
                 </span>
-                <span className="flex items-center gap-1.5 text-sky-400 font-medium">
-                  <span className="w-2.5 h-0.5 bg-sky-400" />{" "}
+                <span className="flex items-center gap-1.5 text-sky-700 dark:text-sky-400 font-medium">
+                  <span className="w-2.5 h-0.5 bg-sky-600 dark:bg-sky-400" />{" "}
                   {t("cardSpeedups")} (h) (Right Y)
                 </span>
               </div>
@@ -1773,7 +1640,7 @@ export const DashboardView: React.FC = () => {
                           key={`lbl-${pt.idx}`}
                           x={pt.x}
                           y={chartBaselineY + 16}
-                          fill={isHovered ? "#eaecef" : "#848e9c"}
+                          fill={isHovered ? "rgb(var(--bn-body))" : "rgb(var(--bn-muted))"}
                           fontWeight={isHovered ? "bold" : "normal"}
                           fontSize="9"
                           fontFamily="monospace"
@@ -1867,6 +1734,18 @@ export const DashboardView: React.FC = () => {
                   — {t("speedupBreakdownByLevelSubtitle")}
                 </span>
               </div>
+
+              <ChartZoomControls
+                zoomState={lvlZoomState}
+                labels={{
+                  controls: t("apChartZoomControls"),
+                  previous: t("apChartPreviousRange"),
+                  zoomOut: t("apChartZoomOut"),
+                  zoomIn: t("apChartZoomIn"),
+                  reset: t("apChartZoomReset"),
+                  next: t("apChartNextRange"),
+                }}
+              />
             </div>
 
             {/* SVG Bar Chart by Level */}
@@ -1888,7 +1767,7 @@ export const DashboardView: React.FC = () => {
                         <stop offset="100%" stopColor="#d97706" stopOpacity="0.3" />
                       </linearGradient>
                       <linearGradient id="lvlSpdHoverGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#fcd535" stopOpacity="1" />
+                        <stop offset="0%" stopColor="rgb(var(--bn-yellow))" stopOpacity="1" />
                         <stop offset="100%" stopColor="#f59e0b" stopOpacity="0.5" />
                       </linearGradient>
                     </defs>
@@ -1904,7 +1783,7 @@ export const DashboardView: React.FC = () => {
                             y1={y}
                             x2={lvlSvgViewWidth - lvlPadRight}
                             y2={y}
-                            stroke="#2b313a"
+                            stroke="rgb(var(--bn-hairline))"
                             strokeWidth="0.8"
                             strokeDasharray={frac === 0 ? undefined : "3,3"}
                             strokeOpacity={frac === 0 ? 0.8 : 0.45}
@@ -1912,7 +1791,7 @@ export const DashboardView: React.FC = () => {
                           <text
                             x={lvlPadLeft - 8}
                             y={y + 3}
-                            fill="#848e9c"
+                            fill="rgb(var(--bn-muted))"
                             fontSize="8"
                             fontFamily="monospace"
                             textAnchor="end"
@@ -1950,7 +1829,7 @@ export const DashboardView: React.FC = () => {
                             rx={3}
                             ry={3}
                             className="transition-all duration-200 pointer-events-none"
-                            stroke={isHovered ? "#fcd535" : "transparent"}
+                            stroke={isHovered ? "rgb(var(--bn-yellow))" : "transparent"}
                             strokeWidth="1"
                           />
 
@@ -1958,7 +1837,7 @@ export const DashboardView: React.FC = () => {
                           <text
                             x={pt.x}
                             y={pt.barY - 4}
-                            fill={isHovered ? "#fcd535" : "#848e9c"}
+                            fill={isHovered ? "rgb(var(--bn-yellow))" : "rgb(var(--bn-muted))"}
                             fontSize="8"
                             fontFamily="monospace"
                             fontWeight={isHovered ? "bold" : "normal"}
@@ -1972,7 +1851,7 @@ export const DashboardView: React.FC = () => {
                           <text
                             x={pt.x}
                             y={lvlBaselineY + 14}
-                            fill={isHovered ? "#fcd535" : "#eaecef"}
+                            fill={isHovered ? "rgb(var(--bn-yellow))" : "rgb(var(--bn-body))"}
                             fontSize="9"
                             fontFamily="monospace"
                             fontWeight={isHovered ? "bold" : "500"}
@@ -1990,6 +1869,17 @@ export const DashboardView: React.FC = () => {
                   {hoveredLvlIdx !== null && lvlChartPoints[hoveredLvlIdx] && (() => {
                     const pt = lvlChartPoints[hoveredLvlIdx];
                     const leftPct = (pt.x / lvlSvgViewWidth) * 100;
+                    const typeMeta: Record<
+                      "fort" | "motte" | "barbarian" | "other",
+                      { label: string; dot: string }
+                    > = {
+                      motte: { label: t("modeMotte"), dot: "bg-binance-red" },
+                      fort: { label: t("modeFort"), dot: "bg-binance-yellowSolid" },
+                      barbarian: { label: t("modeBarbarian"), dot: "bg-binance-info" },
+                      other: { label: language === "vi" ? "Khác" : "Other", dot: "bg-binance-muted" },
+                    };
+                    const breakdown = pt.item.typeBreakdown || [];
+                    const singleType = breakdown.length === 1 ? typeMeta[breakdown[0].type] : null;
                     return (
                       <div
                         style={{
@@ -1997,10 +1887,18 @@ export const DashboardView: React.FC = () => {
                           top: "-10px",
                           transform: "translateX(-50%)",
                         }}
-                        className="absolute z-20 pointer-events-none bg-binance-elevated/95 backdrop-blur-md border border-binance-hairline rounded-md px-3 py-2 shadow-xl font-mono text-[11px] whitespace-nowrap min-w-[170px]"
+                        className="absolute z-20 pointer-events-none bg-binance-elevated/95 backdrop-blur-md border border-binance-hairline rounded-md px-3 py-2 shadow-xl font-mono text-[11px] whitespace-nowrap min-w-[190px]"
                       >
                         <div className="flex items-center justify-between gap-3 font-semibold text-binance-body border-b border-binance-hairline/60 pb-1 mb-1">
-                          <span className="text-amber-400 font-bold">{pt.item.levelLabel}</span>
+                          <span className="flex items-center gap-1.5 text-binance-yellow font-bold">
+                            {singleType && (
+                              <>
+                                <span className={`w-2 h-2 rounded-xs ${singleType.dot}`} />
+                                <span>{singleType.label} ·</span>
+                              </>
+                            )}
+                            <span>{pt.item.levelLabel}</span>
+                          </span>
                           <span className="text-binance-muted text-[10px] font-normal">
                             {pt.item.totalBattles.toLocaleString()} {t("colRuns")}
                           </span>
@@ -2017,6 +1915,30 @@ export const DashboardView: React.FC = () => {
                             {formatSpeedup(Math.round(pt.avgMins))}
                           </span>
                         </div>
+                        {breakdown.length > 1 && (
+                          <div className="mt-1.5 pt-1.5 border-t border-binance-hairline/60 space-y-1">
+                            {breakdown.map((entry) => {
+                              const meta = typeMeta[entry.type];
+                              return (
+                                <div
+                                  key={entry.type}
+                                  className="flex items-center justify-between gap-3 text-[10px]"
+                                >
+                                  <span className="flex items-center gap-1.5 text-binance-body">
+                                    <span className={`w-1.5 h-1.5 rounded-xs ${meta.dot}`} />
+                                    <span>{meta.label}</span>
+                                    <span className="text-binance-muted">
+                                      ({entry.battles.toLocaleString()})
+                                    </span>
+                                  </span>
+                                  <span className="text-binance-yellow font-semibold">
+                                    {formatSpeedup(entry.mins)}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
                     );
                   })()}
@@ -2247,7 +2169,7 @@ export const DashboardView: React.FC = () => {
               </button>
             </div>
 
-            <div className="space-y-1.5 max-h-72 overflow-y-auto pr-1">
+            <div className="divide-y divide-binance-hairline/60 max-h-72 overflow-y-auto pr-1">
               {topItemsList.slice(0, 10).map((it, idx) => {
                 const totalQty = it.total_quantity || 0;
                 const volWidthPct = (totalQty / maxItemQty) * 100;
@@ -2255,47 +2177,43 @@ export const DashboardView: React.FC = () => {
                 return (
                   <div
                     key={idx}
-                    className="p-2 rounded-xs bg-binance-canvas border border-binance-hairline hover:bg-binance-elevated/40 transition relative overflow-hidden text-xs"
+                    className="py-2 px-1.5 hover:bg-binance-elevated/40 transition relative overflow-hidden text-xs rounded-xs"
                   >
                     <div
                       style={{ width: `${volWidthPct}%` }}
-                      className="absolute top-0 right-0 h-full bg-binance-yellow/10 pointer-events-none"
+                      className="absolute top-0 right-0 h-full bg-binance-yellow/8 pointer-events-none"
                     />
 
-                    <div className="relative z-10 space-y-1">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-1.5 min-w-0">
-                          <span className="text-[10px] font-mono text-binance-muted w-4 font-semibold">
-                            #{idx + 1}
-                          </span>
-                          <ResourceIcon
-                            resource={it}
-                            size="lg"
-                            className="shrink-0"
-                          />
-                          <span className="font-medium text-binance-body truncate">
-                            {it.display_name ||
-                              (language === "vi" ? it.name_vi : it.name_en)}
-                          </span>
-                          {it.converted_value && (
-                            <span className="text-[10px] font-mono text-binance-green shrink-0">
-                              ({it.converted_value})
+                    <div className="relative z-10 flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="text-[10px] font-mono text-binance-muted w-4 shrink-0">
+                          {idx + 1}
+                        </span>
+                        <ResourceIcon
+                          resource={it}
+                          size="lg"
+                          className="shrink-0"
+                        />
+                        <div className="min-w-0">
+                          <div className="font-medium text-binance-body truncate flex items-center gap-1.5">
+                            <span className="truncate">
+                              {it.display_name ||
+                                (language === "vi" ? it.name_vi : it.name_en)}
                             </span>
-                          )}
+                            {it.converted_value && (
+                              <span className="text-[10px] font-mono text-binance-green shrink-0">
+                                ({it.converted_value})
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[10px] text-binance-muted font-mono">
+                            {(it.drop_rate || 0).toFixed(1)}% · {(it.avg_per_battle || 0).toFixed(1)}/run
+                          </div>
                         </div>
-                        <span className="font-mono font-bold text-binance-yellow shrink-0">
-                          {totalQty.toLocaleString()}
-                        </span>
                       </div>
-
-                      <div className="flex items-center justify-between text-[10px] text-binance-muted font-mono">
-                        <span className="text-binance-green">
-                          {t("lblDropRate")}: {(it.drop_rate || 0).toFixed(1)}%
-                        </span>
-                        <span>
-                          {t("lblAvgRun")}: {(it.avg_per_battle || 0).toFixed(1)}
-                        </span>
-                      </div>
+                      <span className="font-mono font-bold tabular-nums text-binance-yellow shrink-0">
+                        {totalQty.toLocaleString()}
+                      </span>
                     </div>
                   </div>
                 );
@@ -2304,7 +2222,7 @@ export const DashboardView: React.FC = () => {
           </div>
 
           <div className="p-3.5 rounded-md bg-binance-card border border-binance-hairline space-y-2.5">
-            <div className="flex items-center justify-between text-xs pb-1 border-b border-binance-hairline">
+            <div className="flex items-center justify-between text-xs pb-1.5 border-b border-binance-hairline">
               <div className="flex items-center gap-2">
                 <Shield className="w-4 h-4 text-binance-yellow" />
                 <span className="font-semibold text-binance-body">
@@ -2320,7 +2238,7 @@ export const DashboardView: React.FC = () => {
               </button>
             </div>
 
-            <div className="space-y-1.5 max-h-72 overflow-y-auto pr-1">
+            <div className="divide-y divide-binance-hairline/60 max-h-72 overflow-y-auto pr-1">
               {(d.latest_battles || []).map((b: BattleRecord, idx) => {
                 const badgeColor =
                   b.battle_type === "motte"
@@ -2335,7 +2253,7 @@ export const DashboardView: React.FC = () => {
                   <div
                     key={idx}
                     onClick={() => setSelectedBattle(b)}
-                    className="p-2 rounded-xs bg-binance-canvas border border-binance-hairline hover:border-binance-yellow/40 hover:bg-binance-elevated/40 transition cursor-pointer flex items-center justify-between gap-2.5 text-xs"
+                    className="py-2 px-1.5 hover:bg-binance-elevated/40 transition cursor-pointer flex items-center justify-between gap-2.5 text-xs rounded-xs"
                   >
                     <div className="flex flex-col gap-0.5 min-w-0">
                       <div className="flex items-center gap-1.5">
@@ -2361,15 +2279,7 @@ export const DashboardView: React.FC = () => {
                       </div>
                     </div>
 
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setSelectedBattle(b);
-                      }}
-                      className="px-2 py-0.5 rounded-xs bg-binance-elevated hover:bg-binance-yellowSolid hover:text-binance-ink text-binance-body text-[10px] font-mono font-medium transition shrink-0 border border-binance-hairline"
-                    >
-                      {t("btnDetail")}
-                    </button>
+                    <ChevronRight className="w-3.5 h-3.5 text-binance-muted shrink-0" />
                   </div>
                 );
               })}
@@ -2379,27 +2289,34 @@ export const DashboardView: React.FC = () => {
       </div>
       )}
 
+      {/* 4b. Dedicated Gathering Summary Section (Only when filter is Gathering) */}
+      {isGatheringMode && (
+        <GatheringDashboardSection
+          dashboard={d}
+          language={language}
+          onViewAllReports={() => setTab(1)}
+          onSelectBattle={setSelectedBattle}
+        />
+      )}
+
       {/* 5. Dedicated PvP Combat Analytics Section (Only when filter is PvP) */}
       {isPvpMode && (
       <div className="space-y-3 pt-2">
         {/* Section Header */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="p-1.5 rounded-md bg-purple-500/10 border border-purple-500/20 text-purple-400">
+            <div className="p-1.5 rounded-md bg-purple-500/10 border border-purple-500/20 text-purple-600 dark:text-purple-400">
               <Swords className="w-4 h-4" />
             </div>
             <div>
               <h2 className="text-sm font-bold text-binance-body tracking-wider uppercase flex items-center gap-2">
                 <span>{t("pvpAnalyticsTitle")}</span>
                 {pvpStats && pvpStats.total_battles > 0 && (
-                  <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                  <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-purple-500/15 text-purple-700 dark:text-purple-300 border border-purple-500/30">
                     {pvpStats.total_battles.toLocaleString()} {t("recordsCount")}
                   </span>
                 )}
               </h2>
-              <p className="text-[11px] text-binance-muted">
-                {t("pvpAnalyticsSubtitle")}
-              </p>
             </div>
           </div>
 
@@ -2626,9 +2543,7 @@ export const DashboardView: React.FC = () => {
                         type="button"
                         onClick={() => {
                           setPvpViewMode(vm);
-                          setPvpZoom(1);
-                          setPvpZoomCenter(undefined);
-                          setHoveredPvpIdx(null);
+                          pvpZoomState.reset();
                         }}
                         className={`px-2 py-0.5 rounded transition-all capitalize ${
                           pvpViewMode === vm
@@ -2647,69 +2562,18 @@ export const DashboardView: React.FC = () => {
                     ))}
                   </div>
 
-                  {/* PvP Zoom & Pan Controls */}
-                  <div
-                    role="group"
-                    aria-label={t("pvpChartZoomControls")}
-                    className="flex items-center gap-0.5 rounded border border-binance-hairline bg-binance-elevated/50 px-1 py-0.5"
-                  >
-                    <button
-                      type="button"
-                      onClick={() => panPvpChart(-1)}
-                      disabled={!canPanPvpPrevious}
-                      aria-label={t("pvpChartPreviousRange")}
-                      title={t("pvpChartPreviousRange")}
-                      className="p-1 rounded text-binance-muted hover:text-binance-body hover:bg-binance-elevated disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-purple-400"
-                    >
-                      <ChevronLeft className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => zoomPvpChart(0.5)}
-                      disabled={pvpZoom <= 1}
-                      aria-label={t("pvpChartZoomOut")}
-                      title={t("pvpChartZoomOut")}
-                      className="p-1 rounded text-binance-muted hover:text-binance-body hover:bg-binance-elevated disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-purple-400"
-                    >
-                      <ZoomOut className="w-3.5 h-3.5" />
-                    </button>
-                    <span
-                      aria-live="polite"
-                      className="min-w-9 text-center text-[10px] font-mono text-binance-muted font-semibold"
-                    >
-                      {Math.round(pvpEffectiveZoom * 100)}%
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => zoomPvpChart(2)}
-                      disabled={!canZoomIn}
-                      aria-label={t("pvpChartZoomIn")}
-                      title={t("pvpChartZoomIn")}
-                      className="p-1 rounded text-binance-muted hover:text-binance-body hover:bg-binance-elevated disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-purple-400"
-                    >
-                      <ZoomIn className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={resetPvpChartZoom}
-                      disabled={pvpZoom <= 1}
-                      aria-label={t("pvpChartZoomReset")}
-                      title={t("pvpChartZoomReset")}
-                      className="p-1 rounded text-binance-muted hover:text-binance-body hover:bg-binance-elevated disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-purple-400"
-                    >
-                      <RotateCcw className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => panPvpChart(1)}
-                      disabled={!canPanPvpNext}
-                      aria-label={t("pvpChartNextRange")}
-                      title={t("pvpChartNextRange")}
-                      className="p-1 rounded text-binance-muted hover:text-binance-body hover:bg-binance-elevated disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-purple-400"
-                    >
-                      <ChevronRight className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
+                  <ChartZoomControls
+                    zoomState={pvpZoomState}
+                    ringClassName="focus-visible:ring-purple-400"
+                    labels={{
+                      controls: t("pvpChartZoomControls"),
+                      previous: t("pvpChartPreviousRange"),
+                      zoomOut: t("pvpChartZoomOut"),
+                      zoomIn: t("pvpChartZoomIn"),
+                      reset: t("pvpChartZoomReset"),
+                      next: t("pvpChartNextRange"),
+                    }}
+                  />
                 </div>
 
                 {/* Legend Indicators */}
@@ -2730,7 +2594,7 @@ export const DashboardView: React.FC = () => {
                     <span className="w-2.5 h-0.5 border-b border-dashed border-binance-muted" />{" "}
                     {t("pvpBreakEven")}
                   </span>
-                  <span className="flex items-center gap-1.5 text-purple-300 font-medium">
+                  <span className="flex items-center gap-1.5 text-purple-700 dark:text-purple-300 font-medium">
                     <span className="w-2 h-2 rounded-full border border-purple-400" />{" "}
                     {t("pvpTotalBattles")}
                   </span>
@@ -2841,7 +2705,7 @@ export const DashboardView: React.FC = () => {
                               y1={pvpBreakEvenY}
                               x2={pvpSvgViewWidth - pvpPadRight}
                               y2={pvpBreakEvenY}
-                              stroke="#fcd535"
+                              stroke="rgb(var(--bn-yellow))"
                               strokeWidth="1"
                               strokeDasharray="4,4"
                               strokeOpacity="0.45"
@@ -2849,7 +2713,7 @@ export const DashboardView: React.FC = () => {
                             <text
                               x={pvpSvgViewWidth - pvpPadRight + 8}
                               y={pvpBreakEvenY + 3}
-                              fill="#fcd535"
+                              fill="rgb(var(--bn-yellow))"
                               fontSize="8"
                               fontFamily="monospace"
                               fontWeight="bold"
@@ -2904,7 +2768,7 @@ export const DashboardView: React.FC = () => {
                         <path
                           d={pvpRatioLinePath}
                           fill="none"
-                          stroke="#fcd535"
+                          stroke="rgb(var(--bn-yellow))"
                           strokeWidth="2.5"
                           strokeLinecap="round"
                           strokeLinejoin="round"
@@ -2959,7 +2823,7 @@ export const DashboardView: React.FC = () => {
                               cx={pt.x}
                               cy={pt.ratioY}
                               r={isHovered ? 6.5 : 4}
-                              fill="#fcd535"
+                              fill="rgb(var(--bn-yellow))"
                               hasEngagement={pt.item.battle_count > 0}
                               strokeWidth={isHovered ? 2.5 : 1.5}
                               className="cursor-pointer transition-all"
@@ -2984,7 +2848,7 @@ export const DashboardView: React.FC = () => {
                             key={`pvp-lbl-${pt.idx}`}
                             x={pt.x}
                             y={pvpBaselineY + 16}
-                            fill={isHovered ? "#eaecef" : "#848e9c"}
+                            fill={isHovered ? "rgb(var(--bn-body))" : "rgb(var(--bn-muted))"}
                             fontWeight={isHovered ? "bold" : "normal"}
                             fontSize="9"
                             fontFamily="monospace"

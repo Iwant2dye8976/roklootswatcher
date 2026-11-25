@@ -276,6 +276,15 @@ export interface PvpDashboardData {
   is_hourly: boolean;
 }
 
+export interface GatheringSummaryDto {
+  food: number;
+  wood: number;
+  stone: number;
+  gold: number;
+  gems: number;
+  total_rss: number;
+}
+
 export interface DashboardDto {
   total_battles: number;
   total_crystals: number;
@@ -297,6 +306,7 @@ export interface DashboardDto {
   latest_battles: BattleRecord[];
   pvp_stats?: PvpDashboardData;
   healing_summary?: HealingSummaryDto;
+  gathering_summary?: GatheringSummaryDto;
 }
 
 export type OverlayFadeStyle = "Dim" | "Hide";

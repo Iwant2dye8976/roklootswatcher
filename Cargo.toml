@@ -1,6 +1,6 @@
 [package]
 name = "rok_watcher"
-version = "2.23.1"
+version = "2.24.8"
 edition = "2021"
 description = "Rise of Kingdoms - Loots Watcher & Analyzer for Windows"
 

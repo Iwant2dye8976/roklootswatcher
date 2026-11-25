@@ -347,10 +347,10 @@ export const BattlesView: React.FC = () => {
                     ? "bg-binance-green/20 text-binance-green border-binance-green/40"
                     : isPvp
                     ? pvpType === "rally"
-                      ? "bg-rose-500/20 text-rose-300 border-rose-500/40"
+                      ? "bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/40"
                       : pvpType === "garrison"
-                      ? "bg-sky-500/20 text-sky-300 border-sky-500/40"
-                      : "bg-fuchsia-500/20 text-fuchsia-400 border-fuchsia-500/40"
+                      ? "bg-sky-500/15 text-sky-700 dark:text-sky-300 border-sky-500/40"
+                      : "bg-fuchsia-500/15 text-fuchsia-700 dark:text-fuchsia-400 border-fuchsia-500/40"
                     : "bg-binance-info/20 text-binance-info border-binance-info/40";
 
                 const badgeText = isPvp

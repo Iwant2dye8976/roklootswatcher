@@ -1374,6 +1374,15 @@ pub fn get_dashboard_data(state: State<'_, TauriAppState>) -> Result<DashboardDt
     let (_, _, _, _, est_lvl2_total_rss) =
         crate::model::calculate_lvl2_resource_pack_breakdown(lvl2_packs);
 
+    let gathering_summary = GatheringSummaryDto {
+        food: res.food_val,
+        wood: res.wood_val,
+        stone: res.stone_val,
+        gold: res.gold_val,
+        gems: stats.compute_gems(),
+        total_rss: res.total_rss_val(),
+    };
+
     Ok(DashboardDto {
         total_battles: stats.total_battles,
         total_crystals: crystals,
@@ -1395,6 +1404,7 @@ pub fn get_dashboard_data(state: State<'_, TauriAppState>) -> Result<DashboardDt
         latest_battles,
         pvp_stats: Some(pvp_stats_dto),
         healing_summary: Some(HealingSummaryDto::from(healing_summary)),
+        gathering_summary: Some(gathering_summary),
     })
 }
 
